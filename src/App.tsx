@@ -1,20 +1,42 @@
-function App() {
+import { lazy, Suspense } from 'react'
+import { Routes, Route, useLocation } from 'react-router-dom'
+import Home from './pages/Home'
+import TabBar from './components/TabBar'
+
+const ApiBasics = lazy(() => import('./modules/01-api-basics/ApiBasics'))
+const Streaming = lazy(() => import('./modules/02-streaming/Streaming'))
+const PromptLab = lazy(() => import('./modules/03-prompt/PromptLab'))
+const ChatPage = lazy(() => import('./modules/04-chat-ui/ChatPage'))
+const FunctionCalling = lazy(() => import('./modules/05-function-calling/FunctionCalling'))
+const RagPage = lazy(() => import('./modules/06-rag/RagPage'))
+const AgentPage = lazy(() => import('./modules/07-agent/AgentPage'))
+
+const Loading: React.FC = () => (
+  <div className="flex items-center justify-center h-screen">
+    <span className="text-gray-400 text-sm">加载中...</span>
+  </div>
+)
+
+const App: React.FC = () => {
+  const location = useLocation()
+  const hideTabBar = location.pathname.startsWith('/m4')
+
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
-      <h1>🤖 AI Frontend Lab</h1>
-      <p>前端 AI 应用开发学习项目</p>
-      <hr />
-      <h2>学习模块</h2>
-      <ul>
-        <li>模块 1：调用 AI API（OpenAI / 其他大模型）</li>
-        <li>模块 2：流式响应（SSE / Streaming）</li>
-        <li>模块 3：Prompt 工程与前端交互</li>
-        <li>模块 4：AI 聊天界面实现</li>
-        <li>模块 5：Function Calling 与工具调用</li>
-        <li>模块 6：RAG 前端集成</li>
-        <li>模块 7：AI Agent 前端交互模式</li>
-      </ul>
-    </div>
+    <>
+      <Suspense fallback={<Loading />}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/m1" element={<ApiBasics />} />
+          <Route path="/m2" element={<Streaming />} />
+          <Route path="/m3" element={<PromptLab />} />
+          <Route path="/m4" element={<ChatPage />} />
+          <Route path="/m5" element={<FunctionCalling />} />
+          <Route path="/m6" element={<RagPage />} />
+          <Route path="/m7" element={<AgentPage />} />
+        </Routes>
+      </Suspense>
+      {!hideTabBar && <TabBar />}
+    </>
   )
 }
 
