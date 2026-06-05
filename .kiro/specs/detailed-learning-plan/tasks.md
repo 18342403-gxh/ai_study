@@ -20,18 +20,18 @@
 
 ## Phase 1: AI API 基础 + 流式响应
 
-- [ ] 4. 模块 1：AI API 基础调用 (知识点 1.1-1.8) {depends_on: [1, 2, 3]}
-  - [ ] 4.1. 创建 src/modules/01-api-basics/types.ts（ChatRequest、Message、ChatResponse 类型定义）
-  - [ ] 4.2. 创建 src/modules/01-api-basics/api.ts（封装 Chat Completions API 调用函数）
-  - [ ] 4.3. 创建 src/modules/01-api-basics/useChat.ts（自定义 Hook：loading/error/data 状态 + AbortController 超时 + 错误处理 + 重试）
-  - [ ] 4.4. 创建 src/modules/01-api-basics/ApiBasics.tsx（页面组件：输入框 + 发送按钮 + 结果展示 + Loading 状态 + 面试题卡片）
-  - [ ] 4.5. 追加模块 1 面试题到 src/data/interview-questions.ts
-- [ ] 5. 模块 2：流式响应 (知识点 2.1-2.8) {depends_on: [4]}
-  - [ ] 5.1. 创建 src/modules/02-streaming/parseSSE.ts（SSE 数据解析器：按行分割、JSON.parse delta.content、处理粘包）
-  - [ ] 5.2. 创建 src/modules/02-streaming/useStreaming.ts（流式 Hook：ReadableStream 读取 + 状态机 + AbortController 中断）
-  - [ ] 5.3. 创建 src/modules/02-streaming/Cursor.tsx（光标闪烁动画组件）
-  - [ ] 5.4. 创建 src/modules/02-streaming/Streaming.tsx（流式页面：逐字渲染 + 自动滚动 + 停止按钮 + 面试题卡片）
-  - [ ] 5.5. 追加模块 2 面试题到 src/data/interview-questions.ts
+- [x] 4. 模块 1：AI API 基础调用 (知识点 1.1-1.8) {depends_on: [1, 2, 3]}
+  - [x] 4.1. 创建 src/modules/01-api-basics/types.ts（ChatRequest、Message、ChatResponse 类型定义）
+  - [x] 4.2. 创建 src/modules/01-api-basics/api.ts（封装 Chat Completions API 调用函数）
+  - [x] 4.3. 创建 src/modules/01-api-basics/useChat.ts（自定义 Hook：loading/error/data 状态 + AbortController 超时 + 错误处理 + 重试）
+  - [x] 4.4. 创建 src/modules/01-api-basics/ApiBasics.tsx（页面组件：输入框 + 发送按钮 + 结果展示 + Loading 状态 + 面试题卡片）
+  - [x] 4.5. 追加模块 1 面试题到 src/data/interview-questions.ts
+- [x] 5. 模块 2：流式响应 (知识点 2.1-2.8) {depends_on: [4]}
+  - [x] 5.1. 创建 src/modules/02-streaming/parseSSE.ts（SSE 数据解析器：按行分割、JSON.parse delta.content、处理粘包）
+  - [x] 5.2. 创建 src/modules/02-streaming/useStreaming.ts（流式 Hook：ReadableStream 读取 + 状态机 + AbortController 中断）
+  - [x] 5.3. 创建 src/modules/02-streaming/Cursor.tsx（光标闪烁动画组件）
+  - [x] 5.4. 创建 src/modules/02-streaming/Streaming.tsx（流式页面：逐字渲染 + 自动滚动 + 停止按钮 + 面试题卡片）
+  - [x] 5.5. 追加模块 2 面试题到 src/data/interview-questions.ts
 
 ## Phase 2: Prompt 工程 + 聊天界面
 

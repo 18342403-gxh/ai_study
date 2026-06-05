@@ -63,7 +63,7 @@ export const chatCompletion = async (
       'Authorization': `Bearer ${API_KEY}`,
     },
     body: JSON.stringify({
-      model: request.model || 'gpt-3.5-turbo',
+      model: request.model || 'glm-4-flash',
       messages: request.messages,
       temperature: request.temperature ?? 0.7,
       max_tokens: request.max_tokens,
@@ -108,7 +108,7 @@ export const chatCompletionStream = async (
       'Authorization': `Bearer ${API_KEY}`,
     },
     body: JSON.stringify({
-      model: request.model || 'gpt-3.5-turbo',
+      model: request.model || 'glm-4-flash',
       messages: request.messages,
       temperature: request.temperature ?? 0.7,
       max_tokens: request.max_tokens,
