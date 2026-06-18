@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "antd-mobile": "5.38.1",
+    "antd-mobile-icons": "0.3.0",
     "highlight.js": "11.11.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

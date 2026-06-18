@@ -10,7 +10,7 @@
 const Cursor: React.FC = () => {
   return (
     // 📝 面试考点：CSS animation 实现打字机光标闪烁
-    <span className="inline-block w-0.5 h-4 bg-gray-800 ml-0.5 align-middle animate-pulse" />
+    <span className="inline-block w-0.5 h-4 bg-indigo-400 ml-0.5 align-middle cursor-blink" />
   )
 }
 
