@@ -35,20 +35,20 @@
 
 ## Phase 2: Prompt 工程 + 聊天界面
 
-- [ ] 6. 模块 3：Prompt 工程 (知识点 3.1-3.8) {depends_on: [5]}
-  - [ ] 6.1. 创建 src/modules/03-prompt/types.ts + presets.ts（消息角色类型 + System Prompt 预设模板）
-  - [ ] 6.2. 创建 src/modules/03-prompt/tokenCounter.ts（Token 估算工具函数）
-  - [ ] 6.3. 创建 src/modules/03-prompt/useConversation.ts（多轮对话 Hook：消息维护 + 滑动窗口策略）
-  - [ ] 6.4. 创建 src/modules/03-prompt/JsonRenderer.tsx（JSON 结构化输出渲染组件）
-  - [ ] 6.5. 创建 src/modules/03-prompt/PromptLab.tsx（Prompt 实验室页面：模板切换 + 自定义编辑器 + 对话区 + Token 计数）
-  - [ ] 6.6. 追加模块 3 面试题到 src/data/interview-questions.ts
-- [ ] 7. 模块 4：聊天界面 (知识点 4.1-4.9) {depends_on: [6]}
-  - [ ] 7.1. 创建 src/modules/04-chat-ui/useChatStore.ts（zustand store：消息列表 + 多会话 + localStorage 持久化）
-  - [ ] 7.2. 创建 src/modules/04-chat-ui/MarkdownRenderer.tsx + CodeBlock.tsx（Markdown 渲染 + 代码高亮 + 复制功能）
-  - [ ] 7.3. 创建 src/modules/04-chat-ui/MessageBubble.tsx + MessageList.tsx（消息气泡 + 消息列表 + 自动滚动 + 滚动锁定）
-  - [ ] 7.4. 创建 src/modules/04-chat-ui/ChatInput.tsx（移动端输入组件：多行 + 自适应高度 + 发送按钮）
-  - [ ] 7.5. 创建 src/modules/04-chat-ui/ChatPage.tsx（聊天主页面：全屏对话布局 + 集成流式输出 + 会话管理）
-  - [ ] 7.6. 追加模块 4 面试题到 src/data/interview-questions.ts
+- [x] 6. 模块 3：Prompt 工程 (知识点 3.1-3.8) {depends_on: [5]}
+  - [x] 6.1. 创建 src/modules/03-prompt/types.ts + presets.ts（消息角色类型 + System Prompt 预设模板）
+  - [x] 6.2. 创建 src/modules/03-prompt/tokenCounter.ts（Token 估算工具函数）
+  - [x] 6.3. 创建 src/modules/03-prompt/useConversation.ts（多轮对话 Hook：消息维护 + 滑动窗口策略）
+  - [x] 6.4. 创建 src/modules/03-prompt/JsonRenderer.tsx（JSON 结构化输出渲染组件）
+  - [x] 6.5. 创建 src/modules/03-prompt/PromptLab.tsx（Prompt 实验室页面：模板切换 + 自定义编辑器 + 对话区 + Token 计数）
+  - [x] 6.6. 追加模块 3 面试题到 src/data/interview-questions.ts
+- [x] 7. 模块 4：聊天界面 (知识点 4.1-4.9) {depends_on: [6]}
+  - [x] 7.1. 创建 src/modules/04-chat-ui/useChatStore.ts（zustand store：消息列表 + 多会话 + localStorage 持久化）
+  - [x] 7.2. 创建 src/modules/04-chat-ui/MarkdownRenderer.tsx + CodeBlock.tsx（Markdown 渲染 + 代码高亮 + 复制功能）
+  - [x] 7.3. 创建 src/modules/04-chat-ui/MessageBubble.tsx + MessageList.tsx（消息气泡 + 消息列表 + 自动滚动 + 滚动锁定）
+  - [x] 7.4. 创建 src/modules/04-chat-ui/ChatInput.tsx（移动端输入组件：多行 + 自适应高度 + 发送按钮）
+  - [x] 7.5. 创建 src/modules/04-chat-ui/ChatPage.tsx（聊天主页面：全屏对话布局 + 集成流式输出 + 会话管理）
+  - [x] 7.6. 追加模块 4 面试题到 src/data/interview-questions.ts
 
 ## Phase 3: Function Calling
 
