@@ -288,7 +288,7 @@ export const interviewQuestions: InterviewQuestion[] = [
 | 构建 | Vite | 项目已有 |
 | 样式 | Tailwind CSS | 移动端优先的 utility-first 方案 |
 | 路由 | React Router v6 | 轻量、支持懒加载 |
-| 状态 | zustand | 轻量、无 Provider 包裹 |
+| 状态 | Redux Toolkit | 企业级标准、DevTools、严格状态追踪 |
 | Markdown | react-markdown + rehype-highlight | 成熟方案 |
 | 代码高亮 | highlight.js（通过 rehype） | 体积小、语言覆盖全 |
 

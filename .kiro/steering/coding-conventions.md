@@ -84,10 +84,12 @@ inclusion: auto
 
 ## 十一、状态管理
 
-- 局部状态用 useState，跨组件状态用 zustand store
-- 禁止将所有状态都放入全局 Store
-- Store 按业务域拆分
-- 派生数据使用 selector，禁止冗余存储
+- 局部状态用 useState，跨组件共享状态用 Redux Toolkit（@reduxjs/toolkit + react-redux）
+- Store 按业务域拆分 slice（如 chatSlice、userSlice）
+- 使用 configureStore 配置 store，自动集成 DevTools
+- 导出类型化 hooks（useAppDispatch / useAppSelector）替代原始 hooks
+- 派生数据使用 selector 或 createSelector，禁止冗余存储
+- 持久化通过 store.subscribe + localStorage 实现
 
 ## 十二、调试代码清理
 

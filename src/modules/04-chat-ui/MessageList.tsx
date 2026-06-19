@@ -16,7 +16,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 
 import MessageBubble from './MessageBubble'
-import type { ChatMessage } from './useChatStore'
+import type { ChatMessage } from '../../store/chatSlice'
 
 interface MessageListProps {
   messages: ChatMessage[]

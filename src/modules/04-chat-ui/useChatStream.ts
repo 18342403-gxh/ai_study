@@ -3,11 +3,12 @@
  * 封装发送消息 + 流式接收 + 中断的逻辑
  */
 
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef } from 'react'
 
+import { useAppDispatch } from '../../store'
+import { addMessage, updateLastAssistant } from '../../store/chatSlice'
 import { createSSEParser } from '../02-streaming/parseSSE'
-import { useChatStore } from './useChatStore'
-import type { ChatMessage } from './useChatStore'
+import type { ChatMessage } from '../../store/chatSlice'
 
 const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
 const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
@@ -21,10 +22,7 @@ interface UseChatStreamReturn {
 export const useChatStream = (messages: ChatMessage[]): UseChatStreamReturn => {
   const [isStreaming, setIsStreaming] = useState(false)
   const controllerRef = useRef<AbortController | null>(null)
-  const { addMessage, updateLastAssistant } = useChatStore()
-
-  // 用 useMemo 稳定 messages 引用，避免 useCallback 依赖频繁变化
-  const stableMessages = useMemo(() => messages, [messages])
+  const dispatch = useAppDispatch()
 
   const handleStop = useCallback(() => {
     controllerRef.current?.abort()
@@ -35,7 +33,8 @@ export const useChatStream = (messages: ChatMessage[]): UseChatStreamReturn => {
   const handleSend = useCallback(async (content: string) => {
     if (!content.trim() || isStreaming) return
 
-    addMessage({ role: 'user', content })
+    // 添加用户消息到 store
+    dispatch(addMessage({ role: 'user', content }))
     setIsStreaming(true)
 
     const controller = new AbortController()
@@ -45,7 +44,7 @@ export const useChatStream = (messages: ChatMessage[]): UseChatStreamReturn => {
       // 构造完整的对话消息数组
       const apiMessages = [
         { role: 'system' as const, content: '你是一个友好的 AI 助手，请用中文回答。' },
-        ...stableMessages.map((m) => ({ role: m.role, content: m.content })),
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
         { role: 'user' as const, content },
       ]
 
@@ -85,19 +84,19 @@ export const useChatStream = (messages: ChatMessage[]): UseChatStreamReturn => {
           if (result.done) break
           if (result.content) {
             assistantContent += result.content
-            updateLastAssistant(assistantContent)
+            dispatch(updateLastAssistant(assistantContent))
           }
         }
       }
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
-        updateLastAssistant(`请求出错：${err.message}`)
+        dispatch(updateLastAssistant(`请求出错：${err.message}`))
       }
     } finally {
       setIsStreaming(false)
       controllerRef.current = null
     }
-  }, [isStreaming, stableMessages, addMessage, updateLastAssistant])
+  }, [isStreaming, messages, dispatch])
 
   return { isStreaming, handleSend, handleStop }
 }

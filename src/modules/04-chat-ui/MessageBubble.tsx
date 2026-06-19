@@ -11,7 +11,7 @@
  */
 
 import MarkdownRenderer from './MarkdownRenderer'
-import type { ChatMessage } from './useChatStore'
+import type { ChatMessage } from '../../store/chatSlice'
 
 interface MessageBubbleProps {
   message: ChatMessage

@@ -3,20 +3,26 @@
  *
  * 学习要点：
  * - 全屏对话布局（顶部标题栏 + 消息区 + 底部输入栏）
- * - 集成 zustand store 管理会话状态
+ * - 集成 Redux Toolkit 管理会话状态
  * - 流式输出集成（通过 useChatStream hook）
  * - 会话切换和新建
  *
  * 面试相关：
  * - 移动端全屏聊天布局的 CSS 方案
- * - 如何拆分复杂页面逻辑为自定义 Hook
+ * - Redux useSelector 的性能：如何避免不必要重渲染
  */
 
 import { useState, useCallback, useEffect } from 'react'
 import { LeftOutline, AddOutline, DeleteOutline } from 'antd-mobile-icons'
 import { useNavigate } from 'react-router-dom'
 
-import { useChatStore } from './useChatStore'
+import { useAppDispatch, useAppSelector } from '../../store'
+import {
+  createSession,
+  switchSession,
+  deleteSession,
+  clearCurrentMessages,
+} from '../../store/chatSlice'
 import { useChatStream } from './useChatStream'
 import MessageList from './MessageList'
 import ChatInput from './ChatInput'
@@ -24,20 +30,14 @@ import SessionList from './SessionList'
 
 const ChatPage: React.FC = () => {
   const navigate = useNavigate()
+  const dispatch = useAppDispatch()
   const [input, setInput] = useState('')
   const [isSessionListVisible, setIsSessionListVisible] = useState(false)
 
-  const {
-    sessions,
-    currentSessionId,
-    getCurrentSession,
-    createSession,
-    switchSession,
-    deleteSession,
-    clearCurrentMessages,
-  } = useChatStore()
-
-  const currentSession = getCurrentSession()
+  // 📝 面试考点：useSelector 精确选取需要的 state，避免整个 store 变化都触发重渲染
+  const sessions = useAppSelector((state) => state.chat.sessions)
+  const currentSessionId = useAppSelector((state) => state.chat.currentSessionId)
+  const currentSession = sessions.find((s) => s.id === currentSessionId)
   const messages = currentSession?.messages ?? []
 
   // 流式请求逻辑封装到独立 Hook
@@ -46,13 +46,12 @@ const ChatPage: React.FC = () => {
   // 如果没有会话，自动创建一个
   useEffect(() => {
     if (sessions.length === 0) {
-      createSession()
+      dispatch(createSession())
     } else if (!currentSessionId) {
-      switchSession(sessions[0].id)
+      dispatch(switchSession(sessions[0].id))
     }
-  }, [sessions, currentSessionId, createSession, switchSession])
+  }, [sessions, currentSessionId, dispatch])
 
-  // 发送消息：取输入内容发送并清空输入框
   const handleSend = useCallback(() => {
     const trimmed = input.trim()
     if (!trimmed) return
@@ -61,9 +60,9 @@ const ChatPage: React.FC = () => {
   }, [input, sendMessage])
 
   const handleNewSession = useCallback(() => {
-    createSession()
+    dispatch(createSession())
     setIsSessionListVisible(false)
-  }, [createSession])
+  }, [dispatch])
 
   return (
     <div className="h-screen flex flex-col tech-gradient-bg">
@@ -93,7 +92,7 @@ const ChatPage: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={clearCurrentMessages}
+            onClick={() => dispatch(clearCurrentMessages())}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400"
           >
             <DeleteOutline />
@@ -101,16 +100,16 @@ const ChatPage: React.FC = () => {
         </div>
       </header>
 
-      {/* 会话列表（点击标题展开） */}
+      {/* 会话列表 */}
       {isSessionListVisible && (
         <SessionList
           sessions={sessions}
           currentSessionId={currentSessionId}
           onSwitch={(id) => {
-            switchSession(id)
+            dispatch(switchSession(id))
             setIsSessionListVisible(false)
           }}
-          onDelete={deleteSession}
+          onDelete={(id) => dispatch(deleteSession(id))}
         />
       )}
 

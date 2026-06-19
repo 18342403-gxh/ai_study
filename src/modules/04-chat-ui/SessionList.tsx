@@ -5,7 +5,7 @@
 
 import { DeleteOutline } from 'antd-mobile-icons'
 
-import type { ChatSession } from './useChatStore'
+import type { ChatSession } from '../../store/chatSlice'
 
 interface SessionListProps {
   sessions: ChatSession[]

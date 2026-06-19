@@ -40,7 +40,7 @@ ai-frontend-lab/
 | 构建 | Vite 5 |
 | 样式 | Tailwind CSS（移动优先） |
 | 路由 | React Router v6（懒加载） |
-| 状态 | zustand |
+| 状态 | Redux Toolkit (@reduxjs/toolkit + react-redux) |
 | Markdown | react-markdown + rehype-highlight |
 | 代码高亮 | highlight.js |
 
