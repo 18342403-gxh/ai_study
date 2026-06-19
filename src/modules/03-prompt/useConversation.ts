@@ -19,7 +19,7 @@ import type { ChatMessage } from './types'
 
 interface UseConversationReturn {
   messages: ChatMessage[]
-  streaming: boolean
+  isStreaming: boolean
   error: string
   tokenCount: number
   send: (content: string) => Promise<void>
@@ -37,7 +37,7 @@ export const useConversation = (initialSystemPrompt: string): UseConversationRet
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'system', content: initialSystemPrompt, timestamp: Date.now() },
   ])
-  const [streaming, setStreaming] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState('')
 
   const controllerRef = useRef<AbortController | null>(null)
@@ -77,7 +77,7 @@ export const useConversation = (initialSystemPrompt: string): UseConversationRet
   const stop = useCallback(() => {
     controllerRef.current?.abort()
     controllerRef.current = null
-    setStreaming(false)
+    setIsStreaming(false)
   }, [])
 
   const clear = useCallback(() => {
@@ -88,7 +88,7 @@ export const useConversation = (initialSystemPrompt: string): UseConversationRet
   const send = useCallback(async (content: string) => {
     controllerRef.current?.abort()
     setError('')
-    setStreaming(true)
+    setIsStreaming(true)
 
     // 📝 面试考点：新的 user 消息追加到数组
     const userMessage: ChatMessage = { role: 'user', content, timestamp: Date.now() }
@@ -155,16 +155,16 @@ export const useConversation = (initialSystemPrompt: string): UseConversationRet
         }
       }
 
-      setStreaming(false)
+      setIsStreaming(false)
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         // 用户中断，保留已有内容
       } else {
         setError(err instanceof Error ? err.message : '未知错误')
       }
-      setStreaming(false)
+      setIsStreaming(false)
     }
   }, [messages, applyWindow])
 
-  return { messages, streaming, error, tokenCount, send, stop, clear, setSystemPrompt }
+  return { messages, isStreaming, error, tokenCount, send, stop, clear, setSystemPrompt }
 }

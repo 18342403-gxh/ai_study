@@ -24,7 +24,7 @@ const PromptLab: React.FC = () => {
   const currentPreset = presets.find((p) => p.id === selectedPresetId)
   const activePrompt = showEditor ? customPrompt : (currentPreset?.systemPrompt || '')
 
-  const { messages, streaming, error, tokenCount, send, stop, clear, setSystemPrompt } = useConversation(activePrompt)
+  const { messages, isStreaming, error, tokenCount, send, stop, clear, setSystemPrompt } = useConversation(activePrompt)
 
   useEffect(() => {
     if (!showEditor && currentPreset) {
@@ -44,7 +44,7 @@ const PromptLab: React.FC = () => {
   }
 
   const handleSend = () => {
-    if (!input.trim() || streaming) return
+    if (!input.trim() || isStreaming) return
     send(input.trim())
     setInput('')
   }
@@ -144,7 +144,7 @@ const PromptLab: React.FC = () => {
               </div>
             ))
           )}
-          {streaming && (
+          {isStreaming && (
             <div className="flex justify-start">
               <div className="px-3 py-2 bg-slate-700/60 rounded-xl text-sm text-slate-400">
                 生成中...
@@ -170,7 +170,7 @@ const PromptLab: React.FC = () => {
             placeholder="输入消息..."
             className="tech-input flex-1 h-11 px-3 rounded-xl text-sm"
           />
-          {streaming ? (
+          {isStreaming ? (
             <button onClick={stop} className="h-11 px-4 border border-rose-500/50 text-rose-400 rounded-xl text-sm">
               停止
             </button>

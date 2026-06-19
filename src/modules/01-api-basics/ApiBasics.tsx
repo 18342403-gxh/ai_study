@@ -11,10 +11,10 @@ import type { Message } from './types'
 
 const ApiBasics: React.FC = () => {
   const [input, setInput] = useState('')
-  const { reply, loading, error, send, cancel } = useChat()
+  const { reply, isLoading, error, send, cancel } = useChat()
 
   const handleSend = () => {
-    if (!input.trim() || loading) return
+    if (!input.trim() || isLoading) return
     const messages: Message[] = [{ role: 'user', content: input.trim() }]
     send(messages)
   }
@@ -39,12 +39,12 @@ const ApiBasics: React.FC = () => {
         <div className="flex gap-2 mb-4">
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim()}
+            disabled={isLoading || !input.trim()}
             className="flex-1 h-11 btn-glow text-white rounded-xl text-sm font-medium active:scale-[0.98] transition-transform"
           >
-            {loading ? '请求中...' : '发送请求'}
+            {isLoading ? '请求中...' : '发送请求'}
           </button>
-          {loading && (
+          {isLoading && (
             <button
               onClick={cancel}
               className="h-11 px-4 border border-slate-600 text-slate-300 rounded-xl text-sm active:scale-[0.98] transition-transform"

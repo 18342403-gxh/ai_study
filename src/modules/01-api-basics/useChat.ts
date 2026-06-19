@@ -20,7 +20,7 @@ import type { Message } from './types'
 
 interface UseChatReturn {
   reply: string
-  loading: boolean
+  isLoading: boolean
   error: string
   send: (messages: Message[]) => Promise<void>
   cancel: () => void
@@ -30,7 +30,7 @@ const TIMEOUT_MS = 30000 // 30秒超时
 
 export const useChat = (): UseChatReturn => {
   const [reply, setReply] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
   // 📝 面试考点：useRef 存储 AbortController，不触发重渲染
@@ -45,7 +45,7 @@ export const useChat = (): UseChatReturn => {
     // 取消上一次未完成的请求
     cancel()
 
-    setLoading(true)
+    setIsLoading(true)
     setError('')
     setReply('')
 
@@ -80,10 +80,10 @@ export const useChat = (): UseChatReturn => {
         setError('未知错误')
       }
     } finally {
-      setLoading(false)
+      setIsLoading(false)
       controllerRef.current = null
     }
   }, [cancel])
 
-  return { reply, loading, error, send, cancel }
+  return { reply, isLoading, error, send, cancel }
 }
