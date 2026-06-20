@@ -160,22 +160,3 @@ export const {
 } = chatSlice.actions
 
 export default chatSlice.reducer
-
-// ====== 持久化中间件 ======
-
-/**
- * 📝 面试考点：Redux 持久化方案 — store.subscribe 监听变化后写入 localStorage
- * 企业项目中也可用 redux-persist 库，但手动 subscribe 更轻量可控
- * 注意：此函数需要在 store 创建后由 store/index.ts 调用
- */
-export const setupPersistence = (getState: () => { chat: ChatState }) => {
-  // 不在这里直接订阅，由 store/index.ts 负责调用
-  return () => {
-    const chatState = getState().chat
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(chatState))
-    } catch {
-      // localStorage 写入失败（如超出配额）静默处理
-    }
-  }
-}

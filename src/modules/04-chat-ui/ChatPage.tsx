@@ -17,6 +17,7 @@ import { LeftOutline, AddOutline, DeleteOutline } from 'antd-mobile-icons'
 import { useNavigate } from 'react-router-dom'
 
 import { useAppDispatch, useAppSelector } from '../../store'
+import type { RootState } from '../../store'
 import {
   createSession,
   switchSession,
@@ -35,8 +36,8 @@ const ChatPage: React.FC = () => {
   const [isSessionListVisible, setIsSessionListVisible] = useState(false)
 
   // 📝 面试考点：useSelector 精确选取需要的 state，避免整个 store 变化都触发重渲染
-  const sessions = useAppSelector((state) => state.chat.sessions)
-  const currentSessionId = useAppSelector((state) => state.chat.currentSessionId)
+  const sessions = useAppSelector((state: RootState) => state.chat.sessions)
+  const currentSessionId = useAppSelector((state: RootState) => state.chat.currentSessionId)
   const currentSession = sessions.find((s) => s.id === currentSessionId)
   const messages = currentSession?.messages ?? []
 
