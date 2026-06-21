@@ -5,13 +5,11 @@
 
 import { useState, useCallback, useRef } from 'react'
 
+import { chatCompletionStream } from '../../services/ai'
 import { useAppDispatch } from '../../store'
 import { addMessage, updateLastAssistant } from '../../store/chatSlice'
 import { createSSEParser } from '../02-streaming/parseSSE'
 import type { ChatMessage } from '../../store/chatSlice'
-
-const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
-const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
 
 interface UseChatStreamReturn {
   isStreaming: boolean
@@ -41,30 +39,15 @@ export const useChatStream = (messages: ChatMessage[]): UseChatStreamReturn => {
     controllerRef.current = controller
 
     try {
-      // 构造完整的对话消息数组
-      const apiMessages = [
-        { role: 'system' as const, content: '你是一个友好的 AI 助手，请用中文回答。' },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-        { role: 'user' as const, content },
-      ]
-
-      const response = await fetch(`${API_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'glm-4-flash',
-          messages: apiMessages,
-          stream: true,
-        }),
+      // 通过统一服务层发起流式请求
+      const response = await chatCompletionStream({
+        messages: [
+          { role: 'system', content: '你是一个友好的 AI 助手，请用中文回答。' },
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+          { role: 'user', content },
+        ],
         signal: controller.signal,
       })
-
-      if (!response.ok) {
-        throw new Error(`请求失败 (${response.status})`)
-      }
 
       const reader = response.body?.getReader()
       if (!reader) throw new Error('无法获取响应流')

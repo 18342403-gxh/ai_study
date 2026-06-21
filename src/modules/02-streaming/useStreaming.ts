@@ -14,10 +14,11 @@
  */
 
 import { useState, useCallback, useRef } from 'react'
+
+import { chatCompletionStream } from '../../services/ai'
 import { createSSEParser } from './parseSSE'
 import type { Message } from '../01-api-basics/types'
 
-// 📝 面试考点：状态机设计 — 明确的状态流转比布尔标志更可靠
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'aborted'
 
 interface UseStreamingReturn {
@@ -27,9 +28,6 @@ interface UseStreamingReturn {
   start: (messages: Message[]) => Promise<void>
   stop: () => void
 }
-
-const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
-const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
 
 export const useStreaming = (): UseStreamingReturn => {
   const [content, setContent] = useState('')
@@ -62,23 +60,10 @@ export const useStreaming = (): UseStreamingReturn => {
 
     try {
       // 📝 面试考点：stream: true 告诉 API 以 SSE 格式逐步返回
-      const response = await fetch(`${API_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'glm-4-flash',
-          messages,
-          stream: true,
-        }),
+      const response = await chatCompletionStream({
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
         signal: controller.signal,
       })
-
-      if (!response.ok) {
-        throw new Error(`请求失败 (${response.status})`)
-      }
 
       // 📝 面试考点：response.body 是一个 ReadableStream
       const reader = response.body?.getReader()

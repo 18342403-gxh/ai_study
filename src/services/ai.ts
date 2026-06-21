@@ -1,42 +1,60 @@
 /**
- * 知识点 0.3：AI API 统一封装
- * 
- * 学习要点：
- * - 统一的 fetch 请求封装
- * - 环境变量管理 API 配置
- * - TypeScript 类型安全
- * - 错误分类处理
+ * AI API 统一封装层
+ *
+ * 所有模块的 AI 请求都通过这里发出，统一管理：
+ * - API URL 和 Key（环境变量）
+ * - 请求头
+ * - 默认模型
+ * - 错误处理和分类
+ * - 支持普通请求、流式请求、带工具的请求
  */
 
-// Types
+// ====== 类型定义 ======
+
 export interface Message {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  tool_calls?: ToolCallInfo[]
+  tool_call_id?: string
+  name?: string
 }
 
-export interface ChatRequest {
-  model?: string
+export interface ToolCallInfo {
+  id: string
+  type: 'function'
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+export interface ChatRequestOptions {
   messages: Message[]
+  model?: string
   temperature?: number
   max_tokens?: number
   stream?: boolean
+  tools?: unknown[]
+  signal?: AbortSignal
 }
 
 export interface ChatChoice {
   index: number
-  message: Message
+  message: Message & { tool_calls?: ToolCallInfo[] }
   finish_reason: string
 }
 
 export interface ChatResponse {
   id: string
   choices: ChatChoice[]
-  usage: {
+  usage?: {
     prompt_tokens: number
     completion_tokens: number
     total_tokens: number
   }
 }
+
+// ====== 错误类 ======
 
 export class AIError extends Error {
   constructor(
@@ -49,94 +67,103 @@ export class AIError extends Error {
   }
 }
 
+// ====== 配置常量 ======
+
 const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
 const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
+const DEFAULT_MODEL = 'glm-4-flash'
 
-export const chatCompletion = async (
-  request: ChatRequest,
-  signal?: AbortSignal
-): Promise<ChatResponse> => {
+// ====== 内部工具函数 ======
+
+/** 统一构造请求头 */
+const buildHeaders = (): HeadersInit => ({
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${API_KEY}`,
+})
+
+/** 统一错误处理 */
+const handleResponseError = async (response: Response): Promise<never> => {
+  const errorBody = await response.text().catch(() => '')
+  let message = '请求失败'
+
+  switch (response.status) {
+    case 401:
+      message = 'API Key 无效或已过期'
+      break
+    case 429:
+      message = '请求过于频繁，请稍后重试'
+      break
+    case 500:
+      message = '服务器内部错误'
+      break
+    default:
+      message = `请求失败 (${response.status}): ${errorBody}`
+  }
+
+  throw new AIError(message, response.status)
+}
+
+/** 构造请求 body */
+const buildRequestBody = (options: ChatRequestOptions): string => {
+  const body: Record<string, unknown> = {
+    model: options.model || DEFAULT_MODEL,
+    messages: options.messages,
+    temperature: options.temperature ?? 0.7,
+    stream: options.stream ?? false,
+  }
+  if (options.max_tokens) {
+    body.max_tokens = options.max_tokens
+  }
+  if (options.tools && options.tools.length > 0) {
+    body.tools = options.tools
+  }
+  return JSON.stringify(body)
+}
+
+// ====== 公开 API 方法 ======
+
+/**
+ * 普通聊天请求（非流式）
+ * 返回完整的 ChatResponse
+ */
+export const chatCompletion = async (options: ChatRequestOptions): Promise<ChatResponse> => {
   const response = await fetch(`${API_URL}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: request.model || 'glm-4-flash',
-      messages: request.messages,
-      temperature: request.temperature ?? 0.7,
-      max_tokens: request.max_tokens,
-      stream: request.stream ?? false,
-    }),
-    signal,
+    headers: buildHeaders(),
+    body: buildRequestBody({ ...options, stream: false }),
+    signal: options.signal,
   })
 
   if (!response.ok) {
-    const errorBody = await response.text()
-    let message = '请求失败'
-    
-    switch (response.status) {
-      case 401:
-        message = 'API Key 无效或已过期'
-        break
-      case 429:
-        message = '请求过于频繁，请稍后重试'
-        break
-      case 500:
-        message = '服务器内部错误'
-        break
-      default:
-        message = `请求失败 (${response.status}): ${errorBody}`
-    }
-    
-    throw new AIError(message, response.status)
+    await handleResponseError(response)
   }
 
   return response.json()
 }
 
-// Stream version - returns raw Response for streaming consumption
-export const chatCompletionStream = async (
-  request: ChatRequest,
-  signal?: AbortSignal
-): Promise<Response> => {
+/**
+ * 流式聊天请求
+ * 返回原始 Response，调用方自行消费 body stream
+ */
+export const chatCompletionStream = async (options: ChatRequestOptions): Promise<Response> => {
   const response = await fetch(`${API_URL}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: request.model || 'glm-4-flash',
-      messages: request.messages,
-      temperature: request.temperature ?? 0.7,
-      max_tokens: request.max_tokens,
-      stream: true,
-    }),
-    signal,
+    headers: buildHeaders(),
+    body: buildRequestBody({ ...options, stream: true }),
+    signal: options.signal,
   })
 
   if (!response.ok) {
-    const errorBody = await response.text()
-    let message = '请求失败'
-    
-    switch (response.status) {
-      case 401:
-        message = 'API Key 无效或已过期'
-        break
-      case 429:
-        message = '请求过于频繁，请稍后重试'
-        break
-      case 500:
-        message = '服务器内部错误'
-        break
-      default:
-        message = `请求失败 (${response.status}): ${errorBody}`
-    }
-    
-    throw new AIError(message, response.status)
+    await handleResponseError(response)
   }
 
   return response
+}
+
+/**
+ * 带工具调用的聊天请求（非流式）
+ * 与 chatCompletion 相同，但语义更明确
+ */
+export const chatWithTools = async (options: ChatRequestOptions): Promise<ChatResponse> => {
+  return chatCompletion(options)
 }

@@ -14,12 +14,11 @@
 
 import { useState, useCallback, useRef } from 'react'
 
+import { chatWithTools } from '../../services/ai'
 import { toolDefinitions } from './tools/definitions'
 import { executeTools } from './tools/executor'
 import type { ToolCall, ToolResult } from './tools/executor'
 
-const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
-const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
 const MAX_TOOL_ROUNDS = 5  // 📝 面试考点：防止死循环的最大轮次
 
 /** 对话中的消息（包含 tool 角色） */
@@ -89,25 +88,17 @@ export const useToolChat = (): UseToolChatReturn => {
       while (roundCount < MAX_TOOL_ROUNDS) {
         roundCount++
 
-        const response = await fetch(`${API_URL}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: 'glm-4-flash',
-            messages,
-            tools: toolDefinitions,
-          }),
+        const data = await chatWithTools({
+          messages: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            ...(m.tool_calls ? { tool_calls: m.tool_calls.map((tc) => ({ id: tc.id, type: 'function' as const, function: tc.function })) } : {}),
+            ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+            ...(m.name ? { name: m.name } : {}),
+          })),
+          tools: toolDefinitions,
           signal: controller.signal,
         })
-
-        if (!response.ok) {
-          throw new Error(`请求失败 (${response.status})`)
-        }
-
-        const data = await response.json()
         const choice = data.choices?.[0]
         const assistantMsg = choice?.message
 
@@ -138,7 +129,11 @@ export const useToolChat = (): UseToolChatReturn => {
         })
 
         // 记录工具调用步骤（展示给 UI）
-        const toolCalls: ToolCall[] = assistantMsg.tool_calls
+        // 将 ToolCallInfo 映射为 executor 期望的 ToolCall 格式
+        const toolCalls: ToolCall[] = (assistantMsg.tool_calls || []).map((tc) => ({
+          id: tc.id,
+          function: tc.function,
+        }))
         for (const tc of toolCalls) {
           setSteps((prev) => [...prev, {
             id: tc.id,

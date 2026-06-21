@@ -13,6 +13,8 @@
  */
 
 import { useState, useCallback, useRef } from 'react'
+
+import { chatCompletionStream } from '../../services/ai'
 import { createSSEParser } from '../02-streaming/parseSSE'
 import { estimateMessagesTokens } from './tokenCounter'
 import type { ChatMessage } from './types'
@@ -28,8 +30,6 @@ interface UseConversationReturn {
   setSystemPrompt: (prompt: string) => void
 }
 
-const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
-const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
 const MAX_TOKENS = 4000 // Token 预算上限
 const MAX_ROUNDS = 10   // 最多保留最近 N 轮对话
 
@@ -106,23 +106,10 @@ export const useConversation = (initialSystemPrompt: string): UseConversationRet
       const currentMessages = applyWindow([...messages, userMessage])
       const apiMessages = currentMessages.map(({ role, content: c }) => ({ role, content: c }))
 
-      const response = await fetch(`${API_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'glm-4-flash',
-          messages: apiMessages,
-          stream: true,
-        }),
+      const response = await chatCompletionStream({
+        messages: apiMessages.map((m) => ({ role: m.role, content: m.content })),
         signal: controller.signal,
       })
-
-      if (!response.ok) {
-        throw new Error(`请求失败 (${response.status})`)
-      }
 
       const reader = response.body?.getReader()
       if (!reader) throw new Error('无法获取响应流')
