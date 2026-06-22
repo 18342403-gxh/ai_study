@@ -52,13 +52,13 @@
 
 ## Phase 3: Function Calling
 
-- [ ] 8. 模块 5：Function Calling (知识点 5.1-5.8) {depends_on: [7]}
-  - [ ] 8.1. 创建 src/modules/05-function-calling/tools/definitions.ts（工具 Schema 定义：天气/计算器等）
-  - [ ] 8.2. 创建 src/modules/05-function-calling/tools/weather.ts + executor.ts（工具实现 + 执行器映射）
-  - [ ] 8.3. 创建 src/modules/05-function-calling/useToolChat.ts（工具调用流程编排 Hook：检测 tool_calls → 执行 → 递归调用 + 多步链 + 失败处理）
-  - [ ] 8.4. 创建 src/modules/05-function-calling/ToolCallCard.tsx（工具调用状态展示 + 多工具结果可视化）
-  - [ ] 8.5. 创建 src/modules/05-function-calling/FunctionCalling.tsx（Function Calling 主页面）
-  - [ ] 8.6. 追加模块 5 面试题到 src/data/interview-questions.ts
+- [x] 8. 模块 5：Function Calling (知识点 5.1-5.8) {depends_on: [7]}
+  - [x] 8.1. 创建 src/modules/05-function-calling/tools/definitions.ts（工具 Schema 定义：天气/计算器等）
+  - [x] 8.2. 创建 src/modules/05-function-calling/tools/weather.ts + executor.ts（工具实现 + 执行器映射）
+  - [x] 8.3. 创建 src/modules/05-function-calling/useToolChat.ts（工具调用流程编排 Hook：检测 tool_calls → 执行 → 递归调用 + 多步链 + 失败处理）
+  - [x] 8.4. 创建 src/modules/05-function-calling/ToolCallCard.tsx（工具调用状态展示 + 多工具结果可视化）
+  - [x] 8.5. 创建 src/modules/05-function-calling/FunctionCalling.tsx（Function Calling 主页面）
+  - [x] 8.6. 追加模块 5 面试题到 src/data/interview-questions.ts
 
 ## Phase 4: RAG + Agent
 
