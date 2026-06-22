@@ -62,13 +62,13 @@
 
 ## Phase 4: RAG + Agent
 
-- [ ] 9. 模块 6：RAG 前端集成 (知识点 6.1-6.8) {depends_on: [8]}
-  - [ ] 9.1. 创建 src/modules/06-rag/DocumentUpload.tsx（文件上传组件：拖拽 + 进度条 + 格式校验）
-  - [ ] 9.2. 创建 src/modules/06-rag/DocumentList.tsx（文档列表 + 处理状态流展示）
-  - [ ] 9.3. 创建 src/modules/06-rag/useRag.ts（RAG 问答 Hook：query + document_ids + citations）
-  - [ ] 9.4. 创建 src/modules/06-rag/CitationCard.tsx（引用来源卡片：编号标记 + 展开原文 + 相关度）
-  - [ ] 9.5. 创建 src/modules/06-rag/RagChat.tsx + RagPage.tsx（RAG 问答界面 + 主页面组装）
-  - [ ] 9.6. 追加模块 6 面试题到 src/data/interview-questions.ts
+- [x] 9. 模块 6：RAG 前端集成 (知识点 6.1-6.8) {depends_on: [8]}
+  - [x] 9.1. 创建 src/modules/06-rag/DocumentUpload.tsx（文件上传组件：拖拽 + 进度条 + 格式校验）
+  - [x] 9.2. 创建 src/modules/06-rag/DocumentList.tsx（文档列表 + 处理状态流展示）
+  - [x] 9.3. 创建 src/modules/06-rag/useRag.ts（RAG 问答 Hook：query + document_ids + citations）
+  - [x] 9.4. 创建 src/modules/06-rag/CitationCard.tsx（引用来源卡片：编号标记 + 展开原文 + 相关度）
+  - [x] 9.5. 创建 src/modules/06-rag/RagChat.tsx + RagPage.tsx（RAG 问答界面 + 主页面组装）
+  - [x] 9.6. 追加模块 6 面试题到 src/data/interview-questions.ts
 - [ ] 10. 模块 7：AI Agent 交互 (知识点 7.1-7.8) {depends_on: [9]}
   - [ ] 10.1. 创建 src/modules/07-agent/types.ts（Agent 类型定义：AgentStep、状态枚举）
   - [ ] 10.2. 创建 src/modules/07-agent/useAgent.ts（Agent 执行 Hook：Think-Act-Observe 循环 + 暂停/继续 + 中断/回退）
