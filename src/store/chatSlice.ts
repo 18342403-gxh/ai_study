@@ -51,10 +51,19 @@ const loadPersistedState = (): ChatState => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      return JSON.parse(raw) as ChatState
+      const parsed = JSON.parse(raw)
+      // 兼容 zustand persist 旧格式：{ state: { sessions, ... }, version: 0 }
+      const data = parsed.state ?? parsed
+      // 校验数据结构是否合法
+      if (Array.isArray(data.sessions)) {
+        return {
+          sessions: data.sessions,
+          currentSessionId: data.currentSessionId ?? null,
+        }
+      }
     }
   } catch {
-    // localStorage 读取失败时使用默认值
+    // localStorage 读取/解析失败时使用默认值
   }
   return { sessions: [], currentSessionId: null }
 }
