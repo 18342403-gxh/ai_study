@@ -25,18 +25,34 @@ interface UseRagReturn {
 
 /**
  * 📝 面试考点：简单的文本相关度计算
- * 实际项目中用向量相似度（余弦相似度），这里用关键词命中数模拟
+ * 实际项目中用向量相似度（余弦相似度），这里用关键词/字符命中模拟
+ * 中文没有空格分隔，采用逐字符和短语匹配
  */
 const calculateRelevance = (query: string, chunk: string): number => {
-  const queryWords = query.toLowerCase().split(/\s+/)
+  const queryLower = query.toLowerCase()
   const chunkLower = chunk.toLowerCase()
-  let hitCount = 0
-  for (const word of queryWords) {
-    if (word.length > 1 && chunkLower.includes(word)) {
-      hitCount++
+
+  // 策略1：完整查询在块中出现
+  if (chunkLower.includes(queryLower)) {
+    return 1.0
+  }
+
+  // 策略2：将查询拆为2-4字的片段，计算命中率
+  const fragments: string[] = []
+  for (let len = Math.min(4, queryLower.length); len >= 2; len--) {
+    for (let i = 0; i <= queryLower.length - len; i++) {
+      fragments.push(queryLower.slice(i, i + len))
     }
   }
-  return queryWords.length > 0 ? hitCount / queryWords.length : 0
+
+  if (fragments.length === 0) {
+    // 查询太短，直接判断包含关系
+    return chunkLower.includes(queryLower) ? 0.8 : 0
+  }
+
+  // 计算命中的片段比例
+  const hitCount = fragments.filter((f) => chunkLower.includes(f)).length
+  return hitCount / fragments.length
 }
 
 /**
@@ -54,8 +70,19 @@ const retrieveRelevantChunks = (
     if (doc.status !== 'ready') continue
     for (const chunk of doc.chunks) {
       const score = calculateRelevance(query, chunk.content)
-      if (score > 0) {
+      // 相关度大于 0.1 才认为有关联（中文片段匹配分数偏低）
+      if (score > 0.1) {
         scored.push({ chunk, source: doc.name, score })
+      }
+    }
+  }
+
+  // 如果没有任何命中，退而取所有块的前几个（保证至少有上下文）
+  if (scored.length === 0) {
+    for (const doc of documents) {
+      if (doc.status !== 'ready') continue
+      for (const chunk of doc.chunks.slice(0, topK)) {
+        scored.push({ chunk, source: doc.name, score: 0.1 })
       }
     }
   }
