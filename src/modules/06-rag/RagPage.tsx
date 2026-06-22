@@ -11,6 +11,7 @@ import { useState, useCallback } from 'react'
 
 import Layout from '../../components/Layout'
 import InterviewCard from '../../components/InterviewCard'
+import MarkdownRenderer from '../../components/MarkdownRenderer'
 import DocumentUpload from './DocumentUpload'
 import DocumentList from './DocumentList'
 import CitationCard from './CitationCard'
@@ -163,8 +164,8 @@ const RagPage: React.FC = () => {
               <div className="space-y-3">
                 <div className="glass-card rounded-xl p-3">
                   <div className="text-xs text-slate-400 mb-1">回答：</div>
-                  <div className="text-sm text-slate-200 whitespace-pre-wrap">
-                    {answer.answer}
+                  <div className="text-sm text-slate-200">
+                    <MarkdownRenderer content={answer.answer} />
                   </div>
                 </div>
 

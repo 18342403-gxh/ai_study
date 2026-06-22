@@ -10,7 +10,7 @@
  * - CSS 实现气泡左右对齐的几种方案
  */
 
-import MarkdownRenderer from './MarkdownRenderer'
+import MarkdownRenderer from '../../components/MarkdownRenderer'
 import type { ChatMessage } from '../../store/chatSlice'
 
 interface MessageBubbleProps {

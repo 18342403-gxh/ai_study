@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import Layout from '../../components/Layout'
 import InterviewCard from '../../components/InterviewCard'
+import MarkdownRenderer from '../../components/MarkdownRenderer'
 import { useChat } from './useChat'
 import { interviewQuestions } from '../../data/interview-questions'
 import type { Message } from './types'
@@ -65,8 +66,8 @@ const ApiBasics: React.FC = () => {
         {reply && (
           <div className="mb-4">
             <div className="text-xs text-slate-400 mb-1">响应结果：</div>
-            <div className="glass-card p-3 rounded-xl text-sm text-slate-200 whitespace-pre-wrap">
-              {reply}
+            <div className="glass-card p-3 rounded-xl text-sm text-slate-200">
+              <MarkdownRenderer content={reply} />
             </div>
           </div>
         )}
