@@ -69,10 +69,10 @@
   - [x] 9.4. 创建 src/modules/06-rag/CitationCard.tsx（引用来源卡片：编号标记 + 展开原文 + 相关度）
   - [x] 9.5. 创建 src/modules/06-rag/RagChat.tsx + RagPage.tsx（RAG 问答界面 + 主页面组装）
   - [x] 9.6. 追加模块 6 面试题到 src/data/interview-questions.ts
-- [ ] 10. 模块 7：AI Agent 交互 (知识点 7.1-7.8) {depends_on: [9]}
-  - [ ] 10.1. 创建 src/modules/07-agent/types.ts（Agent 类型定义：AgentStep、状态枚举）
-  - [ ] 10.2. 创建 src/modules/07-agent/useAgent.ts（Agent 执行 Hook：Think-Act-Observe 循环 + 暂停/继续 + 中断/回退）
-  - [ ] 10.3. 创建 src/modules/07-agent/ThinkingBubble.tsx + StepCard.tsx（思考过程展示 + 步骤详情卡片）
-  - [ ] 10.4. 创建 src/modules/07-agent/AgentTimeline.tsx（执行时间线组件：垂直时间线 + 实时追加）
-  - [ ] 10.5. 创建 src/modules/07-agent/AgentPage.tsx（Agent 主页面：输入区 + 时间线 + 用户干预 UI）
-  - [ ] 10.6. 追加模块 7 面试题到 src/data/interview-questions.ts
+- [x] 10. 模块 7：AI Agent 交互 (知识点 7.1-7.8) {depends_on: [9]}
+  - [x] 10.1. 创建 src/modules/07-agent/types.ts（Agent 类型定义：AgentStep、状态枚举）
+  - [x] 10.2. 创建 src/modules/07-agent/useAgent.ts（Agent 执行 Hook：Think-Act-Observe 循环 + 暂停/继续 + 中断/回退）
+  - [x] 10.3. 创建 src/modules/07-agent/ThinkingBubble.tsx + StepCard.tsx（思考过程展示 + 步骤详情卡片）
+  - [x] 10.4. 创建 src/modules/07-agent/AgentTimeline.tsx（执行时间线组件：垂直时间线 + 实时追加）
+  - [x] 10.5. 创建 src/modules/07-agent/AgentPage.tsx（Agent 主页面：输入区 + 时间线 + 用户干预 UI）
+  - [x] 10.6. 追加模块 7 面试题到 src/data/interview-questions.ts
