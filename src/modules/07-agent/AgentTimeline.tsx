@@ -13,6 +13,7 @@ import type { AgentStep } from './types'
 
 interface AgentTimelineProps {
   steps: AgentStep[]
+  isStreaming?: boolean
 }
 
 /** 根据步骤类型返回对应的图标和颜色 */
@@ -36,7 +37,7 @@ const getStepStyle = (step: AgentStep) => {
   }
 }
 
-const AgentTimeline: React.FC<AgentTimelineProps> = ({ steps }) => {
+const AgentTimeline: React.FC<AgentTimelineProps> = ({ steps, isStreaming }) => {
   if (steps.length === 0) return null
 
   return (
@@ -48,10 +49,11 @@ const AgentTimeline: React.FC<AgentTimelineProps> = ({ steps }) => {
       <div className="space-y-3">
         {steps.map((step) => {
           const style = getStepStyle(step)
+          const isThinking = step.type === 'thinking'
           return (
             <div key={step.id} className="relative">
               {/* 节点圆点 */}
-              <div className={`absolute -left-6 top-1 w-[22px] h-[22px] rounded-full ${style.bg} ${style.color} flex items-center justify-center text-xs`}>
+              <div className={`absolute -left-6 top-1 w-[22px] h-[22px] rounded-full ${style.bg} ${style.color} flex items-center justify-center text-xs ${isThinking && isStreaming ? 'animate-pulse' : ''}`}>
                 {style.icon}
               </div>
 
@@ -64,7 +66,16 @@ const AgentTimeline: React.FC<AgentTimelineProps> = ({ steps }) => {
                   )}
                 </div>
                 <div className="text-sm text-slate-300 whitespace-pre-wrap break-words">
-                  {step.content}
+                  {step.type === 'final_answer' && step.content ? (
+                    step.content
+                  ) : isThinking && step.content === '正在分析任务...' ? (
+                    <span className="inline-flex items-center gap-1">
+                      正在思考
+                      <span className="animate-pulse">...</span>
+                    </span>
+                  ) : (
+                    step.content
+                  )}
                 </div>
                 {step.toolArgs && (
                   <div className="mt-1 text-xs text-slate-500 font-mono truncate">

@@ -1,43 +1,55 @@
 /**
  * 知识点 7.8：Agent 主页面
  *
- * 学习要点：
- * - 输入区 + 时间线 + 状态指示器布局
- * - Agent 运行状态展示
- * - 中断和重置操作
+ * 功能：
+ * - 任务输入（发送后才清空）
+ * - 示例任务快捷按钮
+ * - 执行时间线实时展示
+ * - 最终回答流式打字机效果
+ * - 中断/重置操作
  */
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 import Layout from '../../components/Layout'
+import MarkdownRenderer from '../../components/MarkdownRenderer'
 import InterviewCard from '../../components/InterviewCard'
 import AgentTimeline from './AgentTimeline'
 import { useAgent } from './useAgent'
 import { interviewQuestions } from '../../data/interview-questions'
 
 const EXAMPLE_TASKS = [
-  '帮我查一下北京和上海的天气，对比一下哪个更适合出门',
-  '现在几点了？帮我算一下距离下班还有多久（假设6点下班）',
-  '计算 (15 + 7) * 3 的结果，然后告诉我这个数是否是偶数',
+  '帮我查一下北京和上海的天气，对比哪个更适合出门',
+  '现在几点了？帮我算一下距离18点下班还有多久',
+  '计算 (15 + 7) * 3 的结果，告诉我这个数是否是偶数',
 ]
 
 const AgentPage: React.FC = () => {
   const [input, setInput] = useState('')
-  const { steps, status, error, handleStart, handleStop, handleReset } = useAgent()
+  const { steps, status, error, streamingContent, handleStart, handleStop, handleReset } = useAgent()
+  const bottomRef = useRef<HTMLDivElement>(null)
 
+  const isRunning = status === 'running'
+  const isCompleted = status === 'completed'
+
+  // 步骤变化时自动滚动到底部
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [steps.length, streamingContent])
+
+  // 发送任务 — 只在这里清空输入
   const handleSubmit = () => {
-    if (!input.trim() || status === 'running') return
-    handleStart(input.trim())
+    const trimmed = input.trim()
+    if (!trimmed || isRunning) return
+    handleStart(trimmed)
     setInput('')
   }
 
   const handleExampleClick = (task: string) => {
-    if (status === 'running') return
-    setInput(task)
+    if (isRunning) return
     handleStart(task)
   }
 
-  const isRunning = status === 'running'
   const moduleQuestions = interviewQuestions.filter((q) => q.moduleId === 7)
 
   return (
@@ -49,25 +61,36 @@ const AgentPage: React.FC = () => {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="描述一个需要多步骤完成的任务..."
-            className="tech-input w-full h-20 p-3 rounded-xl text-sm resize-none"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                handleSubmit()
+              }
+            }}
+            placeholder="描述一个需要多步骤完成的任务...&#10;例如：查两个城市的天气并对比"
+            className="tech-input w-full h-24 p-3 rounded-xl text-sm resize-none"
+            disabled={isRunning}
           />
         </div>
 
         {/* 示例任务 */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {EXAMPLE_TASKS.map((task) => (
-            <button
-              key={task}
-              type="button"
-              onClick={() => handleExampleClick(task)}
-              disabled={isRunning}
-              className="px-2.5 py-1 text-xs bg-slate-700/50 text-slate-300 rounded-lg border border-slate-600/50 disabled:opacity-40 text-left"
-            >
-              {task.length > 20 ? task.slice(0, 20) + '...' : task}
-            </button>
-          ))}
-        </div>
+        {!isRunning && steps.length === 0 && (
+          <div className="mb-4">
+            <div className="text-xs text-slate-500 mb-2">试试这些任务：</div>
+            <div className="space-y-2">
+              {EXAMPLE_TASKS.map((task) => (
+                <button
+                  key={task}
+                  type="button"
+                  onClick={() => handleExampleClick(task)}
+                  className="w-full px-3 py-2.5 text-left text-xs bg-slate-700/30 text-slate-300 rounded-lg border border-slate-600/30 active:scale-[0.98] transition-transform"
+                >
+                  {task}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 操作按钮 */}
         <div className="flex gap-2 mb-4">
@@ -86,7 +109,7 @@ const AgentPage: React.FC = () => {
               中断
             </button>
           )}
-          {steps.length > 0 && !isRunning && (
+          {(isCompleted || status === 'failed') && (
             <button
               onClick={handleReset}
               className="h-11 px-4 border border-slate-600 text-slate-300 rounded-xl text-sm"
@@ -96,21 +119,24 @@ const AgentPage: React.FC = () => {
           )}
         </div>
 
-        {/* Agent 状态 */}
+        {/* Agent 状态指示器 */}
         {status !== 'idle' && (
           <div className="mb-3 flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded ${
-              isRunning ? 'bg-indigo-500/20 text-indigo-400' :
-              status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
-              status === 'failed' ? 'bg-rose-500/20 text-rose-400' :
-              'bg-slate-700 text-slate-400'
+            <div className={`w-2 h-2 rounded-full ${
+              isRunning ? 'bg-indigo-400 animate-pulse' :
+              isCompleted ? 'bg-emerald-400' :
+              'bg-rose-400'
+            }`} />
+            <span className={`text-xs ${
+              isRunning ? 'text-indigo-400' :
+              isCompleted ? 'text-emerald-400' :
+              'text-rose-400'
             }`}>
-              {isRunning ? '● 执行中' :
-               status === 'completed' ? '● 已完成' :
-               status === 'failed' ? '● 已中断' :
-               status === 'paused' ? '● 已暂停' : ''}
+              {isRunning ? '执行中' :
+               isCompleted ? '已完成' :
+               '已中断'}
             </span>
-            <span className="text-xs text-slate-500">{steps.length} 步</span>
+            <span className="text-xs text-slate-500 ml-auto">{steps.length} 步</span>
           </div>
         )}
 
@@ -122,7 +148,24 @@ const AgentPage: React.FC = () => {
         )}
 
         {/* 执行时间线 */}
-        <AgentTimeline steps={steps} />
+        {steps.length > 0 && (
+          <div className="mb-4">
+            <AgentTimeline steps={steps} isStreaming={isRunning} />
+          </div>
+        )}
+
+        {/* 最终回答（带打字机效果的独立展示区） */}
+        {isCompleted && streamingContent && (
+          <div className="mb-4 glass-card rounded-xl p-4">
+            <div className="text-xs text-emerald-400 mb-2">最终回答</div>
+            <div className="text-sm text-slate-200">
+              <MarkdownRenderer content={streamingContent} />
+            </div>
+          </div>
+        )}
+
+        {/* 滚动锚点 */}
+        <div ref={bottomRef} />
 
         {/* 面试题区域 */}
         {moduleQuestions.length > 0 && (
