@@ -10,6 +10,7 @@ const ChatPage = lazy(() => import('./modules/04-chat-ui/ChatPage'))
 const FunctionCalling = lazy(() => import('./modules/05-function-calling/FunctionCalling'))
 const RagPage = lazy(() => import('./modules/06-rag/RagPage'))
 const AgentPage = lazy(() => import('./modules/07-agent/AgentPage'))
+const KnowledgeBasePage = lazy(() => import('./modules/knowledge-base/KnowledgeBasePage'))
 
 const Loading: React.FC = () => (
   <div className="flex items-center justify-center h-screen">
@@ -33,6 +34,7 @@ const App: React.FC = () => {
           <Route path="/m5" element={<FunctionCalling />} />
           <Route path="/m6" element={<RagPage />} />
           <Route path="/m7" element={<AgentPage />} />
+          <Route path="/kb" element={<KnowledgeBasePage />} />
         </Routes>
       </Suspense>
       {!hideTabBar && <TabBar />}
