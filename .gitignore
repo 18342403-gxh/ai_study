@@ -5,3 +5,12 @@ dist
 .env.*.local
 *.log
 .DS_Store
+
+# Server
+server/node_modules/
+server/dist/
+server/data/*.db
+server/uploads/*
+!server/uploads/.gitkeep
+!server/data/.gitkeep
+server/.env
