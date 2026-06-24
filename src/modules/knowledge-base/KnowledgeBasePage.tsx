@@ -1,12 +1,12 @@
 /**
- * 知识库主页面
- * 企业级 RAG 知识库：文档管理 + 向量问答
- * 连接 Node BFF 后端（http://localhost:3001）
+ * 知识库主页面 — Dify 风格
+ * 深色 + 紫色渐变 + 精细化商业 UI
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { LeftOutline, ContentOutline, SearchOutline } from 'antd-mobile-icons'
+import { useNavigate } from 'react-router-dom'
 
-import Layout from '../../components/Layout'
 import MarkdownRenderer from '../../components/MarkdownRenderer'
 import KbDocUpload from './KbDocUpload'
 import KbDocList from './KbDocList'
@@ -16,6 +16,7 @@ import type { KbDocument, KbCitation } from './types'
 const API_BASE = 'http://localhost:3001/api'
 
 const KnowledgeBasePage: React.FC = () => {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'docs' | 'chat'>('docs')
   const [documents, setDocuments] = useState<KbDocument[]>([])
   const [query, setQuery] = useState('')
@@ -23,6 +24,8 @@ const KnowledgeBasePage: React.FC = () => {
   const [answer, setAnswer] = useState('')
   const [citations, setCitations] = useState<KbCitation[]>([])
   const [error, setError] = useState('')
+  const [isCitationsExpanded, setIsCitationsExpanded] = useState(false)
+  const answerRef = useRef<HTMLDivElement>(null)
 
   // 加载文档列表
   const fetchDocuments = useCallback(async () => {
@@ -33,47 +36,35 @@ const KnowledgeBasePage: React.FC = () => {
         setDocuments(data)
       }
     } catch {
-      // 后端未启动时静默处理
+      // 后端未启动时静默
     }
   }, [])
 
-  // 页面加载和上传完成后刷新列表
-  useEffect(() => {
-    fetchDocuments()
-  }, [fetchDocuments])
+  useEffect(() => { fetchDocuments() }, [fetchDocuments])
 
-  // 定时刷新（检查 processing 状态的文档是否已完成）
+  // 轮询 processing 状态
   useEffect(() => {
     const hasProcessing = documents.some((d) => d.status === 'processing')
     if (!hasProcessing) return
-
     const timer = setInterval(fetchDocuments, 3000)
     return () => clearInterval(timer)
   }, [documents, fetchDocuments])
 
-  // 删除文档
   const handleDeleteDoc = useCallback(async (docId: string) => {
-    try {
-      await fetch(`${API_BASE}/documents/${docId}`, { method: 'DELETE' })
-      setDocuments((prev) => prev.filter((d) => d.id !== docId))
-    } catch {
-      setError('删除失败')
-    }
+    await fetch(`${API_BASE}/documents/${docId}`, { method: 'DELETE' })
+    setDocuments((prev) => prev.filter((d) => d.id !== docId))
   }, [])
 
-  // 上传完成回调
-  const handleUploadComplete = useCallback(() => {
-    fetchDocuments()
-  }, [fetchDocuments])
+  const handleUploadComplete = useCallback(() => { fetchDocuments() }, [fetchDocuments])
 
-  // 知识库问答（流式）
+  // 知识问答（SSE 流式）
   const handleQuery = useCallback(async () => {
     if (!query.trim() || isQuerying) return
-
     setIsQuerying(true)
     setAnswer('')
     setCitations([])
     setError('')
+    setIsCitationsExpanded(false)
 
     try {
       const res = await fetch(`${API_BASE}/kb/query`, {
@@ -87,7 +78,6 @@ const KnowledgeBasePage: React.FC = () => {
         throw new Error(errData.error || '问答失败')
       }
 
-      // 解析 SSE 流
       const reader = res.body?.getReader()
       if (!reader) throw new Error('无法获取响应流')
 
@@ -98,7 +88,6 @@ const KnowledgeBasePage: React.FC = () => {
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
@@ -106,33 +95,19 @@ const KnowledgeBasePage: React.FC = () => {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           const data = line.slice(6)
-
           if (data === '[DONE]') continue
 
           try {
             const parsed = JSON.parse(data)
-
-            // 处理引用数据（第一个 SSE 事件）
-            if (parsed.type === 'citations') {
-              setCitations(parsed.citations)
-              continue
-            }
-
-            // 处理错误
-            if (parsed.type === 'error') {
-              setError(parsed.error)
-              continue
-            }
-
-            // 处理流式文本内容
+            if (parsed.type === 'citations') { setCitations(parsed.citations); continue }
+            if (parsed.type === 'error') { setError(parsed.error); continue }
             const content = parsed.choices?.[0]?.delta?.content
             if (content) {
               fullAnswer += content
               setAnswer(fullAnswer)
+              answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
             }
-          } catch {
-            // 非 JSON 行跳过
-          }
+          } catch { /* 非 JSON 跳过 */ }
         }
       }
     } catch (err) {
@@ -142,113 +117,179 @@ const KnowledgeBasePage: React.FC = () => {
     }
   }, [query, isQuerying])
 
-  const hasDocuments = documents.length > 0
-  const hasReadyDocs = documents.some((d) => d.status === 'ready')
+  // 统计
+  const totalDocs = documents.length
+  const readyDocs = documents.filter((d) => d.status === 'ready').length
+  const totalChunks = documents.reduce((sum, d) => sum + (d.chunk_count || 0), 0)
+  const hasReadyDocs = readyDocs > 0
 
   return (
-    <Layout title="知识库" showBack={true}>
-      <div className="px-4 py-4">
-        {/* Tab 切换 */}
-        <div className="flex gap-2 mb-4">
+    <div className="h-screen flex flex-col tech-gradient-bg">
+      {/* 顶部栏 */}
+      <header className="shrink-0 px-4 pt-3 pb-2">
+        <div className="flex items-center gap-2 mb-3">
+          <button type="button" onClick={() => navigate(-1)} className="text-slate-400">
+            <LeftOutline />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-base font-semibold gradient-text">知识库</h1>
+            <p className="text-xs text-slate-500">企业级文档问答系统</p>
+          </div>
+          <ContentOutline className="text-indigo-400 text-lg" />
+        </div>
+
+        {/* 统计卡片 */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="glass-card rounded-lg px-3 py-2 text-center">
+            <div className="text-lg font-bold text-indigo-300">{totalDocs}</div>
+            <div className="text-xs text-slate-500">文档数</div>
+          </div>
+          <div className="glass-card rounded-lg px-3 py-2 text-center">
+            <div className="text-lg font-bold text-cyan-300">{totalChunks}</div>
+            <div className="text-xs text-slate-500">知识块</div>
+          </div>
+          <div className="glass-card rounded-lg px-3 py-2 text-center">
+            <div className="text-lg font-bold text-emerald-300">{readyDocs}</div>
+            <div className="text-xs text-slate-500">可用</div>
+          </div>
+        </div>
+
+        {/* Tab */}
+        <div className="flex bg-slate-800/60 rounded-lg p-0.5">
           <button
             type="button"
             onClick={() => setActiveTab('docs')}
-            className={`flex-1 h-9 rounded-lg text-xs transition-colors ${
+            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
               activeTab === 'docs'
-                ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/50'
-                : 'bg-slate-700/50 text-slate-400 border border-slate-600/50'
+                ? 'bg-indigo-500/40 text-indigo-200 shadow-sm'
+                : 'text-slate-400'
             }`}
           >
-            文档管理 ({documents.length})
+            文档管理
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('chat')}
-            className={`flex-1 h-9 rounded-lg text-xs transition-colors ${
+            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
               activeTab === 'chat'
-                ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/50'
-                : 'bg-slate-700/50 text-slate-400 border border-slate-600/50'
+                ? 'bg-indigo-500/40 text-indigo-200 shadow-sm'
+                : 'text-slate-400'
             }`}
           >
-            知识问答
+            智能问答
           </button>
         </div>
+      </header>
 
-        {/* 文档管理 Tab */}
+      {/* 内容区 */}
+      <main className="flex-1 overflow-y-auto px-4 pb-6">
         {activeTab === 'docs' && (
-          <div>
+          <div className="pt-3">
             <KbDocUpload apiBase={API_BASE} onComplete={handleUploadComplete} />
             <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400 font-medium">已上传文档</span>
+                <span className="text-xs text-slate-600">{totalDocs} 个</span>
+              </div>
               <KbDocList documents={documents} onDelete={handleDeleteDoc} />
             </div>
           </div>
         )}
 
-        {/* 知识问答 Tab */}
         {activeTab === 'chat' && (
-          <div>
-            {!hasReadyDocs && (
-              <div className="glass-card rounded-xl p-4 text-center mb-4">
-                <p className="text-sm text-slate-400">
-                  {hasDocuments ? '文档正在处理中，请稍候...' : '请先上传文档，再进行知识问答'}
-                </p>
+          <div className="pt-3">
+            {/* 搜索/提问区 */}
+            <div className="relative mb-4">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                <SearchOutline fontSize={14} />
               </div>
-            )}
-
-            {/* 问答输入 */}
-            <div className="mb-4">
-              <textarea
+              <input
+                type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
-                    handleQuery()
-                  }
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleQuery()
                 }}
-                placeholder="基于知识库提问..."
+                placeholder={hasReadyDocs ? '基于知识库提问...' : '请先上传文档'}
                 disabled={!hasReadyDocs}
-                className="tech-input w-full h-20 p-3 rounded-xl text-sm resize-none disabled:opacity-40"
+                className="tech-input w-full h-11 pl-9 pr-20 rounded-xl text-sm disabled:opacity-40"
               />
               <button
                 onClick={handleQuery}
                 disabled={isQuerying || !query.trim() || !hasReadyDocs}
-                className="mt-2 w-full h-11 btn-glow text-white rounded-xl text-sm font-medium disabled:opacity-40"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-3 btn-glow text-white rounded-lg text-xs disabled:opacity-30"
               >
-                {isQuerying ? '检索回答中...' : '提问'}
+                {isQuerying ? '检索中' : '提问'}
               </button>
             </div>
 
-            {/* 错误提示 */}
+            {/* 空状态 */}
+            {!hasReadyDocs && !answer && (
+              <div className="text-center py-12">
+                <ContentOutline className="text-3xl text-slate-600 mx-auto mb-3" />
+                <p className="text-sm text-slate-400">上传文档后即可开始智能问答</p>
+                <p className="text-xs text-slate-600 mt-1">支持 PDF、TXT、Markdown 格式</p>
+              </div>
+            )}
+
+            {/* 错误 */}
             {error && (
-              <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-sm text-rose-400">
+              <div className="mb-3 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400">
                 {error}
               </div>
             )}
 
-            {/* 回答展示 */}
-            {answer && (
-              <div className="mb-4 glass-card rounded-xl p-4">
-                <div className="text-xs text-indigo-400 mb-2">回答</div>
-                <div className="text-sm text-slate-200">
-                  <MarkdownRenderer content={answer} />
+            {/* 回答区域 */}
+            {(answer || isQuerying) && (
+              <div className="space-y-3" ref={answerRef}>
+                {/* 用户问题 */}
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] px-3 py-2 bg-indigo-500/60 text-white text-sm rounded-2xl rounded-br-md">
+                    {query}
+                  </div>
                 </div>
-              </div>
-            )}
 
-            {/* 引用来源 */}
-            {citations.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs text-slate-400">引用来源：</div>
-                {citations.map((citation) => (
-                  <KbCitationCard key={citation.index} citation={citation} />
-                ))}
+                {/* AI 回答 */}
+                <div className="glass-card rounded-2xl rounded-bl-md p-4">
+                  {isQuerying && !answer && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      <span className="text-xs text-slate-400">正在检索知识库...</span>
+                    </div>
+                  )}
+                  {answer && (
+                    <div className="text-sm text-slate-200">
+                      <MarkdownRenderer content={answer} />
+                    </div>
+                  )}
+                </div>
+
+                {/* 引用来源 */}
+                {citations.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setIsCitationsExpanded(!isCitationsExpanded)}
+                      className="text-xs text-indigo-400 mb-2 flex items-center gap-1"
+                    >
+                      <span>{isCitationsExpanded ? '▼' : '▶'}</span>
+                      <span>引用来源 ({citations.length})</span>
+                    </button>
+                    {isCitationsExpanded && (
+                      <div className="space-y-2">
+                        {citations.map((c) => (
+                          <KbCitationCard key={c.index} citation={c} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
-      </div>
-    </Layout>
+      </main>
+    </div>
   )
 }
 
