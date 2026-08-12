@@ -26,7 +26,9 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
     throw new Error(`Embedding 请求失败 (${response.status}): ${errorText}`)
   }
 
-  const data = await response.json()
+  const data = (await response.json()) as {
+    data: Array<{ embedding: number[] }>;
+  }
   return data.data[0].embedding
 }
 

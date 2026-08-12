@@ -76,3 +76,55 @@
   - [x] 10.4. 创建 src/modules/07-agent/AgentTimeline.tsx（执行时间线组件：垂直时间线 + 实时追加）
   - [x] 10.5. 创建 src/modules/07-agent/AgentPage.tsx（Agent 主页面：输入区 + 时间线 + 用户干预 UI）
   - [x] 10.6. 追加模块 7 面试题到 src/data/interview-questions.ts
+
+## Phase 6: Monorepo 工程化改造
+
+- [ ] 11. pnpm workspace 初始化（知识点 8.1-8.7）
+  - [ ] 11.1. 安装 pnpm（全局），创建 `pnpm-workspace.yaml`（apps/*、packages/* 两个目录）
+  - [ ] 11.2. 创建根 `tsconfig.base.json`（通用 TS 选项、路径别名 @ai-study/shared）
+  - [ ] 11.3. 重构根 `package.json`：name 改为根包名、private:true、scripts 增加 dev/build 统一入口、dependencies 只留公共开发依赖
+  - [ ] 11.4. 创建 apps/web-react 目录并迁移原项目所有文件（src/、index.html、vite.config.ts、tailwind.config.js、postcss.config.js、package.json→name=@ai-study/web-react）
+  - [ ] 11.5. 更新 apps/web-react 的 tsconfig.json：extends `../../tsconfig.base.json`，composite:true，vite.config.ts 的 root 和别名适配
+  - [ ] 11.6. 更新根 `.gitignore`：`apps/*/dist`、`apps/*/node_modules`、`apps/*/.env`、`packages/*/dist` 统一忽略
+  - [ ] 11.7. 删除旧的根 node_modules 和 package-lock.json，在根目录执行 `pnpm install`，验证 pnpm workspace symlink 生效
+  - [ ] 11.8. 配置根 `.editorconfig` 和 `.prettierrc`（知识点 8.6 简化版）
+
+## Phase 7: Node.js BFF 服务端
+
+- [ ] 12. BFF 服务端初始化与基础功能（知识点 9.1-9.9）
+  - [ ] 12.1. 创建 apps/server/package.json：name=@ai-study/server、scripts( dev: "tsx watch src/index.ts"、build: "tsc -p tsconfig.json" )、依赖 express、dotenv、cors、tsx、@types/express、@types/cors
+  - [ ] 12.2. 创建 apps/server/tsconfig.json：extends ../../tsconfig.base.json、rootDir=src、outDir=dist、commonjs 模块
+  - [ ] 12.3. 创建 apps/server/.env.example：PORT=3000、AI_API_URL=xxx、AI_API_KEY=xxx、WEB_ORIGIN=http://localhost:5173,http://localhost:5174
+  - [ ] 12.4. 创建 apps/server/src/config.ts（dotenv 加载 + 类型化导出）
+  - [ ] 12.5. 创建 apps/server/src/middleware/cors.ts（cors 白名单中间件）和 logger.ts（请求日志 + 耗时）
+  - [ ] 12.6. 创建 apps/server/src/app.ts：express() + middleware 注册 + routes 挂载 + 404 + 错误处理
+  - [ ] 12.7. 创建 apps/server/src/routes/health.ts：GET /healthz → { ok: true, time: Date.now() }
+  - [ ] 12.8. 创建 apps/server/src/routes/ai.ts：POST /api/chat 透传 AI 非流式 + POST /api/chat/stream 透传 SSE 流式
+  - [ ] 12.9. 创建 apps/server/src/services/conversation.ts：Map 维护会话历史
+  - [ ] 12.10. 创建 apps/server/src/index.ts：app.listen 启动 + SIGINT/SIGTERM 优雅关闭 + /healthz 验证
+
+## Phase 8: Vue3 网页端
+
+- [ ] 13. Vue3 端初始化（知识点 10.1-10.8）
+  - [ ] 13.1. 创建 apps/web-vue/package.json：name=@ai-study/web-vue、依赖 vue、vue-router、pinia、@vitejs/plugin-vue
+  - [ ] 13.2. 创建 apps/web-vue/vite.config.ts：port=5174、@vitejs/plugin-vue
+  - [ ] 13.3. 创建 apps/web-vue/tsconfig.json + vue-tsc 类型配置（含 vue 文件类型声明）
+  - [ ] 13.4. 创建 apps/web-vue/index.html + src/main.ts + src/App.vue（根入口）
+  - [ ] 13.5. 创建 apps/web-vue/src/router/index.ts（路由表：/、/m1、/m2、/m4）
+  - [ ] 13.6. 创建 apps/web-vue/src/stores/ 目录示例 chat.ts（Pinia）
+  - [ ] 13.7. 集成 Tailwind：apps/web-vue/tailwind.config.js、postcss.config.js、src/style.css（@tailwind）
+  - [ ] 13.8. 实现 Home.vue + ModuleCard.vue + 简单的 M1/M2/M4 占位页面
+
+## Phase 9: packages/shared + 三端联调
+
+- [ ] 14. packages/shared 公共包（知识点 11.1-11.4）
+  - [ ] 14.1. 创建 packages/shared/package.json：name=@ai-study/shared、main/module/types 字段
+  - [ ] 14.2. 创建 packages/shared/src/types/chat.ts（Role、ChatMessage、ChatRequest、ChatResponse、SSEChunk）
+  - [ ] 14.3. 创建 packages/shared/src/constants/models.ts（模型白名单、默认温度） + prompts.ts（默认 System Prompt）
+  - [ ] 14.4. 创建 packages/shared/src/utils/token.ts（Token 估算） + sse.ts（SSE 解析辅助） + id.ts（nanoid 封装）
+  - [ ] 14.5. 创建 packages/shared/src/index.ts 汇总导出
+- [ ] 15. 三端联调
+  - [ ] 15.1. apps/web-react 依赖 @ai-study/shared（workspace:*），把 types/constants 引用替换为 shared 来源
+  - [ ] 15.2. apps/web-vue 依赖 @ai-study/shared（workspace:*）
+  - [ ] 15.3. apps/server 依赖 @ai-study/shared（workspace:*）
+  - [ ] 15.4. `pnpm dev` 一键启动 React(5173) + Vue(5174) + Server(3000)，互相请求验证通过

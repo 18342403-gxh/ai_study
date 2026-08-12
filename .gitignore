@@ -1,16 +1,43 @@
-node_modules
-dist
+# 依赖
+node_modules/
+*/node_modules/
+
+# 构建产物
+dist/
+*/dist/
+.vite/
+
+# 环境变量文件
 .env
 .env.local
 .env.*.local
+
+# 日志
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# 系统
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# 编辑器
+.kiro/
+.trae-configs/
+
+# pnpm
+.pnpm-store/
 
 # Server
-server/node_modules/
-server/dist/
-server/data/*.db
-server/uploads/*
-!server/uploads/.gitkeep
-!server/data/.gitkeep
-server/.env
+apps/server/data/*.db
+apps/server/uploads/*
+!apps/server/uploads/.gitkeep
+!apps/server/data/.gitkeep
+
+# 脚本
+scripts/*.bash
+scripts/bin

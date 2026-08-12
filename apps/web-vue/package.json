@@ -1,0 +1,29 @@
+{
+  "name": "@ai-study/web-vue",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Vue3 端 AI 学习应用骨架",
+  "scripts": {
+    "dev": "vite --port 5174 --host 127.0.0.1",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview --port 4174",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-study/shared": "workspace:*",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.31",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@vitejs/plugin-vue": "^5.0.5",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.4.41",
+    "tailwindcss": "3.4.10",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0",
+    "vue-tsc": "^2.0.24"
+  }
+}

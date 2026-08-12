@@ -395,4 +395,164 @@
 | 模块 5：Function Calling | 8 |
 | 模块 6：RAG 集成 | 8 |
 | 模块 7：AI Agent | 8 |
-| **总计** | **60** |
+| Monorepo 工程化 | 7 |
+| 服务端（Node BFF） | 9 |
+| Vue3 网页端 | 8 |
+| packages/shared | 4 |
+| **总计** | **88** |
+
+---
+
+## 模块 8：Monorepo 工程化改造
+
+### 8.1 Monorepo 架构理解
+- **知识点**：Monorepo vs Polyrepo 的区别，适用场景
+- **对应文件**：`pnpm-workspace.yaml`、根 `package.json`
+- **学习要点**：工作区（workspace）概念、依赖提升（hoisting）、幽灵依赖、pnpm 的符号链接机制
+
+### 8.2 pnpm workspace 配置
+- **知识点**：使用 pnpm 工作区管理多包
+- **对应文件**：`pnpm-workspace.yaml`、根 `package.json`
+- **学习要点**：packages 数组路径配置、包命名约定 `@ai-study/*`、`pnpm add -w`、`pnpm --filter` 使用
+
+### 8.3 项目目录迁移
+- **知识点**：将原 React 项目迁移到 apps/web-react
+- **对应文件**：目录结构变更、路径更新
+- **学习要点**：迁移步骤、TSConfig path 别名更新、Vite root 配置、import 路径修正
+
+### 8.4 根 package.json 工作区脚本
+- **知识点**：编写统一脚本管理多包启动/构建
+- **对应文件**：根 `package.json` scripts
+- **学习要点**：`pnpm -r` 递归执行、`--parallel` 并行启动、`--filter` 精确选择、`dev` / `build` / `preview` 脚本
+
+### 8.5 TypeScript 项目引用（Project References）
+- **知识点**：配置 TS References 支持跨包类型引用
+- **对应文件**：根 `tsconfig.base.json`、各包 `tsconfig.json`
+- **学习要点**：`composite: true`、`references` 字段、路径别名映射、增量构建
+
+### 8.6 ESLint 与 Prettier 根统一配置
+- **知识点**：在根目录统一管理代码规范工具配置
+- **对应文件**：根 `.eslintrc`、`.prettierrc`、`.editorconfig`
+- **学习要点**：配置继承、各包 overrides、代码格式化统一入口
+
+### 8.7 .gitignore 与忽略文件统一
+- **知识点**：根 `.gitignore` 覆盖多包产物
+- **对应文件**：根 `.gitignore`
+- **学习要点**：各包的 dist / node_modules / .env 忽略模式
+
+---
+
+## 模块 9：Node.js BFF 服务端
+
+### 9.1 Node 服务端项目初始化
+- **知识点**：初始化 Node + TypeScript Express 项目
+- **对应文件**：`apps/server/package.json`、`tsconfig.json`
+- **学习要点**：`ts-node` / `tsx` 运行 TS、`@types/express` 类型、Nodemon/TSX watch 模式
+
+### 9.2 Express 应用结构搭建
+- **知识点**：搭建 Express 应用骨架（路由分层、中间件）
+- **对应文件**：`apps/server/src/app.ts`、`apps/server/src/routes/`
+- **学习要点**：Express 中间件链、Router 模块化、错误处理中间件、请求日志
+
+### 9.3 环境变量与配置管理
+- **知识点**：服务端 .env 管理（不能用 VITE_ 前缀！）
+- **对应文件**：`apps/server/.env.example`、`apps/server/src/config.ts`
+- **学习要点**：`dotenv` 加载、`process.env` 访问、配置集中导出、类型安全包装
+
+### 9.4 BFF API 代理层（AI API 转发）
+- **知识点**：服务端转发 AI API 请求，隐藏真实 API Key
+- **对应文件**：`apps/server/src/routes/ai.ts`
+- **学习要点**：服务端 `fetch`（Node 18+ 原生 / `undici` / `axios`）、请求透传、响应头处理、Error 映射
+
+### 9.5 SSE 流式代理
+- **知识点**：服务端将 AI 流式响应通过 SSE 转发给前端
+- **对应文件**：`apps/server/src/routes/ai.ts`
+- **学习要点**：Express 的 `res.write` / `res.flush`、`Content-Type: text/event-stream`、管道（pipeline）转发
+
+### 9.6 会话管理（内存 / Redis）
+- **知识点**：多轮对话上下文的服务端维护
+- **对应文件**：`apps/server/src/services/conversation.ts`
+- **学习要点**：`Map` 内存缓存 / `ioredis` 集成、会话 ID（cid）、消息历史存取、过期清理
+
+### 9.7 CORS 跨域配置
+- **知识点**：服务端配置 CORS 允许前端跨域请求
+- **对应文件**：`apps/server/src/middleware/cors.ts`
+- **学习要点**：`cors` 中间件、origin 白名单、credentials、预检请求（OPTIONS）
+
+### 9.8 日志与错误监控
+- **知识点**：服务端请求日志和异常捕获
+- **对应文件**：`apps/server/src/middleware/logger.ts`、`apps/server/src/middleware/errorHandler.ts`
+- **学习要点**：请求/响应耗时统计、结构化日志、全局错误兜底、错误堆栈过滤
+
+### 9.9 健康检查与启动入口
+- **知识点**：启动 HTTP 服务，提供健康检查接口
+- **对应文件**：`apps/server/src/index.ts`
+- **学习要点**：`app.listen()` 端口监听、`/healthz` 接口、优雅关闭（SIGTERM/SIGINT）、异常退出码
+
+---
+
+## 模块 10：Vue3 网页端
+
+### 10.1 Vue3 + Vite 项目初始化
+- **知识点**：创建 Vue3 + TypeScript + Vite 项目骨架
+- **对应文件**：`apps/web-vue/package.json`、`vite.config.ts`、`tsconfig.json`
+- **学习要点**：Vue SFC（`.vue` 单文件组件）、`defineProps`/`defineEmits`、Vite Vue 插件
+
+### 10.2 Vue Router 配置
+- **知识点**：使用 Vue Router v4 实现路由
+- **对应文件**：`apps/web-vue/src/router/index.ts`
+- **学习要点**：`createRouter`、`createWebHistory`、路由表配置、懒加载 `() => import()`、导航守卫
+
+### 10.3 Pinia 状态管理
+- **知识点**：使用 Pinia 管理全局状态
+- **对应文件**：`apps/web-vue/src/stores/`
+- **学习要点**：`defineStore`、State / Getters / Actions、`storeToRefs` 解构、持久化插件
+
+### 10.4 Tailwind CSS 在 Vue 中集成
+- **知识点**：Tailwind v3 与 Vue SFC 的配合
+- **对应文件**：`apps/web-vue/tailwind.config.js`、`src/style.css`
+- **学习要点**：content 路径包含 `.vue`、`@apply` 在 `<style>` 中使用、CSS Module 对比
+
+### 10.5 首页与模块列表页（Vue 实现）
+- **知识点**：用 Vue 组件方式重写首页导航
+- **对应文件**：`apps/web-vue/views/Home.vue`、`apps/web-vue/components/ModuleCard.vue`
+- **学习要点**：`v-for` 渲染列表、`v-bind` / `v-on`、`<router-link>`、`:class` 动态样式
+
+### 10.6 AI API 基础调用（Vue 版）
+- **知识点**：在 Vue 中调用 BFF 的非流式 AI 接口
+- **对应文件**：`apps/web-vue/composables/useChat.ts`、`apps/web-vue/views/M1ApiBasics.vue`
+- **学习要点**：`axios` / 原生 `fetch`、`ref` 管理 loading/error、`onMounted`、组件卸载 cancel
+
+### 10.7 流式响应（Vue 版 + SSE）
+- **知识点**：EventSource 消费 BFF 的 SSE 流式接口
+- **对应文件**：`apps/web-vue/composables/useStreaming.ts`、`apps/web-vue/views/M2Streaming.vue`
+- **学习要点**：`new EventSource(url)`、`onmessage` 事件、`close()` 关闭、`onerror` 重连
+
+### 10.8 基础聊天界面（Vue 版）
+- **知识点**：Vue 版简单聊天页面
+- **对应文件**：`apps/web-vue/views/M4Chat.vue`、`apps/web-vue/components/MessageBubble.vue`
+- **学习要点**：`textarea` 双向绑定 `v-model`、滚动到底部 `nextTick`、消息列表 `v-for` + key
+
+---
+
+## 模块 11：packages/shared 公共包
+
+### 11.1 公共类型定义包
+- **知识点**：抽离前端和服务端共享的 TS 类型
+- **对应文件**：`packages/shared/src/types/*.ts`
+- **学习要点**：`ChatRequest`、`ChatMessage`、`ChatResponse`、`Citation` 等类型统一导出、`export type` 语义
+
+### 11.2 公共常量包
+- **知识点**：跨端共享常量
+- **对应文件**：`packages/shared/src/constants/*.ts`
+- **学习要点**：模型名白名单、Temperature 范围、默认 System Prompt、模块路由映射等
+
+### 11.3 公共工具函数
+- **知识点**：与框架无关的纯工具函数
+- **对应文件**：`packages/shared/src/utils/*.ts`
+- **学习要点**：Token 估算、SSE 解析、时间格式化、ID 生成（nanoid）、纯函数无副作用
+
+### 11.4 构建与导出配置
+- **知识点**：配置 shared 包的构建和导出
+- **对应文件**：`packages/shared/package.json`、`tsconfig.json`
+- **学习要点**：`main` / `module` / `types` 字段、`tsup`/`vite` 构建（或直接源文件导入）、工作区依赖引用 `@ai-study/shared`

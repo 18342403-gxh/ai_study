@@ -300,3 +300,216 @@ export const interviewQuestions: InterviewQuestion[] = [
 4. **Phase 3**：模块 5（Function Calling）
 5. **Phase 4**：模块 6 + 模块 7（RAG + Agent）
 6. **Phase 5**：面试题数据填充 + 整体联调
+7. **Phase 6**：Monorepo 工程化改造
+8. **Phase 7**：Node.js BFF 服务端开发
+9. **Phase 8**：Vue3 网页端开发
+10. **Phase 9**：packages/shared 公共包抽离 + 三端联调
+
+---
+
+## Monorepo 架构（Phase 6）
+
+### 目录结构
+
+```
+ai_study/
+├── apps/
+│   ├── web-react/            # React 端（原项目，7 个学习模块）
+│   │   ├── package.json      # name: "@ai-study/web-react"
+│   │   ├── vite.config.ts
+│   │   ├── tailwind.config.js
+│   │   ├── tsconfig.json
+│   │   ├── index.html
+│   │   └── src/              # 原 src 完整迁移至此
+│   ├── web-vue/              # Vue3 网页端（新建）
+│   │   ├── package.json      # name: "@ai-study/web-vue"
+│   │   ├── vite.config.ts
+│   │   ├── tailwind.config.js
+│   │   ├── tsconfig.json
+│   │   ├── index.html
+│   │   └── src/
+│   └── server/               # Node.js BFF 服务端（新建）
+│       ├── package.json      # name: "@ai-study/server"
+│       ├── tsconfig.json
+│       ├── .env.example
+│       └── src/
+├── packages/
+│   └── shared/               # 公共类型/常量/工具
+│       ├── package.json      # name: "@ai-study/shared"
+│       ├── tsconfig.json
+│       └── src/
+│           ├── types/        # ChatRequest 等类型
+│           ├── constants/    # 模型白名单等
+│           └── utils/        # Token 估算、SSE 解析
+├── pnpm-workspace.yaml       # pnpm workspace 配置
+├── tsconfig.base.json        # 共享 TS 配置
+├── package.json              # 根 package.json（scripts + workspace deps）
+├── .editorconfig
+├── .prettierrc
+├── .eslintrc.js
+├── tailwind.config.js        # 根 Tailwind 预设（可选）
+└── .gitignore                # 统一忽略
+```
+
+### 技术选型更新
+
+| 用途 | 选择 | 说明 |
+|------|------|------|
+| 包管理器 | **pnpm** | Workspace 原生支持、硬链接节省磁盘、严格幽灵依赖防护 |
+| Node 服务端框架 | **Express** + TypeScript | 生态成熟、上手快、配合 SSE 流式非常成熟 |
+| 服务端运行时 | **tsx** + nodemon(可选) | tsx 比 ts-node 快，开发友好；生产用 `tsc && node dist` |
+| Vue3 路由 | **Vue Router v4** | Vue 官方路由 |
+| Vue3 状态 | **Pinia** | Vue 官方推荐，替代 Vuex |
+| Vue3 构建 | **Vite** + `@vitejs/plugin-vue` | 与 React 端统一构建工具 |
+| 跨端通信 | **HTTP + SSE** | Web-React 和 Web-Vue 都请求 Server BFF，BFF 再调 AI 服务 |
+| 包构建（shared） | 直接源码引用（初期），后续可选 `tsup` | 工作区 symlink 直接引用 TS 源文件即可 |
+
+### 端口规划
+
+| 项目 | 端口 | 说明 |
+|------|------|------|
+| apps/web-react | 5173 | React 学习端 |
+| apps/web-vue | 5174 | Vue3 学习端 |
+| apps/server | 3000 | BFF 服务端 |
+
+### 根 package.json 统一脚本示例
+
+```json
+{
+  "scripts": {
+    "dev": "pnpm --parallel --filter @ai-study/web-react --filter @ai-study/web-vue --filter @ai-study/server dev",
+    "dev:react": "pnpm --filter @ai-study/web-react dev",
+    "dev:vue": "pnpm --filter @ai-study/web-vue dev",
+    "dev:server": "pnpm --filter @ai-study/server dev",
+    "build": "pnpm -r build",
+    "build:shared": "pnpm --filter @ai-study/shared build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint \"{apps,packages}/**/*.{ts,tsx,vue}\"",
+    "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,vue,md,json}\""
+  }
+}
+```
+
+---
+
+## apps/server BFF 架构设计（Phase 7）
+
+### 请求流
+
+```
+Web (React/Vue)
+     │
+     ▼  /api/chat (POST)        /api/chat/stream (SSE GET/POST)
+ apps/server (Express, :3000)
+     │  ├─ cors middleware
+     │  ├─ logger middleware
+     │  ├─ routes/ai.ts
+     │  └─ services/ai.ts → 调用真实 AI API (OpenAI/Azure/...)
+     ▼
+  AI Provider
+```
+
+### 服务端路由
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/healthz` | 健康检查，返回 { ok: true } |
+| POST | `/api/chat` | 非流式聊天接口，BFF 转发给 AI Provider |
+| POST/GET | `/api/chat/stream` | SSE 流式聊天接口 |
+| GET | `/api/conversation/:id` | 获取会话历史（BFF 维护） |
+| DELETE | `/api/conversation/:id` | 删除会话 |
+
+### 关键类型（@ai-study/shared 共享）
+
+```typescript
+// packages/shared/src/types/chat.ts
+export type Role = 'system' | 'user' | 'assistant' | 'tool';
+export interface ChatMessage {
+  role: Role;
+  content: string;
+}
+export interface ChatRequest {
+  model: string;
+  messages: ChatMessage[];
+  temperature?: number;
+  stream?: boolean;
+}
+export interface ChatResponse {
+  id: string;
+  content: string;
+  usage?: { prompt_tokens: number; completion_tokens: number };
+}
+export interface SSEChunk {
+  delta?: string;
+  done: boolean;
+  error?: string;
+}
+```
+
+---
+
+## apps/web-vue 设计（Phase 8）
+
+### 目录结构
+
+```
+apps/web-vue/src/
+├── main.ts                # 入口：createApp + Pinia + Router
+├── App.vue                # 根组件
+├── router/index.ts        # Vue Router 配置
+├── stores/                # Pinia stores
+│   └── chat.ts            # 聊天状态示例
+├── composables/           # Vue composables = React Hooks
+│   ├── useChat.ts         # 非流式调用
+│   └── useStreaming.ts    # SSE 流式调用
+├── views/                 # 页面组件
+│   ├── Home.vue
+│   ├── M1ApiBasics.vue
+│   ├── M2Streaming.vue
+│   └── M4Chat.vue
+├── components/            # 子组件
+│   ├── ModuleCard.vue
+│   └── MessageBubble.vue
+└── style.css              # Tailwind 入口
+```
+
+### 路由表
+
+```typescript
+const routes = [
+  { path: '/', component: () => import('../views/Home.vue') },
+  { path: '/m1', component: () => import('../views/M1ApiBasics.vue') },
+  { path: '/m2', component: () => import('../views/M2Streaming.vue') },
+  { path: '/m4', component: () => import('../views/M4Chat.vue') },
+];
+```
+
+---
+
+## packages/shared 设计（Phase 9）
+
+### 导出结构
+
+```typescript
+// packages/shared/src/index.ts
+export * from './types/chat';
+export * from './types/rag';
+export * from './types/agent';
+export * from './constants/models';
+export * from './constants/prompts';
+export * from './utils/token';
+export * from './utils/sse';
+export * from './utils/id';
+```
+
+### 依赖方式
+
+在 apps/* 中引用：
+```json
+// apps/web-react/package.json
+"dependencies": { "@ai-study/shared": "workspace:*" }
+```
+```typescript
+import type { ChatMessage } from '@ai-study/shared';
+import { estimateTokenCount } from '@ai-study/shared';
+```
