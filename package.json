@@ -8,20 +8,29 @@
     "dev": "pnpm --parallel --filter @ai-study/server --filter @ai-study/web-react dev",
     "dev:react": "pnpm --filter @ai-study/web-react dev",
     "dev:vue": "pnpm --filter @ai-study/web-vue dev",
+    "dev:ssr": "pnpm --filter @ai-study/web-vue-nuxt dev",
     "dev:server": "pnpm --filter @ai-study/server dev",
-    "dev:all": "pnpm --parallel --filter @ai-study/server --filter @ai-study/web-react --filter @ai-study/web-vue dev",
-    "build": "pnpm -r --filter @ai-study/shared --filter @ai-study/web-react --filter @ai-study/web-vue --filter @ai-study/server build",
+    "dev:all": "pnpm --parallel --filter @ai-study/server --filter @ai-study/web-react --filter @ai-study/web-vue --filter @ai-study/web-vue-nuxt dev",
+    "build": "pnpm -r --filter @ai-study/shared --filter @ai-study/web-react --filter @ai-study/web-vue --filter @ai-study/web-vue-nuxt --filter @ai-study/server build",
     "build:shared": "pnpm --filter @ai-study/shared build",
     "build:react": "pnpm --filter @ai-study/web-react build",
     "build:vue": "pnpm --filter @ai-study/web-vue build",
+    "build:ssr": "pnpm --filter @ai-study/web-vue-nuxt build",
     "build:server": "pnpm --filter @ai-study/server build",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint \"{apps,packages}/**/*.{ts,tsx,vue}\"",
-    "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,vue,md,json}\""
+    "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,vue,md,json}\"",
+    "check:readme": "node scripts/check-readme-needs-update.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "prettier": "3.3.3",
     "typescript": "^5.5.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "nuxi": "3.13.2",
+      "unplugin": "1.16.1"
+    }
   }
 }

@@ -6,6 +6,9 @@ node_modules/
 dist/
 */dist/
 .vite/
+.nuxt/
+.output/
+.nitro/
 
 # 环境变量文件
 .env
@@ -16,6 +19,7 @@ dist/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+nuxt_log.txt
 
 # 系统
 .DS_Store
@@ -27,7 +31,8 @@ Thumbs.db
 
 # 编辑器
 .kiro/
-.trae-configs/
+.trae-configs/*
+!.trae-configs/readme-sync-fingerprint.json
 
 # pnpm
 .pnpm-store/

@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 📱 C 端改造：375px 安全区适配（iPhone 刘海/底部横条） */
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent; /* 禁止点击高亮 */
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+    /* 安全区底部留白（底部 TabBar / 输入框用） */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* 📱 C 端改造：1px 细线（解决移动端 1px 显示偏粗问题） */
+@layer components {
+  .hairline-bottom {
+    position: relative;
+  }
+  .hairline-bottom::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 1px;
+    background-color: #e5e7eb;
+    transform: scaleY(0.5);
+    transform-origin: 0 0;
+  }
+}
