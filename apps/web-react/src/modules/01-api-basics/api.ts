@@ -16,7 +16,7 @@
 import type { ChatRequest, ChatResponse } from './types'
 
 // 📝 面试考点：环境变量管理 — VITE_ 前缀变量才会暴露给客户端代码
-const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
+const API_URL = import.meta.env.VITE_AI_API_URL || 'https://open.bigmodel.cn/api/paas/v4'
 const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
 
 // 📝 面试考点：自定义错误类，携带 HTTP 状态码便于上层分类处理

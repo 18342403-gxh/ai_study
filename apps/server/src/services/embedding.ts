@@ -3,20 +3,25 @@
  * 调用智谱 AI 的 embedding 接口将文本转为向量
  */
 
-const API_URL = process.env.AI_API_URL || 'https://open.bigmodel.cn/api/paas/v4'
-const API_KEY = process.env.AI_API_KEY || ''
-const MODEL = process.env.EMBEDDING_MODEL || 'embedding-3'
+function getEnv() {
+  return {
+    apiUrl: process.env.AI_API_URL || 'https://open.bigmodel.cn/api/paas/v4',
+    apiKey: process.env.AI_API_KEY || '',
+    model: process.env.EMBEDDING_MODEL || 'embedding-3',
+  }
+}
 
 /** 将单段文本转为向量 */
 export const getEmbedding = async (text: string): Promise<number[]> => {
-  const response = await fetch(`${API_URL}/embeddings`, {
+  const { apiUrl, apiKey, model } = getEnv()
+  const response = await fetch(`${apiUrl}/embeddings`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       input: text,
     }),
   })

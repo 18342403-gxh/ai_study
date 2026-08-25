@@ -69,7 +69,7 @@ export class AIError extends Error {
 
 // ====== 配置常量 ======
 
-const API_URL = import.meta.env.VITE_AI_API_URL || 'https://api.openai.com/v1'
+const API_URL = import.meta.env.VITE_AI_API_URL || 'https://open.bigmodel.cn/api/paas/v4'
 const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
 const DEFAULT_MODEL = 'glm-4-flash'
 

@@ -15,9 +15,9 @@ export default defineNuxtConfig({
   ],
 
   runtimeConfig: {
-    bffUrl: process.env.BFF_URL || 'http://localhost:3001',
     public: {
-      appName: 'AI 学习平台',
+      appName: 'AI 组件生成器',
+      bffUrl: process.env.BFF_URL || 'http://localhost:3001',
     },
   },
 
@@ -33,11 +33,12 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'AI 学习平台 — Vue3 SSR',
+      title: 'AI 组件生成器',
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'description', content: 'AI + C 端双侧重学习平台 — Nuxt 3 SSR' },
+        { name: 'description', content: 'AI 驱动的组件生成器 - 用对话生成代码' },
+        { name: 'theme-color', content: '#f0abfc' },
       ],
     },
   },
