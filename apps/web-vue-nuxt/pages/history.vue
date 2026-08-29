@@ -1,4 +1,6 @@
 <script setup lang="ts">
+const router = useRouter()
+
 const { sessions, activeSessionId, switchSession, deleteSession, loadOrCreateSession } = useChat()
 
 onMounted(() => {
@@ -20,7 +22,7 @@ const formatDate = (ts: number) => {
 
 const goToSession = (id: string) => {
   switchSession(id)
-  navigateTo('/')
+  router.push('/')
 }
 
 const handleDelete = (e: Event, id: string) => {
@@ -39,7 +41,7 @@ const handleDelete = (e: Event, id: string) => {
         </div>
         <button
           class="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors"
-          @click="navigateTo('/')"
+          @click="router.push('/')"
         >
           + 新建对话
         </button>
@@ -54,7 +56,7 @@ const handleDelete = (e: Event, id: string) => {
         <p class="text-sm text-slate-400 mb-6">开始你的第一次 AI 对话吧</p>
         <button
           class="px-6 py-2.5 bg-gradient-primary text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
-          @click="navigateTo('/')"
+          @click="router.push('/')"
         >
           开始对话
         </button>

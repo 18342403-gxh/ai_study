@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { useRag } from '../composables/useRag'
-
 const {
   documents,
   isLoading,

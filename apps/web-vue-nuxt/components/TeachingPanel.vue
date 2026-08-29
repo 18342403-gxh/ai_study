@@ -32,7 +32,7 @@
  * Vue computed ↔ React useMemo
  */
 
-import type { ChatMessage } from '~/composables/useChat'
+import type { ChatMessage } from '@ai-study/shared'
 
 const props = defineProps<{
   messages: ChatMessage[]

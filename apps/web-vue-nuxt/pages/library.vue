@@ -10,6 +10,7 @@ interface Template {
   isServer?: boolean
 }
 
+const router = useRouter()
 const templates = ref<Template[]>([])
 const isLoading = ref(false)
 const serverTemplates = ref<Template[]>([])
@@ -115,11 +116,11 @@ onMounted(() => {
 const handleUseTemplate = (prompt: string) => {
   createNewSession()
   sendMessage(prompt)
-  navigateTo('/')
+  router.push('/')
 }
 
 const handleUpload = () => {
-  navigateTo('/rag')
+  router.push('/rag')
 }
 </script>
 
@@ -146,7 +147,7 @@ const handleUpload = () => {
             </button>
             <button
               class="px-5 py-2.5 bg-white text-brand-600 rounded-xl text-sm font-medium hover:bg-white/90 transition-colors"
-              @click="navigateTo('/')"
+              @click="router.push('/')"
             >
               自由对话 →
             </button>

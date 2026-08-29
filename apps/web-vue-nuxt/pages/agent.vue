@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { useAgent } from '../composables/useAgent'
-
 const {
   state,
   status,
@@ -45,14 +43,7 @@ const phaseLabel = computed(() => {
 
 const handleRun = async () => {
   if (!input.value.trim() || isRunning.value) return
-
-  const messages = [{ role: 'user', content: input.value }]
-  const options: { threadId?: string } = {}
-  if (threadId.value.trim()) {
-    options.threadId = threadId.value.trim()
-  }
-
-  await runAgent(messages, options)
+  await runAgent(input.value, threadId.value.trim() || undefined)
 }
 
 const handleReset = () => {
@@ -127,12 +118,12 @@ const formatTime = (ts: number): string => {
               <button
                 v-if="state?.status === 'running'"
                 class="flex-1 px-3 py-2 bg-amber-50 text-amber-600 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors"
-                @click="state && pauseAgent(state.thread_id)"
+                @click="state && pauseAgent(state.threadId)"
               >⏸️ 暂停</button>
               <button
                 v-if="state?.status === 'paused'"
                 class="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
-                @click="state && resumeAgent(state.thread_id)"
+                @click="state && resumeAgent(state.threadId, input)"
               >▶️ 恢复</button>
               <button
                 class="flex-1 px-3 py-2 bg-slate-50 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-100 transition-colors"

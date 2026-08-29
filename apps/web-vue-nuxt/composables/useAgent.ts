@@ -16,11 +16,11 @@
  */
 
 import { ref, computed } from 'vue'
-import type { AgentPhase, AgentStatus } from '@ai-study/shared'
+import type { AgentPhase, AgentState, AgentStatus } from '@ai-study/shared'
 
-interface Thought {
-  node: AgentPhase
-  content: string
+interface PhaseHistoryItem {
+  phase: AgentPhase
+  message: string
   timestamp: number
 }
 
@@ -31,18 +31,10 @@ interface ToolCall {
   status: 'running' | 'completed' | 'error'
 }
 
-const state = ref<{
-  threadId: string
-  status: AgentStatus
-  phase: AgentPhase
-  iteration: number
-  messageCount: number
-  lastAnswer?: string
-  error?: string
-} | null>(null)
+const state = ref<AgentState | null>(null)
 
 const isRunning = ref(false)
-const phaseHistory = ref<Thought[]>([])
+const phaseHistory = ref<PhaseHistoryItem[]>([])
 const toolCalls = ref<ToolCall[]>([])
 const finalAnswer = ref('')
 const error = ref<string | null>(null)
@@ -111,8 +103,9 @@ export function useAgent() {
       }
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Agent 运行失败'
-      if (state.value) {
-        state.value.status = 'failed'
+      const curState = state.value as AgentState | null
+      if (curState) {
+        curState.status = 'failed'
       }
     } finally {
       isRunning.value = false
@@ -129,7 +122,7 @@ export function useAgent() {
           threadId: event.threadId as string,
           status: 'running',
           phase: 'think',
-          iteration: 0,
+          step: 0,
           messageCount: 0,
         }
         break
@@ -142,21 +135,21 @@ export function useAgent() {
         switch (innerEvent) {
           case 'on_chain_start':
             phaseHistory.value.push({
-              node: (name as AgentPhase) || 'think',
-              content: data ? JSON.stringify(data) : '',
+              phase: (name as AgentPhase) || 'think',
+              message: data ? JSON.stringify(data) : '',
               timestamp: Date.now(),
             })
             if (state.value) {
               state.value.phase = (name as AgentPhase) || 'think'
               if (data && typeof data === 'object' && 'iteration' in data) {
-                state.value.iteration = data.iteration as number
+                state.value.step = data.iteration as number
               }
             }
             break
 
           case 'on_chain_stream':
             if (name === 'think' || name === 'answer') {
-              const delta = data as string
+              const delta = (data as unknown) as string
               finalAnswer.value += delta
             }
             break
@@ -164,21 +157,21 @@ export function useAgent() {
           case 'on_chain_end':
             if (name === 'answer') {
               if (data && typeof data === 'object' && 'content' in data) {
-                finalAnswer.value = data.content as string
+                finalAnswer.value = (data.content as unknown) as string
               }
             }
             if (name === 'Agent') {
               if (data && typeof data === 'object') {
                 state.value = {
                   threadId: currentThreadId.value,
-                  status: (data.status as AgentStatus) || 'completed',
+                  status: ((data.status as AgentStatus) || 'completed') as AgentStatus,
                   phase: 'answer',
-                  iteration: (data.iterations as number) || state.value?.iteration || 0,
+                  step: (data.iterations as number) || state.value?.step || 0,
                   messageCount: 0,
-                  lastAnswer: data.answer as string,
+                  lastAnswer: (data.answer as unknown) as string,
                 }
                 if (data.answer) {
-                  finalAnswer.value = data.answer as string
+                  finalAnswer.value = (data.answer as unknown) as string
                 }
               }
             }

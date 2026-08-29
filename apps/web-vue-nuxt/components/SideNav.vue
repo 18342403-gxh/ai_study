@@ -12,6 +12,7 @@
  */
 
 const route = useRoute()
+const router = useRouter()
 
 const navItems = [
   { key: 'generate', label: '组件生成', icon: '✨', to: '/', desc: 'AI 对话生成组件代码' },
@@ -48,7 +49,7 @@ const activeKey = computed(() => {
     <div class="p-3">
       <button
         class="w-full h-10 rounded-xl bg-gradient-primary text-white text-sm font-medium transition-all hover:shadow-lg hover:shadow-brand-200 active:scale-[0.98] flex items-center justify-center gap-2"
-        @click="navigateTo('/')"
+        @click="router.push('/')"
       >
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <path d="M12 5v14M5 12h14" />
