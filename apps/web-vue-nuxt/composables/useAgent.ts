@@ -16,7 +16,7 @@
  */
 
 import { ref, computed } from 'vue'
-import type { AgentPhase, AgentState, AgentStatus } from '@ai-study/shared'
+import type { AgentPhase, AgentState, AgentStatus, HarnessCheckResult } from '@ai-study/shared'
 
 interface PhaseHistoryItem {
   phase: AgentPhase
@@ -39,6 +39,7 @@ const toolCalls = ref<ToolCall[]>([])
 const finalAnswer = ref('')
 const error = ref<string | null>(null)
 const currentThreadId = ref('')
+const harnessChecks = ref<HarnessCheckResult[]>([])
 
 export function useAgent() {
   const config = useRuntimeConfig()
@@ -53,6 +54,7 @@ export function useAgent() {
     finalAnswer.value = ''
     phaseHistory.value = []
     toolCalls.value = []
+    harnessChecks.value = []
     state.value = null
 
     try {
@@ -194,6 +196,10 @@ export function useAgent() {
             break
           }
 
+          case 'on_harness_check':
+            harnessChecks.value.push(data as unknown as HarnessCheckResult)
+            break
+
           case 'on_interrupt':
             if (state.value) {
               state.value.status = 'paused'
@@ -267,6 +273,7 @@ export function useAgent() {
     finalAnswer.value = ''
     phaseHistory.value = []
     toolCalls.value = []
+    harnessChecks.value = []
     error.value = null
     currentThreadId.value = ''
   }
@@ -277,6 +284,7 @@ export function useAgent() {
     isRunning,
     phaseHistory,
     toolCalls,
+    harnessChecks,
     finalAnswer,
     error,
     currentThreadId,

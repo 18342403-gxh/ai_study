@@ -5,6 +5,7 @@ const {
   isRunning,
   phaseHistory,
   toolCalls,
+  harnessChecks,
   finalAnswer,
   error,
   runAgent,
@@ -172,6 +173,45 @@ const formatTime = (ts: number): string => {
                   >{{ call.status }}</span>
                 </div>
                 <p class="text-slate-500 truncate">Args: {{ JSON.stringify(call.args) }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Harness 安全检查面板 -->
+          <div class="bg-white rounded-2xl border border-slate-200 p-5">
+            <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+              🛡️ 安全检查 Harness
+              <span v-if="harnessChecks.length" class="text-xs font-normal text-slate-400">({{ harnessChecks.length }})</span>
+            </h3>
+            <div v-if="harnessChecks.length === 0" class="text-xs text-slate-400 text-center py-4">
+              运行 Agent 后显示检查结果
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="(check, idx) in harnessChecks"
+                :key="idx"
+                class="p-2.5 rounded-lg text-xs border"
+                :class="{
+                  'bg-emerald-50 border-emerald-200': check.result === 'pass',
+                  'bg-amber-50 border-amber-200': check.result === 'warn',
+                  'bg-red-50 border-red-200': check.result === 'block',
+                }"
+              >
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-medium text-slate-700">{{ check.name }}</span>
+                  <span
+                    class="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                    :class="{
+                      'bg-emerald-200 text-emerald-700': check.result === 'pass',
+                      'bg-amber-200 text-amber-700': check.result === 'warn',
+                      'bg-red-200 text-red-700': check.result === 'block',
+                    }"
+                  >{{ check.result }}</span>
+                </div>
+                <p v-if="check.reason" class="text-slate-500 text-[11px]">{{ check.reason }}</p>
+                <p v-if="check.rule && check.rule !== 'all_checks_passed'" class="text-slate-400 text-[10px] mt-0.5">
+                  rule: {{ check.rule }}
+                </p>
               </div>
             </div>
           </div>

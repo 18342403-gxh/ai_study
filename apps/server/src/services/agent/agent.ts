@@ -13,6 +13,7 @@
 
 import { createChatChain } from '../chain/chatChain.js'
 import { createFunctionCallingEngine } from '../tools/engine.js'
+import { checkInputSafety, checkOutputGuardrail, checkToolPolicy } from './harness/index.js'
 import { getDb } from '../../db/index.js'
 import { z } from 'zod'
 
@@ -147,6 +148,18 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
       state.iteration++
       state.currentNode = 'think'
 
+      // ── Harness ①: 输入安全检查（think 前） ──
+      const lastUserMsg = [...state.messages].reverse().find(m => m.role === 'user')?.content || userInput
+      const safetyCheck = checkInputSafety(lastUserMsg)
+      yield { event: 'on_harness_check', data: safetyCheck }
+      if (safetyCheck.result === 'block') {
+        state.status = 'error'
+        state.lastAnswer = `⚠️ Harness 拦截：${safetyCheck.reason}`
+        state.messages.push({ role: 'assistant', content: state.lastAnswer })
+        persistState(state)
+        break
+      }
+
       if (interruptOn.includes('think')) {
         state.status = 'paused'
         persistState(state)
@@ -179,6 +192,18 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
           yield { event: 'on_chain_start', name: 'call_tools', data: parsed }
           yield { event: 'on_tool_start', name: parsed.name, data: parsed.args || {} }
 
+          // ── Harness ②: 工具调用策略检查 ──
+          const policyCheck = checkToolPolicy(parsed.name, (parsed.args || {}) as Record<string, unknown>)
+          yield { event: 'on_harness_check', data: policyCheck }
+          if (policyCheck.result === 'block') {
+            yield { event: 'on_error', data: { message: `Harness 拦截工具调用: ${policyCheck.reason}` } }
+            state.messages.push({ role: 'assistant', content: `⚠️ 工具被拦截：${policyCheck.reason}` })
+            state.messages.push({ role: 'tool', content: JSON.stringify({ tool: parsed.name, blocked: true, reason: policyCheck.reason }) })
+            state.currentNode = 'observe'
+            persistState(state)
+            continue
+          }
+
           const results = await fcEngine.run(state.messages)
 
           yield { event: 'on_tool_end', name: parsed.name, data: results.toolCalls }
@@ -202,13 +227,23 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
         }
       } else {
         state.currentNode = 'answer'
-        state.lastAnswer = thinkContent
-        state.messages.push({ role: 'assistant', content: thinkContent })
+
+        // ── Harness ③: 输出 Guardrail（answer 前） ──
+        const { result: guardResult, sanitized } = checkOutputGuardrail(thinkContent)
+        yield { event: 'on_harness_check', data: guardResult }
+        if (guardResult.result === 'block') {
+          state.status = 'error'
+          state.lastAnswer = sanitized
+        } else {
+          state.lastAnswer = sanitized
+        }
+
+        state.messages.push({ role: 'assistant', content: state.lastAnswer })
 
         yield { event: 'on_chain_start', name: 'answer' }
-        yield { event: 'on_chain_end', name: 'answer', data: { content: thinkContent } }
+        yield { event: 'on_chain_end', name: 'answer', data: { content: state.lastAnswer } }
 
-        state.status = 'completed'
+        state.status = guardResult.result === 'block' ? 'error' : 'completed'
       }
 
       persistState(state)

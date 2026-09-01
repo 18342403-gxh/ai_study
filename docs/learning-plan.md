@@ -77,6 +77,7 @@ Week 1-2          Week 3-4          Week 5-6          Week 7-8
 | 11 | Vue3 网页端 | [11-vue3-web.md](./11-vue3-web.md) | 5-7 天 | AI 聊天界面 + Function Calling 可视化 + Agent 时间线 |
 | 12 | Nuxt 3 SSR 主学习端 | [12-nuxt3-ssr.md](./12-nuxt3-ssr.md) | 5-7 天 | SSR 架构 + Nitro 代理 + SEO + 三端类型共享 |
 | 13 | AI 组件生成器 | [13-ai-generator.md](./13-ai-generator.md) | 7-10 天 | 5 节点编排 + 代码生成 + 沙箱预览 + 迭代优化 |
+| 14 | Agent Harness 安全护栏 | [15-agent-harness.md](./15-agent-harness.md) | 4-5 天 | Guardrail → Tool Policy → Eval Runner 三层防护 |
 
 ## 每个模块的教学结构
 
@@ -113,6 +114,9 @@ Week 1-2          Week 3-4          Week 5-6          Week 7-8
 | 跨端类型共享 | m12 | packages/shared / Brand Type / Discriminated Union |
 | Generator 5 节点编排 | m13 | clarify / retrieve / generate / preview / iterate |
 | 代码沙箱预览 | m13 | Worker Threads / iframe sandbox / 实时预览 |
+| Agent 安全护栏 | m14 | Prompt Injection 检测 / 工具权限策略 / 输出 Guardrail |
+| Eval 自动化评测 | m14 | Test Case Runner / Pass-Fail 判定 / 报告生成 |
+| SSE Harness 事件 | m14 | on_harness_check / 实时安全面板 / 前端可视化 |
 
 ## 学习原则
 
@@ -133,6 +137,8 @@ Week 1-2          Week 3-4          Week 5-6          Week 7-8
 - ✅ RAG 知识库检索 + 引用溯源
 - ✅ Agent 多步推理 + 时间线展示
 - ✅ Generator 5 节点编排（clarify → retrieve → generate → preview → iterate）
+- ✅ Agent Harness 三层防护（输入安全 + 工具权限 + 输出 Guardrail）
+- ✅ Eval Runner 自动化评测（测试用例 + 通过率报告）
 
 ### 工程能力
 - ✅ Vue3/Nuxt3 SSR 工程化实践
