@@ -1,3 +1,7 @@
 export * from './logger.js'
 export * from './errorHandler.js'
 export * from './validate.js'
+export * from './rateLimit.js'
+export * from './cache.js'
+export * from './circuitBreaker.js'
+export * from './metrics.js'
