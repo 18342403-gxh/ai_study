@@ -4,14 +4,34 @@
  */
 
 import { Router } from 'express'
+import { z } from 'zod'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
 
+// ── Zod 校验 Schema ─────────────────────────────────
+const messageSchema = z.object({
+  role: z.enum(['system', 'user', 'assistant', 'tool']),
+  content: z.string().min(1, '消息内容不能为空').max(20_000, '消息过长（最多 20000 字符）'),
+  name: z.string().optional(),
+})
+
+const chatCompletionsSchema = z.object({
+  messages: z.array(messageSchema).min(1, '至少一条消息').max(50, '最多 50 条消息'),
+  model: z.string().min(1).max(64).optional(),
+  stream: z.boolean().optional().default(false),
+  temperature: z.number().min(0).max(2).optional().default(0.7),
+})
+
+// ── 路由 ─────────────────────────────────────────────
+
 /** POST /api/chat/completions */
-router.post('/completions', async (req, res) => {
-  try {
-    const { messages, model, stream, temperature } = req.body
+router.post(
+  '/completions',
+  validate({ body: chatCompletionsSchema }),
+  asyncHandler(async (req, res) => {
+    const { messages, model, stream, temperature } = req.body as z.infer<typeof chatCompletionsSchema>
 
     const chain = createChatChain({ model, temperature })
 
@@ -38,16 +58,7 @@ router.post('/completions', async (req, res) => {
         usage: result.usage,
       })
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '请求失败'
-    const statusCode = err instanceof Error && 'statusCode' in err ? (err as { statusCode: number }).statusCode : 500
-    if (!res.headersSent) {
-      res.status(statusCode).json({ error: message })
-    } else {
-      res.write(`data: ${JSON.stringify({ error: message })}\n\n`)
-      res.end()
-    }
-  }
-})
+  })
+)
 
 export default router
