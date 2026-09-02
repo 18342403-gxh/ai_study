@@ -10,10 +10,13 @@ dist/
 .output/
 .nitro/
 
-# 环境变量文件
+# 环境变量文件（所有层级）
 .env
 .env.local
 .env.*.local
+apps/*/.env
+apps/*/.env.local
+apps/*/.env.*.local
 
 # 日志
 *.log

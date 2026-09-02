@@ -107,14 +107,26 @@ pnpm install --no-frozen-lockfile
 
 ### 配置环境变量
 
+本项目的 API Key **只在 BFF 服务端读取**（`apps/server/.env`），前端代码不含任何密钥。
+
 ```bash
-copy apps\server\.env.example apps\server\.env
-# 编辑 apps\server\.env 填入 API Key
-#   ZHIPU_API_KEY=...
-#   OPENAI_API_KEY=（可选）
-#   EMBEDDING_MODEL=embedding-2
-#   CHAT_MODEL=glm-4-flash
+# 1. 复制模板（不要直接改 .env.example）
+copy apps\server\.env.example apps\server\.env      # Windows
+# cp apps/server/.env.example apps/server/.env      # macOS / Linux
+
+# 2. 编辑 apps/server/.env，填入你的 API Key：
+#    AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+#
+#    可选：更换模型 / 接口地址（默认智谱 AI，兼容 OpenAI 协议的厂商均可）
+#    AI_API_URL=https://api.openai.com/v1
+#    AI_MODEL=gpt-4o-mini
+#    EMBEDDING_MODEL=text-embedding-3-small
 ```
+
+**`.env` 文件安全说明**：
+- `.env` 已在 `.gitignore` 中被忽略，**绝对不会被提交到 git**
+- 提交前运行 `git status`，确认 `.env` 不在 staged 列表里
+- 如果之前误提交过密钥，立即到对应厂商控制台**重新生成新 Key**
 
 ### 一键启动
 
