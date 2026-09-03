@@ -50,7 +50,7 @@ ai_study/
 │   │   └── composables/     #   useStreaming · useAiChat · useTokenCounter 等
 │   ├── web-react/           # React 18 SPA（Vite :5173）— 对照端
 │   ├── web-vue/             # Vue 3 SPA（Vite :5174）— 对照端
-│   ├── generator/           # AI 组件生成器（Nuxt 3 SSR :3003）— 产品主线（待创建）
+│   ├── generator/           # AI 生成器（Nuxt 3 SSR :3003）— 产品主线，支持组件 / Skill 双模式
 │   └── desktop/             # Electron 桌面端（方案预留，当前不开发）
 ├── packages/
 │   └── shared/              # @ai-study/shared — 公共类型/常量/DTO
@@ -70,7 +70,7 @@ ai_study/
 |------|------|------|
 | `apps/server`          | **:3001** | Node BFF（SSR 端 + 生成器端共用） |
 | `apps/web-vue-nuxt`    | **:3002** | Nuxt 3 SSR 主端（默认 3002，:3000 常被占用） |
-| `apps/generator`       | **:3003** | AI 组件生成器（待创建） |
+| `apps/generator`       | **:3003** | AI 生成器（Nuxt 3 SSR）— 组件 / Skill 双模式 |
 | `apps/web-react`       | **:5173** | React SPA |
 | `apps/web-vue`         | **:5174** | Vue 3 SPA |
 | `apps/desktop`         | 开发期不占端口（loadURL → :3003） | Electron 预留 |
