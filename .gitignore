@@ -49,3 +49,8 @@ apps/server/uploads/*
 # 脚本
 scripts/*.bash
 scripts/bin
+
+# Playwright E2E
+playwright-report/
+test-results/
+playwright/.cache/
