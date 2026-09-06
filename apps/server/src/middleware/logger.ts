@@ -1,18 +1,15 @@
 /**
- * 请求日志中间件 + 内存环形缓冲区
+ * 请求日志中间件
  *
- * 输出同时到达两个地方：
- *   1. process.stdout — 终端可见
- *   2. LogRingBuffer  — 供 GET /api/logs 查询 & SSE 推送
+ * 每个请求生成唯一 requestId（crypto.randomUUID()），通过 X-Request-Id 头输出。
+ * 日志通过 services/logger 门面写入，统一进入环形缓冲区。
  *
- * 日志行格式：
- *   [INFO ] abc123 GET /api/sessions 200 45.23ms
- *   [WARN ] abc124 POST /api/chat/completions 429 12.10ms
- *   [ERROR] abc125 GET /api/agent/run 500 234.56ms
+ * 旧接口兼容：getLogs / subscribeLogs 代理到 services/logger
  */
 
 import { randomUUID } from 'node:crypto'
 import type { Request, Response, NextFunction } from 'express'
+import { logger, withRequestId, getLogs as getLoggerLogs, subscribeLogs as subscribeLoggerLogs, type LogLevel } from '../services/logger.js'
 
 declare global {
   namespace Express {
@@ -22,15 +19,10 @@ declare global {
   }
 }
 
-// ──────────────────────────────────────────────────
-// 环形缓冲区 + SSE 广播
-// ──────────────────────────────────────────────────
-
-export type LogLevel = 'INFO' | 'WARN' | 'ERROR'
-
+export type { LogLevel }
 export interface LogEntry {
   id: number
-  time: string           // ISO
+  time: string
   level: LogLevel
   requestId: string
   method: string
@@ -39,33 +31,42 @@ export interface LogEntry {
   durationMs: number
 }
 
-const MAX_LOGS = 1000
-const logBuffer: LogEntry[] = []
-let logSeq = 0
+export function getLogs(filter?: { level?: LogLevel; limit?: number }): LogEntry[] {
+  // 从通用日志中筛选 http 请求记录
+  const all = getLoggerLogs({ level: filter?.level, limit: filter?.limit ? filter.limit * 5 : undefined })
+  return all
+    .filter(r => r.tag === 'http' && r.data && typeof r.data === 'object' && 'method' in (r.data as object))
+    .map(r => {
+      const d = r.data as Record<string, unknown>
+      return {
+        id: r.id,
+        time: r.time,
+        level: r.level,
+        requestId: r.requestId ?? '',
+        method: d.method as string,
+        url: d.url as string,
+        status: d.status as number,
+        durationMs: d.durationMs as number,
+      }
+    })
+}
 
-type LogSubscriber = (entry: LogEntry) => void
-const subscribers = new Set<LogSubscriber>()
-
-function pushLog(entry: LogEntry) {
-  logBuffer.push(entry)
-  if (logBuffer.length > MAX_LOGS) logBuffer.shift()
-  // 异步广播（不阻塞请求）
-  queueMicrotask(() => {
-    for (const fn of subscribers) {
-      try { fn(entry) } catch { /* 订阅者自身问题不影响其他 */ }
+export function subscribeLogs(fn: (entry: LogEntry) => void): () => void {
+  return subscribeLoggerLogs(rec => {
+    if (rec.tag === 'http' && rec.data && typeof rec.data === 'object' && 'method' in (rec.data as object)) {
+      const d = rec.data as Record<string, unknown>
+      fn({
+        id: rec.id,
+        time: rec.time,
+        level: rec.level,
+        requestId: rec.requestId ?? '',
+        method: d.method as string,
+        url: d.url as string,
+        status: d.status as number,
+        durationMs: d.durationMs as number,
+      })
     }
   })
-}
-
-export function getLogs(filter?: { level?: LogLevel; limit?: number }): LogEntry[] {
-  let arr = filter?.level ? logBuffer.filter(l => l.level === filter.level) : [...logBuffer]
-  if (filter?.limit && filter.limit > 0) arr = arr.slice(-filter.limit)
-  return arr
-}
-
-export function subscribeLogs(fn: LogSubscriber): () => void {
-  subscribers.add(fn)
-  return () => subscribers.delete(fn)
 }
 
 // ──────────────────────────────────────────────────
@@ -82,27 +83,19 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
 
   res.on('finish', () => {
     const diffNs = Number(process.hrtime.bigint() - start)
-    const ms = (diffNs / 1e6).toFixed(2)
+    const ms = Number((diffNs / 1e6).toFixed(2))
     const status = res.statusCode
     const level: LogLevel = status >= 500 ? 'ERROR' : status >= 400 ? 'WARN' : 'INFO'
 
-    // stdout（兼容原格式）
-    process.stdout.write(
-      `[${level}] ${requestId} ${req.method} ${req.originalUrl} ${status} ${ms}ms\n`
-    )
+    const tag = 'http'
+    const msg = `${req.method} ${req.originalUrl} ${status} ${ms.toFixed(2)}ms`
+    const data = { method: req.method, url: req.originalUrl, status, durationMs: ms }
 
-    // 环形缓冲区（供浏览器查看）
-    const entry: LogEntry = {
-      id: ++logSeq,
-      time: new Date().toISOString(),
-      level,
-      requestId,
-      method: req.method,
-      url: req.originalUrl,
-      status,
-      durationMs: Number(ms),
-    }
-    pushLog(entry)
+    withRequestId(requestId, () => {
+      if (level === 'ERROR') logger.error(tag, msg, data)
+      else if (level === 'WARN') logger.warn(tag, msg, data)
+      else logger.info(tag, msg, data)
+    })
   })
 
   next()

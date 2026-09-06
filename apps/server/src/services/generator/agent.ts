@@ -16,6 +16,7 @@ import { createChatChain } from '../chain/chatChain.js'
 import { createRAGService } from '../rag/index.js'
 import { createCodegenEngine, type ArtifactType, type Framework, type CodegenResult, type GeneratedFile } from './codegen.js'
 import { getDb } from '../../db/index.js'
+import { logger } from '../logger.js'
 
 export type GeneratorNode = 'clarify' | 'retrieve' | 'generate' | 'preview' | 'iterate'
 export type GeneratorStatus =
@@ -149,9 +150,14 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
       yield { event: 'on_chain_start', node: 'clarify', data: { requirement, artifactType, framework, skillName } }
 
+      logger.info('generator.stream', '开始生成', { artifactType, framework, skillName, stateId: state.id })
+      const t0 = Date.now()
+
       try {
         // Node 1: Clarify — 需求细化（按 type 分流 prompt）
+        logger.debug('generator.clarify', 'LLM 调用中', { type: artifactType })
         const clarified = await clarify(requirement, artifactType)
+        logger.info('generator.clarify', '需求细化完成', { stateId: state.id, resultLen: clarified.length, costMs: Date.now() - t0 })
         state.clarifiedRequirement = clarified
         state.status = 'retrieving'
         state.history.push({ node: 'clarify', content: clarified, timestamp: Date.now() })
@@ -162,6 +168,7 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
         const references = config.enableRAG === false
           ? []
           : await retrieve(clarified, artifactType)
+        logger.info('generator.retrieve', 'RAG 检索完成', { stateId: state.id, referenceCount: references.length })
         state.references = references
         state.status = 'generating'
         state.history.push({ node: 'retrieve', content: `found ${references.length} references`, timestamp: Date.now() })
@@ -169,6 +176,7 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
         // Node 3: Generate — 代码生成（流式）
         yield { event: 'on_chain_start', node: 'generate', data: { iteration: 1, artifactType } }
+        logger.info('generator.generate', '开始代码生成', { stateId: state.id, artifactType })
 
         // 构造 codegen 请求（discriminated union 正确分流）
         const codegenReq = artifactType === 'component'
@@ -176,9 +184,11 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
           : { type: 'skill' as const, requirement: clarified, skillName: skillName!, scriptLang, references }
 
         let fullContent = ''
+        let chunkCount = 0
         for await (const genEvent of codegen.streamGenerate(codegenReq)) {
           if (genEvent.type === 'delta' && genEvent.content) {
             fullContent += genEvent.content
+            chunkCount++
             yield { event: 'on_delta', node: 'generate', data: genEvent.content }
           }
           if (genEvent.type === 'done' && genEvent.data) {
@@ -190,6 +200,7 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
             }
           }
         }
+        logger.info('generator.generate', '代码生成完成', { stateId: state.id, chunkCount, totalChars: fullContent.length, costMs: Date.now() - t0 })
 
         state.status = 'previewing'
         state.history.push({ node: 'generate', content: fullContent.slice(0, 200), timestamp: Date.now() })
@@ -224,8 +235,10 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
         // 持久化
         await persistGeneratorState(state)
+        logger.info('generator.stream', '生成完成', { stateId: state.id, totalCostMs: Date.now() - t0, iteration: state.iteration })
       } catch (err) {
         state.status = 'error'
+        logger.error('generator.stream', '生成失败', { stateId: state.id, error: (err as Error).message, costMs: Date.now() - t0 })
         yield { event: 'on_error', data: { message: (err as Error).message } }
       }
     },

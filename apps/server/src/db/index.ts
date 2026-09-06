@@ -175,11 +175,23 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
 
   /** 把裸表名加 app schema 前缀（简单正则，覆盖常见情况） */
   const qualifySchema = (sql: string): string => {
-    // 匹配 FROM/JOIN/INTO/UPDATE 后面紧跟的裸表名，加 app. 前缀
     return sql.replace(
       /\b(FROM|JOIN|INTO|UPDATE)\s+(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
       (_m, kw: string, table: string) => `${kw} app.${table}`
     )
+  }
+
+  /**
+   * 参数类型转换：SQLite 用 INTEGER 存时间戳，PG 用 TIMESTAMPTZ
+   * 把看起来像毫秒时间戳的整数（> 1e12，约 2001 年后）转成 ISO 日期字符串
+   */
+  const coerceParams = (params: unknown[]): unknown[] => {
+    return params.map((p) => {
+      if (typeof p === 'number' && p > 1_000_000_000_000 && Number.isFinite(p)) {
+        return new Date(p).toISOString()
+      }
+      return p
+    })
   }
 
   const prepareForPg = (sql: string): string => qualifySchema(sqliteToPgParams(sql))
@@ -189,18 +201,18 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
       const pgSql = prepareForPg(sql)
       return {
         async run(...params: unknown[]) {
-          const rows: any[] = await client.unsafe(pgSql, params as any)
+          const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
           return {
             lastInsertRowid: rows?.[0]?.id ?? null,
             changes: rows?.length ?? 0,
           }
         },
         async get<T = unknown>(...params: unknown[]) {
-          const rows: any[] = await client.unsafe(pgSql, params as any)
+          const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
           return rows?.[0] as T | undefined
         },
         async all<T = unknown>(...params: unknown[]) {
-          return (await client.unsafe(pgSql, params as any)) as T[]
+          return (await client.unsafe(pgSql, coerceParams(params) as any)) as T[]
         },
       }
     },
@@ -242,11 +254,18 @@ const initPostgres = () => {
 let sqliteWrapped: AsyncDb | null = null
 
 export const initDatabase = () => {
+  // 延迟 import 避免循环依赖（services/logger 间接依赖 db）
+  import('../services/logger.js').then(({ logger }) => {
+    if (DRIVER === 'postgres') {
+      logger.info('db', '数据库初始化完成', { driver: 'PostgreSQL' })
+    } else {
+      logger.info('db', '数据库初始化完成', { driver: 'SQLite (default)' })
+    }
+  })
+
   if (DRIVER === 'postgres') {
-    console.log('📊 Database driver: PostgreSQL')
     initPostgres()
   } else {
-    console.log('📊 Database driver: SQLite (default)')
     initSqlite()
     sqliteWrapped = wrapSqliteAsAsync(sqliteDb!)
   }

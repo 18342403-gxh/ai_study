@@ -133,6 +133,8 @@ export function circuitBreaker(req: Request, res: Response, next: NextFunction) 
   const checkResult = () => {
     if (responded) return
     responded = true
+    // SSE 流等长连接场景 headers 已发，不再设 header
+    if (res.headersSent) return
 
     if (isFailure(res.statusCode)) {
       circuit.failures++

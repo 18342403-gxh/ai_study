@@ -4,6 +4,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express'
+import { logger } from '../services/logger.js'
 
 export interface AppError extends Error {
   statusCode?: number
@@ -19,7 +20,11 @@ export const errorHandler = (
   const statusCode = err.statusCode || 500
   const message = err.message || '内部服务器错误'
 
-  process.stderr.write(`[ERROR] ${statusCode} ${err.stack || err.message}\n`)
+  logger.error('http.error', `${statusCode} ${message}`, {
+    stack: err.stack,
+    code: err.code,
+    url: _req.originalUrl,
+  })
 
   res.status(statusCode).json({
     error: {
