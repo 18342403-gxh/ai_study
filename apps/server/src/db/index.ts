@@ -13,6 +13,7 @@
 import 'dotenv/config'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { logger } from '../services/logger.js'
 
 const DRIVER = process.env.DATABASE_DRIVER || 'sqlite'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -208,33 +209,90 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
 
   const prepareForPg = (sql: string): string => qualifySchema(sqliteToPgParams(sql))
 
+  // 根据 SQL 判断操作类型（用于日志 tag）
+  const opType = (sql: string): string => {
+    const upper = sql.trim().toUpperCase()
+    if (upper.startsWith('INSERT')) return 'INSERT'
+    if (upper.startsWith('UPDATE')) return 'UPDATE'
+    if (upper.startsWith('DELETE')) return 'DELETE'
+    if (upper.startsWith('SELECT')) return 'SELECT'
+    if (upper.startsWith('CREATE')) return 'CREATE'
+    if (upper.startsWith('DROP')) return 'DROP'
+    if (upper.startsWith('ALTER')) return 'ALTER'
+    return 'OTHER'
+  }
+
+  // 从 SQL 提取表名（简单版，用于日志 data）
+  const extractTable = (sql: string): string => {
+    const m = sql.match(/(?:FROM|JOIN|INTO|UPDATE)\s+(\w+)/i)
+    return m?.[1] ?? '?'
+  }
+
   return {
     prepare(sql: string) {
       const pgSql = prepareForPg(sql)
+      const op = opType(sql)
+      const table = extractTable(sql)
       return {
         async run(...params: unknown[]) {
-          const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
-          return {
-            lastInsertRowid: rows?.[0]?.id ?? null,
-            changes: rows?.length ?? 0,
+          const t0 = Date.now()
+          try {
+            const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
+            const result = { lastInsertRowid: rows?.[0]?.id ?? null, changes: rows?.length ?? 0 }
+            logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0, changes: result.changes })
+            return result
+          } catch (err) {
+            logger.error('db', `SQL ${op} ${table} FAILED`, { op, table, error: (err as Error).message, costMs: Date.now() - t0, sql: pgSql })
+            throw err
           }
         },
         async get<T = unknown>(...params: unknown[]) {
-          const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
-          return rows?.[0] as T | undefined
+          const t0 = Date.now()
+          try {
+            const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
+            logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0 })
+            return rows?.[0] as T | undefined
+          } catch (err) {
+            logger.error('db', `SQL ${op} ${table} FAILED`, { op, table, error: (err as Error).message, costMs: Date.now() - t0, sql: pgSql })
+            throw err
+          }
         },
         async all<T = unknown>(...params: unknown[]) {
-          return (await client.unsafe(pgSql, coerceParams(params) as any)) as T[]
+          const t0 = Date.now()
+          try {
+            const rows = await client.unsafe(pgSql, coerceParams(params) as any)
+            logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0, rowCount: rows.length })
+            return rows as unknown as T[]
+          } catch (err) {
+            logger.error('db', `SQL ${op} ${table} FAILED`, { op, table, error: (err as Error).message, costMs: Date.now() - t0, sql: pgSql })
+            throw err
+          }
         },
       }
     },
     async exec(sql: string) {
-      return client.unsafe(prepareForPg(sql))
+      const t0 = Date.now()
+      try {
+        const result = await client.unsafe(prepareForPg(sql))
+        logger.debug('db', `SQL EXEC OK`, { costMs: Date.now() - t0 })
+        return result
+      } catch (err) {
+        logger.error('db', `SQL EXEC FAILED`, { error: (err as Error).message, costMs: Date.now() - t0, sql })
+        throw err
+      }
     },
     transaction<T>(fn: () => T | Promise<T>) {
       return async () => {
         if (!client) throw new Error('PG client not available')
-        return await client.begin(async () => fn()) as T
+        const t0 = Date.now()
+        try {
+          const result = await client.begin(async () => fn()) as T
+          logger.debug('db', `TRANSACTION OK`, { costMs: Date.now() - t0 })
+          return result
+        } catch (err) {
+          logger.error('db', `TRANSACTION FAILED`, { error: (err as Error).message, costMs: Date.now() - t0 })
+          throw err
+        }
       }
     },
     rawClient: client,

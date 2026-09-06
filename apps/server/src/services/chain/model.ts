@@ -1,3 +1,5 @@
+import { logger } from '../logger.js'
+
 /**
  * LangChain 模型初始化（m1 基础）
  * 统一管理 ChatModel 实例，避免重复创建
@@ -43,30 +45,32 @@ export const createChatModel = (config: ModelConfig = {}) => {
       const messages = typeof input === 'string'
         ? [{ role: 'user', content: input }]
         : input
+      const t0 = Date.now()
 
-      const response = await fetch(`${apiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages,
-          temperature,
-          stream: false,
-        }),
-      })
+      logger.info('llm.invoke', '调用开始', { model: modelName, messageCount: messages.length, maxTokens: config.maxTokens })
 
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`AI 请求失败 (${response.status}): ${errText}`)
+      try {
+        const response = await fetch(`${apiUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: modelName, messages, temperature, stream: false }),
+        })
+
+        if (!response.ok) {
+          const errText = await response.text()
+          logger.error('llm.invoke', '调用失败', { model: modelName, status: response.status, error: errText.slice(0, 200), costMs: Date.now() - t0 })
+          throw new Error(`AI 请求失败 (${response.status}): ${errText}`)
+        }
+
+        const data = (await response.json()) as { choices: Array<{ message: { content: string } }>; usage?: any }
+        const cost = Date.now() - t0
+        logger.info('llm.invoke', '调用完成', { model: modelName, costMs: cost, usage: data.usage })
+        return data.choices[0]?.message?.content || ''
+      } catch (err) {
+        if ((err as Error).message.startsWith('AI 请求失败')) throw err
+        logger.error('llm.invoke', '网络异常', { model: modelName, error: (err as Error).message, costMs: Date.now() - t0 })
+        throw err
       }
-
-      const data = (await response.json()) as {
-        choices: Array<{ message: { content: string } }>
-      }
-      return data.choices[0]?.message?.content || ''
     },
 
     /** 模型调用（流式） */
@@ -77,59 +81,64 @@ export const createChatModel = (config: ModelConfig = {}) => {
       const messages = typeof input === 'string'
         ? [{ role: 'user', content: input }]
         : input
+      const t0 = Date.now()
 
-      const response = await fetch(`${apiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages,
-          temperature,
-          stream: true,
-        }),
-        signal: options?.signal,
-      })
+      logger.info('llm.stream', '调用开始', { model: modelName, messageCount: messages.length })
 
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`AI 请求失败 (${response.status}): ${errText}`)
-      }
+      let chunkCount = 0
+      try {
+        const response = await fetch(`${apiUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: modelName, messages, temperature, stream: true }),
+          signal: options?.signal,
+        })
 
-      // SSE 流式解析
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('无法获取响应流')
-      }
+        if (!response.ok) {
+          const errText = await response.text()
+          logger.error('llm.stream', '调用失败', { model: modelName, status: response.status, error: errText.slice(0, 200), costMs: Date.now() - t0 })
+          throw new Error(`AI 请求失败 (${response.status}): ${errText}`)
+        }
 
-      const decoder = new TextDecoder()
-      let buffer = ''
+        const reader = response.body?.getReader()
+        if (!reader) {
+          logger.error('llm.stream', '无法获取响应流', { model: modelName })
+          throw new Error('无法获取响应流')
+        }
 
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let finishReason = ''
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
 
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed || !trimmed.startsWith('data: ')) continue
-          if (trimmed === 'data: [DONE]') return
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
 
-          try {
-            const json = JSON.parse(trimmed.slice(6))
-            const delta = json.choices?.[0]?.delta?.content || ''
-            if (delta) {
-              yield delta
-            }
-          } catch {
-            // 忽略解析错误的行
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed || !trimmed.startsWith('data: ')) continue
+            if (trimmed === 'data: [DONE]') { finishReason = 'done'; break }
+
+            try {
+              const json = JSON.parse(trimmed.slice(6))
+              const delta = json.choices?.[0]?.delta?.content || ''
+              if (delta) {
+                chunkCount++
+                yield delta
+              }
+            } catch { /* ignore */ }
           }
         }
+
+        const cost = Date.now() - t0
+        logger.info('llm.stream', '调用完成', { model: modelName, chunkCount, costMs: cost, finishReason })
+      } catch (err) {
+        logger.error('llm.stream', '调用异常', { model: modelName, chunkCount, error: (err as Error).message, costMs: Date.now() - t0 })
+        throw err
       }
     },
 
