@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>📋 日志查看器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    background: #0d1117; color: #c9d1d9;
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  .toolbar {
+    padding: 12px 16px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  .toolbar h1 { font-size: 14px; color: #8b949e; margin-right: auto; font-weight: 600; }
+  .toolbar button, .toolbar select, .toolbar input {
+    background: #21262d; color: #c9d1d9;
+    border: 1px solid #30363d; border-radius: 6px;
+    padding: 6px 12px; font-size: 13px;
+    font-family: inherit; cursor: pointer;
+  }
+  .toolbar button:hover { background: #30363d; }
+  .toolbar button.active { background: #238636; border-color: #238636; color: #fff; }
+  .toolbar input { width: 200px; }
+  .toolbar .count { color: #8b949e; font-size: 12px; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .status-dot.live { background: #238636; animation: pulse 1.5s infinite; }
+  .status-dot.off { background: #da3633; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead {
+    background: #161b22; position: sticky; top: 0; z-index: 1;
+    border-bottom: 1px solid #30363d;
+  }
+  th { padding: 8px 12px; text-align: left; color: #8b949e; font-weight: 600; }
+  td { padding: 6px 12px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  tbody tr:hover { background: #161b22; }
+  tbody tr.new { animation: flash 0.5s; }
+  @keyframes flash { from { background: #1f3b2a; } to { background: transparent; } }
+
+  .level {
+    font-weight: 700; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    display: inline-block;
+  }
+  .level-INFO { background: #1f6feb30; color: #58a6ff; }
+  .level-WARN { background: #d2992230; color: #d29922; }
+  .level-ERROR { background: #da363330; color: #f85149; }
+
+  .status-2 { color: #3fb950; }
+  .status-3 { color: #58a6ff; }
+  .status-4 { color: #d29922; }
+  .status-5 { color: #f85149; }
+
+  .wrap { flex: 1; overflow: auto; }
+  .empty { text-align: center; padding: 40px; color: #8b949e; }
+  .sel { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>📋 BFF 请求日志 &nbsp;<span id="status"><span class="status-dot off"></span><span class="count">— 连接中…</span></span></h1>
+  <div>
+    <button class="active" data-level="ALL">全部</button>
+    <button data-level="INFO">INFO</button>
+    <button data-level="WARN">WARN</button>
+    <button data-level="ERROR">ERROR</button>
+  </div>
+  <input id="search" placeholder="🔍 搜索 URL / requestId…">
+  <button id="autoScroll" class="active">📜 自动滚动</button>
+  <button id="clear">🗑️ 清空</button>
+  <span id="count" class="count">0 条</span>
+</div>
+
+<div class="wrap">
+<table>
+  <thead><tr>
+    <th style="width:140px">时间</th>
+    <th style="width:60px">级别</th>
+    <th style="width:70px">方法</th>
+    <th>URL</th>
+    <th style="width:60px">状态</th>
+    <th style="width:80px">耗时</th>
+    <th style="width:300px">requestId</th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+</div>
+
+<script>
+const rowsEl = document.getElementById('rows')
+const countEl = document.getElementById('count')
+const statusDot = document.querySelector('.status-dot')
+const statusText = statusDot.parentElement.querySelector('.count')
+let autoScroll = true
+let currentLevel = 'ALL'
+let currentSearch = ''
+let entries = []
+let displayed = new Set()
+
+document.getElementById('autoScroll').onclick = (e) => {
+  autoScroll = !autoScroll
+  e.currentTarget.classList.toggle('active', autoScroll)
+}
+document.getElementById('clear').onclick = () => {
+  rowsEl.innerHTML = ''; entries = []; displayed.clear(); updateCount()
+}
+document.getElementById('search').oninput = (e) => {
+  currentSearch = e.target.value.toLowerCase(); rerender()
+}
+document.querySelectorAll('[data-level]').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('[data-level]').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    currentLevel = btn.dataset.level
+    rerender()
+  }
+})
+
+function time(t) {
+  const d = new Date(t)
+  return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}.${d.getMilliseconds().toString().padStart(3,'0')}`
+}
+function statusCls(s) { return 'status-' + Math.floor(s / 100) }
+function updateCount() { countEl.textContent = `${entries.length} 条` }
+
+function addRow(entry, flash) {
+  const tr = document.createElement('tr')
+  if (flash) tr.className = 'new'
+  const cls = statusCls(entry.status)
+  tr.innerHTML = `
+    <td>${time(entry.time)}</td>
+    <td><span class="level level-${entry.level}">${entry.level}</span></td>
+    <td>${entry.method}</td>
+    <td class="sel" title="${entry.url}">${entry.url}</td>
+    <td class="${cls}">${entry.status}</td>
+    <td>${entry.durationMs.toFixed(1)}ms</td>
+    <td style="color:#8b949e">${entry.requestId.slice(0, 8)}…</td>
+  `
+  rowsEl.prepend(tr)
+  // 只保留最近 500 行 DOM
+  while (rowsEl.children.length > 500) rowsEl.removeChild(rowsEl.lastChild)
+}
+
+function shouldShow(entry) {
+  if (currentLevel !== 'ALL' && entry.level !== currentLevel) return false
+  if (currentSearch) {
+    const s = currentSearch
+    if (!entry.url.toLowerCase().includes(s) && !entry.requestId.toLowerCase().includes(s)) return false
+  }
+  return true
+}
+
+function rerender() {
+  rowsEl.innerHTML = ''
+  for (const e of entries) if (shouldShow(e)) addRow(e, false)
+}
+
+function connectSSE() {
+  const es = new EventSource('/api/logs/stream')
+  es.onopen = () => {
+    statusDot.className = 'status-dot live'
+    statusText.textContent = '实时 🔴'
+  }
+  es.onmessage = (ev) => {
+    if (ev.data.startsWith(':')) return // 心跳
+    let entry
+    try { entry = JSON.parse(ev.data) } catch { return }
+    if (displayed.has(entry.id)) return
+    displayed.add(entry.id)
+    entries.push(entry)
+    if (entries.length > 2000) { entries.shift(); displayed.delete(entries[0]?.id) }
+    updateCount()
+    if (shouldShow(entry)) addRow(entry, true)
+    if (autoScroll) document.querySelector('.wrap').scrollTop = 0
+  }
+  es.onerror = () => {
+    statusDot.className = 'status-dot off'
+    statusText.textContent = '断开，自动重连…'
+    setTimeout(connectSSE, 2000)
+  }
+}
+
+// 先拉历史，再开 SSE
+fetch('/api/logs?limit=500')
+  .then(r => r.json())
+  .then(list => {
+    entries = list.reverse() // 最新在前
+    for (const e of entries) displayed.add(e.id)
+    rerender()
+    updateCount()
+    connectSSE()
+  })
+  .catch(() => { statusText.textContent = '历史日志加载失败'; connectSSE() })
+</script>
+</body>
+</html>

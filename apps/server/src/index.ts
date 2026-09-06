@@ -35,6 +35,9 @@ import toolsRouter from './routes/tools.js'
 import ragRouter from './routes/rag.js'
 import agentRouter from './routes/agent.js'
 import generatorRouter from './routes/generator.js'
+import logsRouter from './routes/logs.js'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 dotenv.config()
 
@@ -70,6 +73,13 @@ app.use('/api/tools', toolsRouter)
 app.use('/api/rag', ragRouter)
 app.use('/api/agent', agentRouter)
 app.use('/api/generator', generatorRouter)
+app.use('/api/logs', logsRouter)
+
+// 日志查看器 — 单文件 HTML
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+app.get('/api/logs-view', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../public/logs-view.html'))
+})
 
 // ── 错误处理（必须在所有路由之后） ────────────────────
 app.use(notFoundHandler)
