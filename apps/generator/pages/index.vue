@@ -362,8 +362,8 @@ const startNewChat = () => {
                 </div>
               </div>
 
-              <!-- 文件预览卡片 -->
-              <div v-if="msg.files?.length" class="space-y-2">
+              <!-- 文件预览 — 气泡内部延伸 -->
+              <div v-if="msg.files?.length" class="space-y-2 mt-2">
                 <div class="flex items-center gap-2 text-xs text-slate-500">
                   <span>📎 {{ msg.files.length }} 个文件</span>
                   <button
@@ -374,29 +374,25 @@ const startNewChat = () => {
                   </button>
                 </div>
 
-                <!-- 文件 Tab -->
-                <div class="rounded-lg overflow-hidden border border-slate-200 bg-white shadow-sm">
-                  <div v-if="msg.files.length > 1" class="flex gap-0.5 px-2 py-1.5 border-b border-slate-200 bg-slate-50 overflow-x-auto">
-                    <button
-                      v-for="(f, fidx) in msg.files"
-                      :key="fidx"
-                      @click="activeFileIdx = fidx; currentFiles = msg.files!"
-                      :class="[
-                        'px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors',
-                        activeFileIdx === fidx
-                          ? 'bg-primary-100 text-primary-700 font-medium'
-                          : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100',
-                      ]"
-                    >
-                      {{ f.path.split('/').pop() }}
-                    </button>
-                  </div>
-
-                  <!-- 代码内容 -->
-                  <div class="p-4 overflow-x-auto light-scroll bg-slate-50">
-                    <pre class="code-block text-slate-800"><code>{{ msg.files[activeFileIdx]?.content }}</code></pre>
-                  </div>
+                <!-- Tab 栏（仅多文件时显示） -->
+                <div v-if="msg.files.length > 1" class="flex gap-0.5 px-1 py-1 border-b border-slate-200">
+                  <button
+                    v-for="(f, fidx) in msg.files"
+                    :key="fidx"
+                    @click="activeFileIdx = fidx; currentFiles = msg.files!"
+                    :class="[
+                      'px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors',
+                      activeFileIdx === fidx
+                        ? 'bg-primary-100 text-primary-700 font-medium'
+                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100',
+                    ]"
+                  >
+                    {{ f.path.split('/').pop() }}
+                  </button>
                 </div>
+
+                <!-- 代码区域：极淡灰底，跟气泡白形成轻微区分，但不是独立卡片 -->
+                <pre class="code-block text-slate-800 bg-slate-50 p-3 rounded-lg overflow-x-auto light-scroll">{{ msg.files[activeFileIdx]?.content }}</pre>
               </div>
             </div>
           </div>
