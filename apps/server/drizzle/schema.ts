@@ -1,4 +1,4 @@
-/**
+d:\project\ai_study\apps\server\scripts\install-pgvector-admin.ps1/**
  * Drizzle ORM Schema — PostgreSQL + pgvector
  *
  * 分为两个 schema：
