@@ -50,6 +50,10 @@ apps/server/uploads/*
 scripts/*.bash
 scripts/bin
 
+# PG 安装脚本（含本地路径/密码，不上传）
+apps/server/scripts/install-pgvector*
+apps/server/scripts/setup-user*
+
 # Playwright E2E
 playwright-report/
 test-results/
