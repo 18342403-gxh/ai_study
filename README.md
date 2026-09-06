@@ -1,6 +1,6 @@
 # 🧠 AI Study · AI 组件生成器平台
 
-> 面向 AI 时代的前端工程实践平台 — 以「AI 组件/Skill 生成器」为产品主线，配套 Node BFF + LangChain 编排层，支持 PostgreSQL + pgvector / SQLite 双驱动数据库。
+> 以「AI 组件/Skill 生成器」为核心的全栈应用 — Node BFF + LangChain 编排层，PostgreSQL + pgvector / SQLite 双驱动数据库。
 
 ---
 
@@ -55,13 +55,13 @@ ai_study/
 │   │   ├── pages/index.vue  #   主页面（双模式 Tab + 对话式迭代 + 浅色主题）
 │   │   ├── layouts/         #   侧边栏导航
 │   │   └── assets/css/      #   Tailwind + 自定义气泡/代码样式
-│   ├── web-vue-nuxt/        # Vue 3 SSR（Nuxt 3 :3002）— 教学主端
-│   │   └── pages/           #   m1.vue ~ m7.vue（7 个技术模块）
-│   ├── web-react/           # React 18 SPA（Vite :5173）— 教学对照端
-│   └── web-vue/             # Vue 3 SPA（Vite :5174）— 教学对照端
+│   ├── web-vue-nuxt/        # Vue 3 SSR（Nuxt 3 :3002）
+│   │   └── pages/           #   m1.vue ~ m7.vue
+│   ├── web-react/           # React 18 SPA（Vite :5173）
+│   └── web-vue/             # Vue 3 SPA（Vite :5174）
 ├── packages/
 │   └── shared/              # @ai-study/shared — 公共类型/常量/DTO
-├── docs/                    # 📚 技术教学文档（20+ 篇，从零到生产级）
+├── docs/                    # 📚 设计与技术文档
 ├── scripts/                 # 项目脚本
 ├── pnpm-workspace.yaml      # workspace：apps/* + packages/*
 └── package.json             # 根脚本 + pnpm overrides（版本锁定）
@@ -138,10 +138,10 @@ CREATE INDEX idx_chunks_embedding ON app.chunks
 | 项目 | 端口 | 说明 |
 |------|------|------|
 | `apps/server`          | **:3001** | Node BFF（LangChain + DB + 所有 API） |
-| `apps/generator`       | **:3003** | AI 组件/Skill 生成器前端（Nuxt 3 SSR） |
-| `apps/web-vue-nuxt`    | **:3002** | Vue 3 SSR 教学主端 |
-| `apps/web-react`       | **:5173** | React 教学对照端 |
-| `apps/web-vue`         | **:5174** | Vue 3 教学对照端 |
+| `apps/generator`       | **:3003** | AI 组件/Skill 生成器（Nuxt 3 SSR） |
+| `apps/web-vue-nuxt`    | **:3002** | Vue 3 SSR |
+| `apps/web-react`       | **:5173** | React 18 SPA |
+| `apps/web-vue`         | **:5174** | Vue 3 SPA |
 
 ---
 
@@ -215,9 +215,9 @@ npx pnpm@9.15.9 run dev:all
 | 🧩 **AI 组件/Skill 生成器** | http://localhost:3003/ |
 | 📋 **实时日志查看器** | http://localhost:3001/api/logs-view（BFF 启动自动打开） |
 | BFF 健康检查 | http://localhost:3001/api/health |
-| SSR 教学主端 | http://localhost:3002/ |
-| React 教学端 | http://localhost:5173/ |
-| Vue 教学端 | http://localhost:5174/ |
+| Vue 3 SSR | http://localhost:3002/ |
+| React SPA | http://localhost:5173/ |
+| Vue 3 SPA | http://localhost:5174/ |
 
 > 💡 禁用 BFF 自动打开日志页：`NO_AUTO_OPEN=1 pnpm run dev:all`
 
@@ -231,7 +231,7 @@ npx pnpm@9.15.9 run dev:all
 | `pnpm run dev:all` | BFF + Generator(3003) + SSR(3002) + React + Vue（最全） |
 | `pnpm run dev:server` | 仅 BFF :3001 |
 | `pnpm run dev:generator` | 仅生成器 :3003 |
-| `pnpm run dev:ssr` | 仅 SSR 主端 :3002 |
+| `pnpm run dev:ssr` | 仅 Vue 3 SSR :3002 |
 | `pnpm run build` | 生产构建 |
 | `pnpm run typecheck` | 全量 TS 检查 |
 
