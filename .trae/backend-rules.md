@@ -267,9 +267,16 @@ const tx = client.transaction()  // pg 原生，门面没这个
 
 ---
 
-## 六、日志规则
+## 六、日志规则（**必须健全，写代码时同步规划**）
 
-### 6.1 唯一入口
+### 6.1 核心原则：日志是生产环境唯一的事后排查手段
+
+**你在写每一个模块时，必须问自己三个问题**：
+1. **这条链路需要打几个节点日志？** — 开始、关键中间步骤、成功结束、失败 → 至少 4 个
+2. **如果这个节点出问题了，光看日志能不能定位？** — 不能 → 补充必要字段
+3. **debug 级别会不会污染生产？** — 不会 → DEBUG 留着，会 → 降级或删掉
+
+### 6.2 唯一入口
 
 ```typescript
 import { logger } from '../../services/logger.js'
@@ -285,7 +292,44 @@ console.warn('rate limited')
 console.error('sql failed')
 ```
 
-### 6.2 Tag 命名：`模块.子模块`
+### 6.3 每条链路的完整打点模板
+
+**写一个新功能时，按这个模板补全日志**：
+
+```
+[模块].stream / [模块].execute / [模块].run      ← 入口 INFO：开始 + 关键入参（脱敏后）
+  ↓
+[模块].[子节点]                                    ← 每个子节点 INFO/DEBUG：开始、中间状态
+  ↓
+db（自动）                                         ← DB 门面自动 DEBUG OK / ERROR FAILED
+  ↓
+llm（自动）                                        ← model.ts 自动 INFO 开始/完成、ERROR 失败/网络异常
+  ↓
+[模块].stream / [模块].execute                     ← 出口 INFO：完成 + 关键结果 + 总耗时
+  ↓ （任何环节异常）
+[模块].stream / [模块].execute                     ← ERROR：失败 + error.message + 上下文字段
+```
+
+**以 Generator 为例（已实现）**：
+
+```typescript
+// ✅ generator/agent.ts 里完整链路
+logger.info('generator.stream', '开始生成', { artifactType, stateId })
+//   ↓ clarify 节点
+logger.info('generator.clarify', '需求细化完成', { stateId, resultLen: 1389, costMs: 17881 })
+//   ↓ retrieve 节点
+logger.info('generator.retrieve', 'RAG 检索完成', { stateId, referenceCount: 3 })
+//   ↓ generate 节点
+logger.info('generator.generate', '代码生成完成', { chunkCount: 552, costMs: 40956 })
+//   ↓ 出口
+logger.info('generator.stream', '生成完成', { stateId, totalCostMs: 61000 })
+//   ↓ 或异常
+logger.error('generator.stream', '生成失败', { stateId, error: err.message })
+```
+
+**如果以后加一个新节点（比如 `validate` 校验生成的代码）** → 也必须在这个模板里补上 `logger.info('generator.validate', ...)`。
+
+### 6.4 Tag 命名：`模块.子模块`
 
 小写、点分隔、没有空格。示例：
 
@@ -297,22 +341,24 @@ console.error('sql failed')
 | `generator.stream` / `generator.clarify` / `generator.retrieve` / `generator.generate` | services/generator/agent.ts |
 | `db` | db/index.ts DB 门面 |
 
-### 6.3 日志级别使用
+### 6.5 日志级别使用
 
 | 级别 | 什么时候用 | 示例 |
 |------|-----------|------|
-| `DEBUG` | 开发期间有用、生产可能被关闭的细节 | SQL 执行 OK（正常情况）、RAG 检索返回数量 |
-| `INFO` | 重要的业务里程碑事件 | Generator 开始/完成、LLM 调用开始/完成、文档上传完成 |
-| `WARN` | 可恢复的异常或非预期情况 | LLM 调用超时但重试成功、RAG 检索结果为空 |
-| `ERROR` | 需要立即关注的失败 | SQL 执行失败、LLM 连续失败、持久化失败 |
+| `DEBUG` | 开发期间有用、生产可能被关闭的细节 | SQL 执行 OK（正常情况）、RAG 检索返回数量、循环中的每次迭代状态 |
+| `INFO` | 重要的业务里程碑事件 | Generator 开始/完成、LLM 调用开始/完成、文档上传完成、新 session 创建 |
+| `WARN` | 可恢复的异常或非预期情况 | LLM 调用超时但重试成功、RAG 检索结果为空但继续、限流触发 |
+| `ERROR` | 需要立即关注的失败 | SQL 执行失败、LLM 连续失败、持久化失败、SSE 流异常中断 |
 
 **判断标准**：如果这条日志**只在开发调试时有用**（比如 SQL 返回了多少行），用 DEBUG；如果**产品上线后你想在日志里看到**（比如 Generator 完成了、LLM 花了多久），用 INFO。
 
-### 6.4 数据字段规则
+### 6.6 数据字段规则
 
 - 结构化 data 对象，**不用字符串拼接**
-- 敏感数据脱敏：**永远不要在日志里输出 API Key、用户密码**
+- 敏感数据脱敏：**永远不要在日志里输出 API Key、用户密码、完整 prompt 原文**
 - 大字段截断：prompt 文本 > 500 字符只记长度，不记原文
+- **关键字段必须包含在 data 里**：costMs（耗时）、关键 ID（stateId / sessionId / docId）、resultLen（结果长度）
+- requestId 自动附加（AsyncLocalStorage），不要手动加
 
 ```typescript
 // ✅ 正确
@@ -320,6 +366,49 @@ logger.info('generator.clarify', '需求细化完成', { stateId, resultLen: 138
 
 // ❌ 禁止 — 输出完整 prompt + API key
 logger.info('llm.invoke', 'prompt', { key: 'sk-xxx', prompt: fullPromptText })
+
+// ❌ 禁止 — 字符串拼接
+logger.info('generator.stream', `生成完成，耗时 ${costMs}ms`)  // 丢失结构化查询能力
+```
+
+### 6.7 新增日志点的场景（必须加）
+
+| 场景 | 必须加 |
+|------|--------|
+| 新增一个 service 函数 | 入口 INFO + 出口 INFO/ERROR |
+| 新增一个 DB 写操作 | 门面自动已有，但如果 catch 了异常要补充业务层 ERROR |
+| 新增一个重试循环 | 每次重试开始 DEBUG（轮次）、重试放弃 WARN/ERROR（总次数） |
+| 新增一个异步任务 | 任务开始 INFO、任务完成/失败 INFO/ERROR |
+| 新增一个缓存逻辑 | 缓存命中 DEBUG（hit）、缓存未命中 DEBUG（miss） |
+| 新增一个条件分支（非 if/else 小分支） | 分支选择 DEBUG（哪个分支） |
+
+### 6.8 日志反模式（禁止）
+
+```typescript
+// ❌ 反模式 1：循环里打大量 INFO
+for (const chunk of chunks) {
+  logger.info('rag', `embedding chunk ${chunk.index}`)  // 50 个 chunk = 50 条 INFO
+}
+// ✅ 改成汇总 INFO 或循环内 DEBUG
+logger.info('rag', 'embedding 完成', { chunkCount: chunks.length, costMs })
+// 循环内 DEBUG（如果真的要看每个）
+for (const chunk of chunks) {
+  logger.debug('rag.embedding', `chunk ${chunk.index}`, { chunkIndex: chunk.index })
+}
+
+// ❌ 反模式 2：吞掉原始 error message
+catch (err) {
+  logger.error('db', 'SQL 失败')  // 没有 error.message，排查时不知道是什么错
+}
+// ✅ 必须带 error.message（短的），长的要截断
+catch (err) {
+  logger.error('db', 'SQL 失败', { error: err.message?.slice(0, 300), sql: sqlPreview })
+}
+
+// ❌ 反模式 3：日志放错层级（应该由 DB 门面自动打，不要在业务层重复）
+// db/index.ts 已经自动 logger.debug('db', 'SQL xxx OK', ...)
+// 业务层又打一次
+logger.info('generator', '保存状态成功', { stateId })  // 这条应该有，但内容要补充业务层独有的字段，不要只重复 db 层的
 ```
 
 ---
@@ -394,7 +483,99 @@ DB 层 catch 后只 `logger.error('db', ...)`，**原始 error.message 只写日
 
 ---
 
-## 九、当前 API 修订清单（待改）
+## 九、接口验证（替代传统单测）
+
+### 9.1 为什么不写传统单测
+
+本项目**不强制要求 Jest/Vitest 单测**，原因：
+- 没有测试框架依赖，DB 门面 + AsyncLocalStorage + SSE + LLM mock 成本高
+- token 花在 mock 上性价比低（不如花在把日志打全、把错误处理写好）
+- 有了完善的日志体系，**生产出问题后 grep 日志就能定位**，比跑失败的单测更有效
+
+### 9.2 替代方案：接口契约验证 + 关键路径 curl
+
+**每完成一个改动，至少手动验证 2 件事**：
+
+```bash
+# ① typecheck（必须过）
+pnpm run typecheck
+
+# ② BFF 能启动 + 基础接口能通
+curl http://localhost:3001/api/health    # 200 OK
+
+# ③ 如果你改了 Generator / Agent / Chat 这些核心链路，跑一下真实调用
+curl -N -X POST http://localhost:3001/api/generator/run \
+  -H "Content-Type: application/json" \
+  -d '{"requirement":"测试组件","artifactType":"component","framework":"vue"}'
+# 预期：200 + SSE 事件，generator.stream INFO 日志出现
+```
+
+### 9.3 必须写的"轻量验证"（纯函数模块）
+
+如果写的是**纯函数、纯数据转换**（不碰 DB、不碰 LLM、不依赖 middleware），**必须写断言**。不需要测试框架，直接在文件底部或 test 里写：
+
+```typescript
+// db/index.ts qualifySchema 的正则边界验证
+if (process.env.NODE_ENV === 'test') {
+  const assert = (cond: boolean, msg: string) => { if (!cond) throw new Error(msg) }
+  // ON CONFLICT 里的 SET 不应该被加 app. 前缀
+  const result = qualifySchema('INSERT INTO generator_states ... ON CONFLICT(id) DO UPDATE SET state_json = ?')
+  assert(!/app\.SET/.test(result), 'qualifySchema: SET keyword should not be treated as table')
+}
+```
+
+### 9.4 什么时候值得引入测试框架
+
+以下场景**可以考虑引入 Vitest**（需要先改 package.json）：
+- DB 门面的 SQL 转换逻辑（`qualifySchema` / `sqliteToPgParams` / `coerceParams`）— 有明确输入输出的纯函数
+- LLM 调用层的错误分类逻辑（HTTP 错误 vs 网络错误 vs 超时）
+- CircuitBreaker 状态机转换逻辑（CLOSED→OPEN→HALF_OPEN 边界）
+- 日志门面的环形缓冲区 + SSE 广播逻辑
+
+**但这些不是必做项**，当前日志体系已经覆盖了生产排错需求。
+
+---
+
+## 十、版本控制与发布
+
+### 10.1 commit 规范
+
+```
+<type>(<scope>): <中文描述>
+
+type: feat | fix | refactor | docs | style | test | chore
+scope: server | generator | db | llm | logs | middleware | api | build
+```
+
+```
+feat(generator): 双模式 Tab 切换组件/Skill
+fix(db): qualifySchema 白名单保护 ON CONFLICT 的 SET
+refactor(logs): 环形缓冲区从 1000 提升到 2000
+docs(readme): 更新为 PG+pgvector 双驱动架构
+```
+
+### 10.2 .gitignore 铁律
+
+以下文件**绝对不能**被提交：
+- `apps/server/.env`
+- `apps/server/data/*.db`（SQLite 数据文件）
+- `apps/server/data/*.db-shm` / `*.db-wal`
+- `apps/server/uploads/*`（上传的 RAG 文档）
+- `node_modules/`
+- `*.log`
+
+提交前**必须**跑 `git status` 看一眼。
+
+### 10.3 向后兼容
+
+- 接口 path **不随意改**，确实要改时：旧接口保留 + 返回 301 redirect 或 deprecation warning + 前端同步改
+- 返回 JSON 结构里**新增字段**是安全的（前端忽略即可），**删除/改类型**是破坏性变更
+- Zod schema 里 `.optional()` 的字段不要强制变 `.required()`
+- DB 迁移：**只加列、不改/删列**。改列类型要先 `ALTER COLUMN`，删列要经过一个 deprecation 版本
+
+---
+
+## 十一、当前 API 修订清单（待改）
 
 以下是**已有但不符合规范**的接口，后续迭代时逐步修正：
 
@@ -414,7 +595,9 @@ DB 层 catch 后只 `logger.error('db', ...)`，**原始 error.message 只写日
 
 ---
 
-## 十、快速检查清单（提交前跑一遍）
+## 十二、快速检查清单（提交前跑一遍）
+
+### 代码质量
 
 - [ ] 没有 `console.log/warn/error` 留在业务代码里
 - [ ] 所有 SQL 走 `db.prepare()`，没有 `pg.query()` 或 `new Database()`
@@ -426,3 +609,18 @@ DB 层 catch 后只 `logger.error('db', ...)`，**原始 error.message 只写日
 - [ ] SSE 流里 catch 错误要发 `event: error` 再 end，不能 throw
 - [ ] 敏感数据（API Key、用户密码）**没出现在日志里**
 - [ ] `pnpm run typecheck` ✅
+
+### 日志健全性（新增功能时必须逐项确认）
+
+- [ ] 新增的 service 函数入口有 `logger.info`（开始）
+- [ ] 新增的 service 函数出口有 `logger.info`（完成 + costMs）或 `logger.error`（失败 + error.message）
+- [ ] 子节点（DB 调用、LLM 调用、RAG 检索等）有日志（门面自动的或手动的）
+- [ ] 循环里没有打大量 INFO（改为汇总 INFO + 循环内 DEBUG）
+- [ ] ERROR 日志都带了 `error.message`（不是空的"失败"）
+- [ ] data 字段里有 costMs + 关键 ID（stateId / sessionId）+ resultLen
+
+### 验证
+
+- [ ] BFF 能启动：`curl http://localhost:3001/api/health` → 200
+- [ ] 如果你改了 Generator/Agent/Chat：跑了一次真实 SSE 调用，浏览器日志查看器能看到完整链路
+- [ ] `git status` 没有 `.env`、`.db`、`uploads/` 等敏感文件
