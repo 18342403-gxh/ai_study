@@ -175,9 +175,21 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
 
   /** 把裸表名加 app schema 前缀（简单正则，覆盖常见情况） */
   const qualifySchema = (sql: string): string => {
+    // SQL 关键字白名单（这些不是表名，不能加 schema）
+    const reserved = new Set([
+      'SET', 'ON', 'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'OFFSET', 'VALUES',
+      'AND', 'OR', 'AS', 'IS', 'IN', 'NOT', 'NULL', 'LIKE', 'BETWEEN',
+      'BY', 'ASC', 'DESC', 'HAVING', 'UNION', 'ALL', 'DISTINCT',
+      'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'EXISTS', 'TRUE', 'FALSE',
+      'RETURNING', 'DO', 'CONFLICT', 'EXCLUDED', 'DEFAULT', 'CHECK',
+      'PRIMARY', 'FOREIGN', 'KEY', 'REFERENCES', 'CONSTRAINT', 'UNIQUE',
+    ])
     return sql.replace(
       /\b(FROM|JOIN|INTO|UPDATE)\s+(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
-      (_m, kw: string, table: string) => `${kw} app.${table}`
+      (m, kw: string, table: string) => {
+        if (reserved.has(table.toUpperCase())) return m
+        return `${kw} app.${table}`
+      }
     )
   }
 
