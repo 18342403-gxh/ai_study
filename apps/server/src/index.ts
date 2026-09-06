@@ -15,6 +15,7 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import { exec } from 'node:child_process'
 
 import { initDatabase } from './db/index.js'
 import {
@@ -86,12 +87,21 @@ app.use(notFoundHandler)
 app.use(errorHandler)
 
 const server = app.listen(PORT, () => {
+  const base = `http://localhost:${PORT}`
   process.stdout.write(`\n╔══════════════════════════════════════╗\n`)
   process.stdout.write(`║  [BFF]  Express Server Running        ║\n`)
-  process.stdout.write(`║  http://localhost:${PORT}            ║\n`)
-  process.stdout.write(`║  GET  /api/health   — 健康检查         ║\n`)
-  process.stdout.write(`║  GET  /api/metrics  — 监控指标         ║\n`)
+  process.stdout.write(`║  ${base.padEnd(36)}║\n`)
+  process.stdout.write(`║  GET  /api/health     — 健康检查       ║\n`)
+  process.stdout.write(`║  GET  /api/metrics    — 监控指标       ║\n`)
+  process.stdout.write(`║  GET  /api/logs-view  — 📋 实时日志    ║\n`)
   process.stdout.write(`╚══════════════════════════════════════╝\n\n`)
+
+  // 自动打开日志查看器（默认开启，NO_AUTO_OPEN=1 可禁用）
+  if (process.env.NO_AUTO_OPEN !== '1') {
+    const url = `${base}/api/logs-view`
+    const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`
+    exec(cmd, () => { /* 忽略打开失败（WSL/无桌面环境） */ })
+  }
 })
 
 /**

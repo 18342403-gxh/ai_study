@@ -142,10 +142,14 @@ npx pnpm@9.15.9 run dev
 ```
 
 启动后访问：
+- AI 生成器 → http://localhost:3003/
 - SSR 主端 → http://localhost:3002/
 - React → http://localhost:5173/
 - Vue → http://localhost:5174/
 - BFF 健康检查 → http://localhost:3001/api/health
+- 📋 **实时日志** → 启动 BFF 后自动在浏览器打开，或手动访问 http://localhost:3001/api/logs-view
+
+> 💡 禁用自动打开日志页：启动前设环境变量 `NO_AUTO_OPEN=1`（WSL/无桌面环境建议关闭）
 
 ---
 
@@ -197,16 +201,26 @@ cd apps/web-vue-nuxt && pnpm <cmd>
 
 **职责**：唯一触碰 API Key 的地方；LangChain 编排层 100% 在此运行；前端/Nitro 仅 HTTP 调用。
 
+**核心路由**：
+- `/api/health` — 健康检查
+- `/api/metrics` — Prometheus 格式监控指标
+- `/api/logs-view` — 📋 浏览器实时日志查看器（单文件 HTML，BFF 启动后自动打开）
+- `/api/logs` — 日志查询（历史 + SSE 实时流）
+- `/api/generator/*` — AI 组件/Skill 生成器
+- `/api/agent/*` · `/api/chat` · `/api/sessions` — Agent + Chat
+
 **目录**：
-- `src/routes/*.ts` — 对外 HTTP 入口（m5/m6/m7 专用路由 + BFF 公共路由）
-- `src/services/generator/` — 生成器编排（agent/codegen/rag/tools/*/sandbox）
-- `src/db/index.ts` — Better-SQLite3 知识库
-- `uploads/` — RAG 文档上传目录
-- `data/knowledge.db*` — SQLite 向量库文件（随项目生成）
+- `src/routes/*.ts` — HTTP 入口
+- `src/services/logger.ts` — **统一日志门面**（零依赖，所有模块 import 它）
+- `src/services/generator/` — 生成器编排（agent/codegen/rag/tools/*）
+- `src/services/chain/model.ts` — LLM 调用层（已接入日志）
+- `src/db/index.ts` — DB 门面（SQLite/PG 双驱动 + 每次 SQL 执行自动日志）
+- `public/logs-view.html` — 日志查看器前端（单文件 HTML，EventSource 实时流）
 
 ```bash
 pnpm run dev:server
 # 生产：pnpm run build:server && pnpm --filter @ai-study/server start
+# 禁用自动打开日志页：NO_AUTO_OPEN=1 pnpm run dev:server
 ```
 
 ### Nuxt 3 SSR 主端（apps/web-vue-nuxt · :3002）
