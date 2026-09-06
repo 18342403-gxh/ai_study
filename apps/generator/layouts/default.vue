@@ -18,7 +18,7 @@
         <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">生成</div>
 
         <button
-          @click="$emit('navigate', 'component')"
+          @click="activeTab = 'component'"
           :class="[
             'nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left',
             activeTab === 'component'
@@ -31,7 +31,7 @@
         </button>
 
         <button
-          @click="$emit('navigate', 'skill')"
+          @click="activeTab = 'skill'"
           :class="[
             'nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left',
             activeTab === 'skill'
@@ -66,13 +66,22 @@
     </aside>
 
     <!-- 主内容区 -->
-    <main class="flex-1 flex flex-col overflow-hidden">
+    <main class="flex-1 flex flex-col overflow-hidden bg-white">
       <slot />
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-defineProps<{ activeTab: 'component' | 'skill' }>()
-defineEmits<{ navigate: [tab: 'component' | 'skill'] }>()
+import { ref, provide, watch } from 'vue'
+
+// 共享的 activeTab — layout 管理，provide 给 page 使用
+type ArtifactType = 'component' | 'skill'
+const activeTab = ref<ArtifactType>('component')
+provide('activeTab', activeTab)
+
+// 监听变化，也 emit 给可能需要的地方
+watch(activeTab, (val) => {
+  // 可以在这里做路由跳转或其他副作用
+})
 </script>
