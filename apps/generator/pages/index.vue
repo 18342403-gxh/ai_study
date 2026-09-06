@@ -393,8 +393,8 @@ const startNewChat = () => {
                   </div>
 
                   <!-- 代码内容 -->
-                  <div class="p-4 overflow-x-auto light-scroll bg-slate-900">
-                    <pre class="code-block text-slate-100"><code>{{ msg.files[activeFileIdx]?.content }}</code></pre>
+                  <div class="p-4 overflow-x-auto light-scroll bg-slate-50">
+                    <pre class="code-block text-slate-800"><code>{{ msg.files[activeFileIdx]?.content }}</code></pre>
                   </div>
                 </div>
               </div>
@@ -470,8 +470,12 @@ const startNewChat = () => {
             </div>
           </template>
 
+          <!-- 迭代模式提示（替代"清空"按钮位置） -->
+          <div v-if="canIterate" class="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-50 text-primary-600 text-[11px] font-medium">
+            💡 迭代模式
+          </div>
           <button
-            v-if="input && !canIterate"
+            v-else-if="input"
             @click="input = ''"
             class="ml-auto text-slate-400 hover:text-slate-600 transition-colors"
           >
@@ -479,12 +483,8 @@ const startNewChat = () => {
           </button>
         </div>
 
-        <!-- 主输入区（首次生成 + 迭代修改 共用，根据 canIterate 自动切换） -->
+        <!-- 主输入区（首次生成 + 迭代修改 共用） -->
         <div class="relative">
-          <!-- 迭代模式提示 -->
-          <div v-if="canIterate" class="absolute -top-5 left-3 text-[11px] text-primary-500 font-medium flex items-center gap-1">
-            💡 迭代模式 — 描述你想要的修改
-          </div>
           <textarea
             v-model="input"
             :placeholder="canIterate
