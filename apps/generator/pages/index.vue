@@ -7,7 +7,7 @@ const activeTab = inject<{ value: ArtifactType }>('activeTab', ref<ArtifactType>
 const isComponent = computed(() => activeTab.value === 'component')
 
 // ── 表单字段 ──
-const requirement = ref('')
+const input = ref('')                      // 统一输入框（首次 + 迭代共用）
 const framework = ref<'vue' | 'react'>('vue')
 const skillName = ref('')
 const scriptLang = ref<'ts' | 'py' | ''>('')
@@ -21,31 +21,28 @@ const activeFileIdx = ref(0)
 const errorMsg = ref('')
 const stateId = ref('')
 const chatHistory = ref<Array<{ role: 'user' | 'ai'; content: string; files?: FileItem[]; phases?: typeof phases.value }>>([])
-const showIterateInput = ref(false)
-const iterateFeedback = ref('')
 const scrollRef = ref<HTMLElement | null>(null)
 
 const hasResult = computed(() => chatHistory.value.some((m) => m.role === 'ai'))
+const canIterate = computed(() => !!stateId.value && !isGenerating.value)
 
 // ── 自动滚动到底部 ──
 const scrollToBottom = async () => {
   await nextTick()
-  if (scrollRef.value) {
-    scrollRef.value.scrollTop = scrollRef.value.scrollHeight
-  }
+  if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
 }
 
 // ── 提交参数 ──
 const buildPayload = () => {
   if (activeTab.value === 'component') {
     return {
-      requirement: requirement.value,
+      requirement: input.value,
       artifactType: 'component' as const,
       framework: framework.value,
     }
   }
   return {
-    requirement: requirement.value,
+    requirement: input.value,
     artifactType: 'skill' as const,
     skillName: skillName.value,
     scriptLang: scriptLang.value || undefined,
@@ -53,10 +50,16 @@ const buildPayload = () => {
 }
 
 const canSubmit = computed(() => {
-  if (!requirement.value.trim()) return false
+  if (!input.value.trim()) return false
   if (activeTab.value === 'skill' && !skillName.value.trim()) return false
   return !isGenerating.value
 })
+
+// ── 主提交：根据场景自动分流 ──
+const handleSubmit = async () => {
+  if (canIterate.value) runIterate()
+  else runGenerator()
+}
 
 // ── SSE 解析 ──
 const runGenerator = async () => {
@@ -68,7 +71,7 @@ const runGenerator = async () => {
   phases.value = []
   stateId.value = ''
 
-  chatHistory.value.push({ role: 'user', content: requirement.value })
+  chatHistory.value.push({ role: 'user', content: input.value })
 
   const { bffUrl } = useRuntimeConfig().public
   const payload = buildPayload()
@@ -117,6 +120,7 @@ const runGenerator = async () => {
     chatHistory.value.push({ role: 'ai', content: `❌ ${errorMsg.value}` })
   } finally {
     isGenerating.value = false
+    input.value = ''   // 提交后清输入
 
     chatHistory.value.push({
       role: 'ai',
@@ -124,10 +128,6 @@ const runGenerator = async () => {
       files: currentFiles.value.length ? currentFiles.value : undefined,
       phases: phases.value,
     })
-
-    if (stateId.value && !errorMsg.value) {
-      showIterateInput.value = true
-    }
 
     scrollToBottom()
   }
@@ -179,15 +179,14 @@ const handleEvent = (event: any) => {
 
 // ── 迭代（对话修改） ──
 const runIterate = async () => {
-  if (!stateId.value || !iterateFeedback.value.trim()) return
+  if (!stateId.value || !input.value.trim()) return
 
-  const feedback = iterateFeedback.value
+  const feedback = input.value
   chatHistory.value.push({ role: 'user', content: feedback })
 
   isGenerating.value = true
   errorMsg.value = ''
   phases.value = []
-  iterateFeedback.value = ''
 
   const { bffUrl } = useRuntimeConfig().public
 
@@ -231,7 +230,7 @@ const runIterate = async () => {
     errorMsg.value = (e as Error).message
   } finally {
     isGenerating.value = false
-    showIterateInput.value = true
+    input.value = ''   // 提交后清输入
 
     chatHistory.value.push({
       role: 'ai',
@@ -273,8 +272,7 @@ const startNewChat = () => {
   phases.value = []
   stateId.value = ''
   errorMsg.value = ''
-  showIterateInput.value = false
-  requirement.value = ''
+  input.value = ''
   activeFileIdx.value = 0
 }
 </script>
@@ -315,9 +313,9 @@ const startNewChat = () => {
               : '描述 Skill 要做什么，比如「批量把 console.log 替换成项目的 logger」' }}
           </div>
           <div class="mt-6 flex gap-2">
-            <div v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单表单'] : ['代码重构', '批量格式化', '文档生成'])" :key="tag"
+            <div v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代码重构', '批量格式化', '文档生成'])" :key="tag"
               class="px-3 py-1.5 rounded-full text-xs bg-white text-slate-600 border border-slate-200 hover:border-primary-500 hover:text-primary-600 cursor-pointer transition-colors"
-              @click="requirement = tag">
+              @click="input = tag">
               {{ tag }}
             </div>
           </div>
@@ -473,56 +471,34 @@ const startNewChat = () => {
           </template>
 
           <button
-            v-if="requirement"
-            @click="requirement = ''"
+            v-if="input && !canIterate"
+            @click="input = ''"
             class="ml-auto text-slate-400 hover:text-slate-600 transition-colors"
           >
             清空
           </button>
         </div>
 
-        <!-- 迭代修改输入 -->
-        <div v-if="showIterateInput && hasResult && !isGenerating" class="mb-3 p-3 bg-primary-50 border border-primary-100 rounded-lg">
-          <div class="flex items-center gap-1.5 text-xs text-primary-600 font-medium mb-2">
-            💡 继续优化 — 描述你想要的修改
-          </div>
-          <textarea
-            v-model="iterateFeedback"
-            placeholder="如：按钮要居中、加一个 loading 状态、改成 Tailwind 类..."
-            class="w-full h-16 px-3 py-2 rounded-lg text-xs border border-primary-200 focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none bg-white"
-            @keydown.enter.exact.prevent="runIterate"
-          />
-          <div class="mt-2 flex items-center gap-2">
-            <button
-              @click="runIterate"
-              :disabled="!iterateFeedback.trim()"
-              class="px-3 py-1.5 rounded-md text-xs font-medium bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              🔄 发送修改
-            </button>
-            <button
-              @click="showIterateInput = false"
-              class="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              收起
-            </button>
-          </div>
-        </div>
-
-        <!-- 主输入区 -->
+        <!-- 主输入区（首次生成 + 迭代修改 共用，根据 canIterate 自动切换） -->
         <div class="relative">
+          <!-- 迭代模式提示 -->
+          <div v-if="canIterate" class="absolute -top-5 left-3 text-[11px] text-primary-500 font-medium flex items-center gap-1">
+            💡 迭代模式 — 描述你想要的修改
+          </div>
           <textarea
-            v-model="requirement"
-            :placeholder="isComponent
-              ? '描述你想要的组件，如：带搜索和分页的数据表格卡片，支持空状态和加载状态...'
-              : '描述 Skill 要做什么，如：批量把项目里的 console.log 替换成统一的 logger 调用...'"
+            v-model="input"
+            :placeholder="canIterate
+              ? '描述你想要的修改，如：按钮要居中、加 loading 状态、改用 Tailwind 类...'
+              : (isComponent
+                  ? '描述你想要的组件，如：带搜索和分页的数据表格卡片，支持空状态和加载状态...'
+                  : '描述 Skill 要做什么，如：批量把项目里的 console.log 替换成统一的 logger 调用...')"
             :disabled="isGenerating"
             class="w-full h-24 px-4 py-3 text-sm border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-primary-400 disabled:bg-slate-50 disabled:cursor-not-allowed light-scroll"
-            @keydown.enter.exact.prevent="runGenerator"
+            @keydown.enter.exact.prevent="handleSubmit"
           />
           <div class="absolute right-3 bottom-3 flex items-center gap-2">
             <button
-              @click="runGenerator"
+              @click="handleSubmit"
               :disabled="!canSubmit"
               :class="[
                 'px-5 py-2 rounded-lg text-sm font-medium transition-all',
@@ -534,6 +510,9 @@ const startNewChat = () => {
               <span v-if="isGenerating" class="inline-flex items-center gap-1.5">
                 <span class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                 生成中
+              </span>
+              <span v-else-if="canIterate" class="inline-flex items-center gap-1.5">
+                🔄 发送修改
               </span>
               <span v-else class="inline-flex items-center gap-1.5">
                 ✨ 生成 {{ isComponent ? '组件' : 'Skill' }}
