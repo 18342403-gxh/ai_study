@@ -43,9 +43,9 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
          VALUES (?, ?, ?, ?, ?)`
       )
 
-      const insertMany = db.transaction((items: Array<[string, string, string, number, string]>) => {
+      const insertMany = db.transaction(async () => {
         for (const item of items) {
-          insert.run(...item)
+          await insert.run(...item)
         }
       })
 
@@ -65,7 +65,7 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
         ])
       }
 
-      insertMany(items)
+      await insertMany()
       return ids
     },
 
@@ -78,13 +78,13 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
 
       let rows: Array<{ id: string; doc_id: string; content: string; chunk_index: number; embedding: string }>
       if (docId) {
-        rows = db
+        rows = await db
           .prepare(
             `SELECT * FROM ${tableName} WHERE doc_id = ? AND embedding IS NOT NULL`
           )
           .all(docId) as typeof rows
       } else {
-        rows = db
+        rows = await db
           .prepare(`SELECT * FROM ${tableName} WHERE embedding IS NOT NULL`)
           .all() as typeof rows
       }
@@ -111,14 +111,14 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
      */
     async deleteByDocId(docId: string): Promise<number> {
       const db = getDb()
-      const result = db.prepare(`DELETE FROM ${tableName} WHERE doc_id = ?`).run(docId)
+      const result = await db.prepare(`DELETE FROM ${tableName} WHERE doc_id = ?`).run(docId)
       return result.changes
     },
 
     async delete(ids: string[]): Promise<void> {
       const db = getDb()
       const placeholders = ids.map(() => '?').join(',')
-      db.prepare(`DELETE FROM ${tableName} WHERE id IN (${placeholders})`).run(...ids)
+      await db.prepare(`DELETE FROM ${tableName} WHERE id IN (${placeholders})`).run(...ids)
     },
   }
 }

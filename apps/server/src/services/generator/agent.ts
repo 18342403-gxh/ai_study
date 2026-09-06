@@ -223,7 +223,7 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
         }
 
         // 持久化
-        persistGeneratorState(state)
+        await persistGeneratorState(state)
       } catch (err) {
         state.status = 'error'
         yield { event: 'on_error', data: { message: (err as Error).message } }
@@ -235,7 +235,7 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
       stateId: string,
       feedback: string
     ): AsyncGenerator<GeneratorStreamEvent> {
-      const state = getGeneratorState(stateId)
+      const state = await getGeneratorState(stateId)
       if (!state) {
         yield { event: 'on_error', data: { message: '状态不存在' } }
         return
@@ -271,7 +271,7 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
       state.status = 'completed'
       yield { event: 'on_chain_end', node: 'iterate', data: { result: state.result } }
-      persistGeneratorState(state)
+      await persistGeneratorState(state)
     },
 
     /** 获取状态 */
@@ -281,18 +281,18 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
 // ── 持久化 ────────────────────────────────────────────────────
 
-function getGeneratorState(stateId: string): GeneratorState | null {
+async function getGeneratorState(stateId: string): Promise<GeneratorState | null> {
   const db = getDb()
-  const row = db
+  const row = await db
     .prepare('SELECT state_json FROM generator_states WHERE id = ?')
     .get(stateId) as { state_json: string } | undefined
   return row ? JSON.parse(row.state_json) : null
 }
 
-function persistGeneratorState(state: GeneratorState): void {
+async function persistGeneratorState(state: GeneratorState): Promise<void> {
   const db = getDb()
   const now = Date.now()
-  db.prepare(
+  await db.prepare(
     `INSERT INTO generator_states (id, state_json, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET

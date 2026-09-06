@@ -4,9 +4,10 @@
  *   DATABASE_DRIVER=sqlite   → 本地 SQLite 文件（默认，零依赖）
  *   DATABASE_DRIVER=postgres → 连接 PostgreSQL + pgvector（生产推荐）
  *
- * 向上暴露统一的 getDb() 接口，SQLite 模式返回 better-sqlite3 实例，
- * PostgreSQL 模式返回 postgres.js 包装后的"类 SQLite"实例。
- * 上层 9 个调用方（routes/services）全部用 getDb().prepare(sql).run() 风格，无需改动。
+ * ⚠️ 所有驱动统一 async API：run/get/all 均返回 Promise。
+ *    SQLite 内部是同步的，这里用 Promise.resolve() 包装；
+ *    PostgreSQL 是真正的 async postgres.js。
+ *    上层调用必须用 await db.prepare(sql).run(...) 风格。
  */
 
 import 'dotenv/config'
@@ -124,63 +125,105 @@ const initSqlite = () => {
 }
 
 // ─────────────────────────────────────────────
-// PostgreSQL 实现（包装 postgres.js 为 SQLite 风格）
+// 统一 async 包装器（SQLite 和 PG 共用的接口形状）
+// ─────────────────────────────────────────────
+
+interface AsyncPrepared {
+  run(...params: unknown[]): Promise<{ lastInsertRowid: bigint | number | null; changes: number }>
+  get<T = unknown>(...params: unknown[]): Promise<T | undefined>
+  all<T = unknown>(...params: unknown[]): Promise<T[]>
+}
+
+interface AsyncDb {
+  prepare(sql: string): AsyncPrepared
+  exec(sql: string): Promise<unknown>
+  transaction<T>(fn: () => T | Promise<T>): () => Promise<T>
+  rawClient?: unknown
+}
+
+/** SQLite 同步 → async 包装 */
+const wrapSqliteAsAsync = (db: Database.Database): AsyncDb => ({
+  prepare(sql: string) {
+    const stmt = db.prepare(sql)
+    return {
+      run(...params: unknown[]) {
+        return Promise.resolve(stmt.run(...params) as { lastInsertRowid: bigint | number | null; changes: number })
+      },
+      get<T = unknown>(...params: unknown[]) {
+        return Promise.resolve(stmt.get(...params) as T | undefined)
+      },
+      all<T = unknown>(...params: unknown[]) {
+        return Promise.resolve(stmt.all(...params) as T[])
+      },
+    }
+  },
+  exec(sql: string) {
+    return Promise.resolve(db.exec(sql))
+  },
+  transaction<T>(fn: () => T | Promise<T>) {
+    return db.transaction(fn) as () => Promise<T>
+  },
+})
+
+/** PG (postgres.js) → async 包装（内部已是 async） */
+const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
+  /** 把 SQLite 风格的 ? 占位符转换成 PG 的 $1, $2, $3...  */
+  const sqliteToPgParams = (sql: string): string => {
+    let i = 0
+    return sql.replace(/\?/g, () => `$${++i}`)
+  }
+
+  /** 把裸表名加 app schema 前缀（简单正则，覆盖常见情况） */
+  const qualifySchema = (sql: string): string => {
+    // 匹配 FROM/JOIN/INTO/UPDATE 后面紧跟的裸表名，加 app. 前缀
+    return sql.replace(
+      /\b(FROM|JOIN|INTO|UPDATE)\s+(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
+      (_m, kw: string, table: string) => `${kw} app.${table}`
+    )
+  }
+
+  const prepareForPg = (sql: string): string => qualifySchema(sqliteToPgParams(sql))
+
+  return {
+    prepare(sql: string) {
+      const pgSql = prepareForPg(sql)
+      return {
+        async run(...params: unknown[]) {
+          const rows: any[] = await client.unsafe(pgSql, params as any)
+          return {
+            lastInsertRowid: rows?.[0]?.id ?? null,
+            changes: rows?.length ?? 0,
+          }
+        },
+        async get<T = unknown>(...params: unknown[]) {
+          const rows: any[] = await client.unsafe(pgSql, params as any)
+          return rows?.[0] as T | undefined
+        },
+        async all<T = unknown>(...params: unknown[]) {
+          return (await client.unsafe(pgSql, params as any)) as T[]
+        },
+      }
+    },
+    async exec(sql: string) {
+      return client.unsafe(prepareForPg(sql))
+    },
+    transaction<T>(fn: () => T | Promise<T>) {
+      return async () => {
+        if (!client) throw new Error('PG client not available')
+        return await client.begin(async () => fn()) as T
+      }
+    },
+    rawClient: client,
+  }
+}
+
+// ─────────────────────────────────────────────
+// PostgreSQL 初始化
 // ─────────────────────────────────────────────
 import pg from 'postgres'
 
 let pgClient: ReturnType<typeof pg> | null = null
-
-/**
- * 把 PostgreSQL 的 $1, $2 参数占位符转换成 postgres.js 的 unsafe() 调用
- * 包装成和 better-sqlite3 兼容的接口（同步外观，内部 async）
- *
- * ⚠️ 重要：PG 模式下 run/get/all 返回的实际是 Promise，
- *    但为了和上层同步代码兼容，这里返回同步接口的形状。
- *    真正切 PG 时需要把上层调用全部加 await。
- */
-const wrapPostgresAsSqlite = (client: ReturnType<typeof pg>) => {
-  const wrapper = {
-    prepare(sql: string) {
-      return {
-        run(...params: any[]) {
-          return client.unsafe(sql, params as any).then((rows: any[]) => ({
-            lastInsertRowid: rows?.[0]?.id,
-            changes: rows?.length ?? 0,
-          })) as any
-        },
-        get(...params: any[]) {
-          return client.unsafe(sql, params as any).then((rows: any[]) => rows?.[0]) as any
-        },
-        all(...params: any[]) {
-          return client.unsafe(sql, params as any) as any
-        },
-      }
-    },
-    /** 模拟 SQLite 的 transaction() —— PG 版本内部用 pg transaction */
-    transaction<T>(fn: () => T) {
-      return async () => {
-        if (!client) throw new Error('PG client not available')
-        return await client.begin(async (sql) => {
-          // 在 transaction 里，用 sql 替代原来的 unsafe
-          // 但上层传入的 fn 里用的是 this.prepare，所以我们把 prepare 临时替换
-          // 简化处理：直接执行 fn
-          return await fn()
-        })
-      }
-    },
-    // 暴露原始 postgres.js 客户端给 PG 特有功能（如 pgvector）
-    rawClient: client,
-    // 模拟 SQLite 的 exec（DDL）
-    exec(sql: string) {
-      return client.unsafe(sql)
-    },
-  }
-  return wrapper as any
-}
-
-type PgDbLike = ReturnType<typeof wrapPostgresAsSqlite> | Database.Database
-
-let pgDbWrapper: PgDbLike | null = null
+let pgDb: AsyncDb | null = null
 
 const initPostgres = () => {
   const url = process.env.DATABASE_URL || 'postgresql://ai_study:123456@localhost:5432/ai_study'
@@ -189,46 +232,44 @@ const initPostgres = () => {
     idle_timeout: 30,
     connect_timeout: 10,
   })
-  pgDbWrapper = wrapPostgresAsSqlite(pgClient)
+  pgDb = wrapPostgresAsAsync(pgClient)
 }
 
 // ─────────────────────────────────────────────
 // 公共导出
 // ─────────────────────────────────────────────
 
+let sqliteWrapped: AsyncDb | null = null
+
 export const initDatabase = () => {
   if (DRIVER === 'postgres') {
     console.log('📊 Database driver: PostgreSQL')
     initPostgres()
-    // PG 表已通过 scripts/init-pg.sql 创建，这里不建表
   } else {
     console.log('📊 Database driver: SQLite (default)')
     initSqlite()
+    sqliteWrapped = wrapSqliteAsAsync(sqliteDb!)
   }
 }
 
 /**
- * 获取数据库实例
- * - SQLite 模式：返回 better-sqlite3 Database 实例（同步 API）
- * - PostgreSQL 模式：返回适配后的包装对象（prepare().run() 返回 Promise）
- *
- * ⚠️ 注意：PG 模式下 run/get/all 返回的是 Promise，上层调用需要 await
- *    如果上层代码还没适配 async，可以先保持 sqlite 驱动开发
+ * 获取 async 数据库实例
+ * 两套驱动统一返回 AsyncDb，所有 prepare().run/get/all 都返回 Promise。
+ * 上层调用：await db.prepare(sql).run(...)
  */
-export const getDb = () => {
+export const getDb = (): AsyncDb => {
   if (DRIVER === 'postgres') {
-    if (!pgDbWrapper) throw new Error('PostgreSQL not initialized. Call initDatabase() first.')
-    return pgDbWrapper
+    if (!pgDb) throw new Error('PostgreSQL not initialized. Call initDatabase() first.')
+    return pgDb
   }
-  if (!sqliteDb) throw new Error('SQLite not initialized. Call initDatabase() first.')
-  return sqliteDb
+  if (!sqliteWrapped) throw new Error('SQLite not initialized. Call initDatabase() first.')
+  return sqliteWrapped
 }
 
 export const getDriver = () => DRIVER as 'sqlite' | 'postgres'
 
 /**
  * 获取 PG 原生客户端（用于 pgvector 特有操作）
- * 只有 DATABASE_DRIVER=postgres 时可用
  */
 export const getPgRaw = () => {
   if (DRIVER !== 'postgres') return null
@@ -242,7 +283,6 @@ export const closeDatabase = async () => {
   if (DRIVER === 'postgres' && pgClient) {
     await pgClient.end({ timeout: 5 })
     pgClient = null
-    pgDbWrapper = null
+    pgDb = null
   }
-  // SQLite 不用显式关闭
 }

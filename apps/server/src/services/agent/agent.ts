@@ -49,9 +49,9 @@ export interface AgentConfig {
 }
 
 /** 获取 Agent 状态 */
-export function getState(threadId: string): AgentState {
+export async function getState(threadId: string): Promise<AgentState> {
   const db = getDb()
-  const row = db
+  const row = await db
     .prepare('SELECT state_json FROM agent_states WHERE thread_id = ?')
     .get(threadId) as { state_json: string } | undefined
 
@@ -69,10 +69,10 @@ export function getState(threadId: string): AgentState {
 }
 
 /** 持久化 Agent 状态 */
-function persistState(state: AgentState): void {
+async function persistState(state: AgentState): Promise<void> {
   const db = getDb()
   const now = Date.now()
-  db.prepare(
+  await db.prepare(
     `INSERT INTO agent_states (thread_id, state_json, status, current_node, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(thread_id) DO UPDATE SET
@@ -98,9 +98,9 @@ export const agentInputSchema = z.object({
 export interface AgentExecutor {
   streamEvents(threadId: string, userInput: string, initialState?: Partial<AgentState>): AsyncGenerator<AgentStreamEvent>
   run(threadId: string, userInput: string): Promise<AgentState>
-  rollback(threadId: string, step: number): AgentState
-  pause(threadId: string): AgentState
-  resume(threadId: string, userInput: string): AsyncGenerator<AgentStreamEvent>
+  rollback(threadId: string, step: number): Promise<AgentState>
+  pause(threadId: string): Promise<AgentState>
+  resume(threadId: string, userInput: string): Promise<AsyncGenerator<AgentStreamEvent>>
 }
 
 /**
@@ -129,7 +129,7 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
     }
     const state: AgentState = Object.assign(base, initialState || {})
 
-    persistState(state)
+    await persistState(state)
 
     yield {
       event: 'on_chain_start',
@@ -156,13 +156,13 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
         state.status = 'error'
         state.lastAnswer = `⚠️ Harness 拦截：${safetyCheck.reason}`
         state.messages.push({ role: 'assistant', content: state.lastAnswer })
-        persistState(state)
+        await persistState(state)
         break
       }
 
       if (interruptOn.includes('think')) {
         state.status = 'paused'
-        persistState(state)
+        await persistState(state)
         yield { event: 'on_interrupt', data: { node: 'think', reason: 'Human-in-the-loop' } }
         break
       }
@@ -200,7 +200,7 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
             state.messages.push({ role: 'assistant', content: `⚠️ 工具被拦截：${policyCheck.reason}` })
             state.messages.push({ role: 'tool', content: JSON.stringify({ tool: parsed.name, blocked: true, reason: policyCheck.reason }) })
             state.currentNode = 'observe'
-            persistState(state)
+            await persistState(state)
             continue
           }
 
@@ -246,12 +246,12 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
         state.status = guardResult.result === 'block' ? 'error' : 'completed'
       }
 
-      persistState(state)
+      await persistState(state)
     }
 
     if (state.status === 'running') {
       state.status = 'completed'
-      persistState(state)
+      await persistState(state)
     }
 
     yield {
@@ -266,31 +266,31 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
     let lastState: AgentState | null = null
     for await (const event of streamEvents(threadId, userInput)) {
       if (event.event === 'on_chain_end' && event.name === 'Agent') {
-        lastState = getState(threadId)
+        lastState = await getState(threadId)
       }
     }
-    return lastState || getState(threadId)
+    return lastState || await getState(threadId)
   }
 
-  function rollback(threadId: string, step: number): AgentState {
-    const state = getState(threadId)
+  async function rollback(threadId: string, step: number): Promise<AgentState> {
+    const state = await getState(threadId)
     state.messages = state.messages.slice(0, step * 2 + 1)
     state.toolCalls = state.toolCalls.slice(0, step)
     state.status = 'idle'
     state.iteration = step
-    persistState(state)
+    await persistState(state)
     return state
   }
 
-  function pause(threadId: string): AgentState {
-    const state = getState(threadId)
+  async function pause(threadId: string): Promise<AgentState> {
+    const state = await getState(threadId)
     state.status = 'paused'
-    persistState(state)
+    await persistState(state)
     return state
   }
 
-  function resume(threadId: string, userInput: string): AsyncGenerator<AgentStreamEvent> {
-    const state = getState(threadId)
+  async function resume(threadId: string, userInput: string): Promise<AsyncGenerator<AgentStreamEvent>> {
+    const state = await getState(threadId)
     state.status = 'running'
     return streamEvents(threadId, userInput, state)
   }

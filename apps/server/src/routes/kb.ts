@@ -46,13 +46,13 @@ async function retrieveTopChunks(query: string, documentIds?: string[]) {
   let chunks: ChunkRow[]
   if (documentIds && documentIds.length > 0) {
     const placeholders = documentIds.map(() => '?').join(',')
-    chunks = db.prepare(
+    chunks = (await db.prepare(
       `SELECT * FROM chunks WHERE doc_id IN (${placeholders}) AND embedding IS NOT NULL`
-    ).all(...documentIds) as ChunkRow[]
+    ).all(...documentIds)) as ChunkRow[]
   } else {
-    chunks = db.prepare(
+    chunks = (await db.prepare(
       'SELECT * FROM chunks WHERE embedding IS NOT NULL'
-    ).all() as ChunkRow[]
+    ).all()) as ChunkRow[]
   }
 
   const scored = chunks.map((chunk) => {
@@ -89,15 +89,15 @@ router.post(
     const systemPrompt = buildRagSystemPrompt(topChunks)
 
     const db = getDb()
-    const citations = topChunks.map((c, i) => {
-      const doc = db.prepare('SELECT name FROM documents WHERE id = ?').get(c.doc_id) as DocumentRow | undefined
+    const citations = await Promise.all(topChunks.map(async (c, i) => {
+      const doc = await db.prepare('SELECT name FROM documents WHERE id = ?').get(c.doc_id) as DocumentRow | undefined
       return {
         index: i + 1,
         content: c.content.slice(0, 200),
         source: doc?.name || '未知文档',
         score: Math.round((c as unknown as { score: number }).score * 100) / 100,
       }
-    })
+    }))
 
     const chain = createChatChain({ temperature: 0.3 })
 

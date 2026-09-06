@@ -70,7 +70,7 @@ router.post(
   validate({ body: resumeSchema }),
   asyncHandler(async (req, res) => {
     const executor = createAgentExecutor()
-    const stream = executor.resume(req.body.threadId, req.body.input)
+    const stream = await executor.resume(req.body.threadId, req.body.input)
 
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')

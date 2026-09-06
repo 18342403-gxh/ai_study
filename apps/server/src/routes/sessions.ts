@@ -45,7 +45,7 @@ router.get(
   '/',
   asyncHandler(async (_req, res) => {
     const db = getDb()
-    const sessions = db
+    const sessions = await db
       .prepare(
         `SELECT s.*, COUNT(m.id) as message_count
          FROM sessions s
@@ -68,12 +68,12 @@ router.post(
     const id = randomUUID()
     const { title = '新对话', model = 'glm-4-flash', systemPrompt = null } = req.body
 
-    db.prepare(
+    await db.prepare(
       `INSERT INTO sessions (id, title, model, system_prompt, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(id, title, model, systemPrompt, now, now)
 
-    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id)
+    const session = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(id)
     res.status(201).json(session)
   })
 )
@@ -84,10 +84,10 @@ router.get(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
+    const session = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
-    const messages = db
+    const messages = await db
       .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC')
       .all(req.params.id)
 
@@ -101,7 +101,7 @@ router.patch(
   validate({ params: sessionIdParam, body: updateSessionSchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(req.params.id)
+    const session = await db.prepare('SELECT id FROM sessions WHERE id = ?').get(req.params.id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
     const now = Date.now()
@@ -129,8 +129,8 @@ router.patch(
     updates.push('updated_at = ?')
     values.push(now, req.params.id)
 
-    db.prepare(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`).run(...values)
-    const updated = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
+    await db.prepare(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+    const updated = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
     res.json(updated)
   })
 )
@@ -141,7 +141,7 @@ router.delete(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id)
+    const result = await db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id)
     if (result.changes === 0) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
     res.json({ success: true })
   })
@@ -153,7 +153,7 @@ router.post(
   validate({ params: sessionIdParam, body: addMessageSchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = db.prepare('SELECT id FROM sessions WHERE id = ?').get(req.params.id)
+    const session = await db.prepare('SELECT id FROM sessions WHERE id = ?').get(req.params.id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
     const now = Date.now()
@@ -165,7 +165,7 @@ router.post(
        VALUES (?, ?, ?, ?, ?, ?)`
     )
 
-    const insertResult = insert.run(
+    const insertResult = await insert.run(
       msgId,
       req.params.id,
       role,
@@ -174,9 +174,9 @@ router.post(
       now
     )
 
-    db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
+    await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
 
-    const message = db.prepare('SELECT * FROM messages WHERE id = ?').get(msgId)
+    const message = await db.prepare('SELECT * FROM messages WHERE id = ?').get(msgId)
     res.status(201).json(message)
   })
 )
@@ -187,9 +187,9 @@ router.delete(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const result = db.prepare('DELETE FROM messages WHERE session_id = ?').run(req.params.id)
+    const result = await db.prepare('DELETE FROM messages WHERE session_id = ?').run(req.params.id)
     const now = Date.now()
-    db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
+    await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
     res.json({ success: true, deleted: result.changes })
   })
 )

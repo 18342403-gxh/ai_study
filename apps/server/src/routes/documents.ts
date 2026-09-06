@@ -77,7 +77,7 @@ router.post(
     const docId = randomUUID()
     const now = Date.now()
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO documents (id, name, size, type, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'processing', ?, ?)
     `).run(docId, file.originalname, file.size, path.extname(file.originalname), now, now)
@@ -94,9 +94,9 @@ router.post(
           VALUES (?, ?, ?, ?, ?)
         `)
 
-        const insertMany = db.transaction(() => {
+        const insertMany = db.transaction(async () => {
           for (let i = 0; i < chunks.length; i++) {
-            insertChunk.run(
+            await insertChunk.run(
               randomUUID(),
               docId,
               chunks[i].content,
@@ -107,12 +107,12 @@ router.post(
         })
         insertMany()
 
-        db.prepare(`
+        await db.prepare(`
           UPDATE documents SET status = 'ready', chunk_count = ?, updated_at = ?
           WHERE id = ?
         `).run(chunks.length, Date.now(), docId)
       } catch {
-        db.prepare(`
+        await db.prepare(`
           UPDATE documents SET status = 'failed', updated_at = ? WHERE id = ?
         `).run(Date.now(), docId)
       }
@@ -127,7 +127,7 @@ router.get(
   '/',
   asyncHandler(async (_req, res) => {
     const db = getDb()
-    const documents = db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
+    const documents = await db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
     res.json(documents)
   })
 )
@@ -140,13 +140,13 @@ router.delete(
     const db = getDb()
     const id = req.params.id
 
-    const doc = db.prepare('SELECT id FROM documents WHERE id = ?').get(id)
+    const doc = await db.prepare('SELECT id FROM documents WHERE id = ?').get(id)
     if (!doc) {
       throw createError(`文档 ${id} 不存在`, 404, 'DOC_NOT_FOUND')
     }
 
-    db.prepare('DELETE FROM chunks WHERE doc_id = ?').run(id)
-    db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+    await db.prepare('DELETE FROM chunks WHERE doc_id = ?').run(id)
+    await db.prepare('DELETE FROM documents WHERE id = ?').run(id)
     res.json({ success: true })
   })
 )

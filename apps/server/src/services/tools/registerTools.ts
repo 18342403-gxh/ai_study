@@ -77,7 +77,7 @@ export async function executeTool(
   // 审计日志
   if (context?.sessionId) {
     const db = getDb()
-    db.prepare(
+    await db.prepare(
       `INSERT INTO tool_calls (id, session_id, tool_name, args_json, result_json, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'completed', ?)`
     ).run(
@@ -138,7 +138,7 @@ export const listSessionsTool: ToolDefinition = {
   }),
   async execute(args) {
     const db = getDb()
-    const sessions = db
+    const sessions = await db
       .prepare(
         `SELECT s.*, COUNT(m.id) as message_count
          FROM sessions s LEFT JOIN messages m ON m.session_id = s.id

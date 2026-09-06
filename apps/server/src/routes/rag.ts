@@ -79,7 +79,7 @@ router.get(
   '/documents',
   asyncHandler(async (_req, res) => {
     const db = getDb()
-    const docs = db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
+    const docs = await db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
     res.json(docs)
   })
 )
