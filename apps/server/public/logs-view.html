@@ -184,6 +184,8 @@ function refreshTags() {
     sel.value = current
   }).catch(() => {})
 }
+// 定时刷新（节流）
+setInterval(refreshTags, 15000)
 
 function connectSSE() {
   const es = new EventSource('/api/logs/stream')
@@ -196,7 +198,6 @@ function connectSSE() {
     records.push(r)
     if (records.length > 5000) { records.shift(); recordIds.delete(records[0]?.id) }
     updateCount()
-    refreshTags()
     if (shouldShow(r)) addRow(r, true)
     if (autoScroll) document.querySelector('.wrap').scrollTop = 0
   }

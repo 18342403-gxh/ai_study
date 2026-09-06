@@ -18,7 +18,7 @@ const buckets = new Map<string, Bucket>()
 
 /** 不同路由的限流配置 */
 const SSE_PATHS = [/^\/api\/chat\/completions$/, /^\/api\/agent\/run$/, /^\/api\/generator\/run$/, /^\/api\/rag\/query$/, /^\/api\/kb\/query$/]
-const WHITELIST_PATHS = [/^\/api\/health$/, /^\/api\/metrics$/]
+const WHITELIST_PATHS = [/^\/api\/health$/, /^\/api\/metrics$/, /^\/api\/logs(\/.*)?$/, /^\/api\/logs-view$/, /^\/api\/cache(\/.*)?$/, /^\/api\/circuits$/, /^\/api\/cache\/reset$/, /^\/api\/circuits\/reset$/]
 
 const NORMAL_WINDOW_MS = 60_000
 const NORMAL_MAX = 60
