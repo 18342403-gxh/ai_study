@@ -203,8 +203,8 @@ DATABASE_DRIVER=sqlite         # 直接用，数据存在 ./data/knowledge.db
 ### 一键启动
 
 ```bash
-# 生成器 + BFF（最常用）
-npx pnpm@9.15.9 run dev:all
+# 生成器 + BFF（日常开发最常用）
+pnpm run dev
 ```
 
 启动后 BFF 会自动在浏览器打开 **📋 实时日志**（`localhost:3001/api/logs-view`）。
@@ -219,7 +219,7 @@ npx pnpm@9.15.9 run dev:all
 | React SPA | http://localhost:5173/ |
 | Vue 3 SPA | http://localhost:5174/ |
 
-> 💡 禁用 BFF 自动打开日志页：`NO_AUTO_OPEN=1 pnpm run dev:all`
+> 💡 禁用 BFF 自动打开日志页：`NO_AUTO_OPEN=1 pnpm run dev`
 
 ---
 
@@ -227,10 +227,12 @@ npx pnpm@9.15.9 run dev:all
 
 | 命令 | 作用 |
 |------|------|
-| `pnpm run dev` | BFF + React |
-| `pnpm run dev:all` | BFF + Generator(3003) + SSR(3002) + React + Vue（最全） |
+| `pnpm run dev` | **BFF + Generator（最常用）** |
+| `pnpm run dev:all` | 全部 5 个服务 |
 | `pnpm run dev:server` | 仅 BFF :3001 |
 | `pnpm run dev:generator` | 仅生成器 :3003 |
+| `pnpm run dev:react` | 仅 React SPA :5173 |
+| `pnpm run dev:vue` | 仅 Vue 3 SPA :5174 |
 | `pnpm run dev:ssr` | 仅 Vue 3 SSR :3002 |
 | `pnpm run build` | 生产构建 |
 | `pnpm run typecheck` | 全量 TS 检查 |
