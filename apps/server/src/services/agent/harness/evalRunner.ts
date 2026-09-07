@@ -15,6 +15,7 @@
  */
 
 import { createAgentExecutor, type AgentState } from '../agent.js'
+import { logger } from '../../logger.js'
 
 export interface EvalAssert {
   /** 期望 Agent 不调用任何工具 */
@@ -110,9 +111,8 @@ export async function runEvalCases(
     const result = evaluateOne(tc, { harnessEvents, toolCalls, answer, finalStatus, durationMs })
     results.push(result)
 
-    // 实时打印
-    const icon = result.passed ? '✅' : '❌'
-    console.log(`${icon} [${tc.id}] ${tc.input.slice(0, 30)}${tc.input.length > 30 ? '…' : ''} — ${result.details}`)
+    // 实时打印（harness 评测专用，DEBUG 级别避免污染生产 INFO）
+    logger.debug('harness.eval', `${result.passed ? '✅' : '❌'} [${tc.id}] ${tc.input.slice(0, 30)}${tc.input.length > 30 ? '…' : ''} — ${result.details}`, { caseId: tc.id, passed: result.passed })
   }
 
   const passed = results.filter(r => r.passed).length

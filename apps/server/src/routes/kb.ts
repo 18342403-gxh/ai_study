@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { getDb } from '../db/index.js'
 import { getEmbedding, cosineSimilarity } from '../services/embedding.js'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 
 const router = Router()
@@ -84,6 +85,7 @@ router.post(
   validate({ body: querySchema }),
   asyncHandler(async (req, res) => {
     const { query, documentIds, stream } = req.body
+    logger.info('kb.route', 'POST /query — 入口', { stream, hasDocIds: !!documentIds })
 
     const topChunks = await retrieveTopChunks(query, documentIds)
     const systemPrompt = buildRagSystemPrompt(topChunks)
@@ -134,6 +136,7 @@ router.post(
         )
       }
 
+      logger.info('kb.route', 'POST /query — 出口 (stream)', { topChunkCount: topChunks.length })
       res.end()
     } else {
       const result = await chain.invoke({
@@ -143,6 +146,7 @@ router.post(
         ],
       })
 
+      logger.info('kb.route', 'POST /query — 出口 (invoke)', { topChunkCount: topChunks.length })
       res.json({
         answer: result.content,
         citations,

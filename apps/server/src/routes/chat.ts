@@ -6,6 +6,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { logger } from '../services/logger.js'
 import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
@@ -32,6 +33,7 @@ router.post(
   validate({ body: chatCompletionsSchema }),
   asyncHandler(async (req, res) => {
     const { messages, model, stream, temperature } = req.body as z.infer<typeof chatCompletionsSchema>
+    logger.info('chat.route', 'POST /completions — 入口', { stream, msgCount: messages.length })
 
     const chain = createChatChain({ model, temperature })
 
@@ -45,6 +47,7 @@ router.post(
       }
 
       res.write('data: [DONE]\n\n')
+      logger.info('chat.route', 'POST /completions — 出口 (stream)')
       res.end()
     } else {
       const result = await chain.invoke({ messages })
@@ -57,6 +60,7 @@ router.post(
         ],
         usage: result.usage,
       })
+      logger.info('chat.route', 'POST /completions — 出口 (invoke)')
     }
   })
 )

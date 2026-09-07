@@ -15,6 +15,7 @@ import {
   initDefaultTools,
 } from '../services/tools/registerTools.js'
 import { createFunctionCallingEngine } from '../services/tools/engine.js'
+import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 
 initDefaultTools()
@@ -43,11 +44,13 @@ const runSchema = z.object({
 router.get(
   '/list',
   asyncHandler(async (req, res) => {
+    logger.info('tools.route', 'GET /list — 入口')
     const allowedIds = req.query.allowedToolIds as string[] | undefined
     const tools = allowedIds && allowedIds.length > 0
       ? getToolsByWhitelist(allowedIds)
       : getAllTools()
 
+    logger.info('tools.route', 'GET /list — 出口', { count: tools.length })
     res.json({
       tools: tools.map((t) => ({
         name: t.name,
@@ -65,7 +68,9 @@ router.post(
   validate({ body: executeSchema }),
   asyncHandler(async (req, res) => {
     const { toolName, args, sessionId } = req.body
+    logger.info('tools.route', 'POST /execute — 入口', { toolName })
     const result = await executeTool(toolName, args, { sessionId })
+    logger.info('tools.route', 'POST /execute — 出口', { toolName })
     res.json({ toolName, result })
   })
 )
@@ -76,6 +81,7 @@ router.post(
   validate({ body: runSchema }),
   asyncHandler(async (req, res) => {
     const { messages, userInput, allowedToolIds, maxIterations, systemPrompt, sessionId } = req.body
+    logger.info('tools.route', 'POST /run — 入口 (SSE)', { maxIterations, sessionId })
 
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
@@ -93,8 +99,10 @@ router.post(
         res.write(`data: ${JSON.stringify(event)}\n\n`)
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
+      logger.info('tools.route', 'POST /run — 完成', { sessionId })
     } catch (err) {
       if (!res.headersSent) throw err
+      logger.error('tools.route', 'POST /run — 错误', { sessionId, error: (err as Error).message })
       res.write(`data: ${JSON.stringify({ type: 'error', message: (err as Error).message })}\n\n`)
     }
     res.end()

@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto'
 import { getDb } from '../db/index.js'
 import { splitIntoChunks } from '../services/chunker.js'
 import { getEmbeddings } from '../services/embedding.js'
+import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -68,6 +69,7 @@ router.post(
   upload.single('file'),
   validate({ body: uploadMetadataSchema }),
   asyncHandler(async (req, res) => {
+    logger.info('documents.route', 'POST /upload — 入口')
     const file = req.file
     if (!file) {
       throw createError('未提供上传文件', 400, 'NO_FILE')
@@ -111,13 +113,16 @@ router.post(
           UPDATE documents SET status = 'ready', chunk_count = ?, updated_at = ?
           WHERE id = ?
         `).run(chunks.length, Date.now(), docId)
-      } catch {
+        logger.info('documents.route', 'POST /upload — 后台处理完成', { docId, chunkCount: chunks.length })
+      } catch (err) {
         await db.prepare(`
           UPDATE documents SET status = 'failed', updated_at = ? WHERE id = ?
         `).run(Date.now(), docId)
+        logger.error('documents.route', 'POST /upload — 后台处理失败', { docId, error: (err as Error).message })
       }
     })()
 
+    logger.info('documents.route', 'POST /upload — 出口', { docId, fileName: file.originalname })
     res.json({ id: docId, name: file.originalname, status: 'processing' })
   })
 )
@@ -126,8 +131,10 @@ router.post(
 router.get(
   '/',
   asyncHandler(async (_req, res) => {
+    logger.info('documents.route', 'GET / — 入口')
     const db = getDb()
     const documents = await db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
+    logger.info('documents.route', 'GET / — 出口', { count: documents.length })
     res.json(documents)
   })
 )
@@ -137,6 +144,7 @@ router.delete(
   '/:id',
   validate({ params: docIdParamSchema }),
   asyncHandler(async (req, res) => {
+    logger.info('documents.route', 'DELETE /:id — 入口', { id: req.params.id })
     const db = getDb()
     const id = req.params.id
 
@@ -147,6 +155,7 @@ router.delete(
 
     await db.prepare('DELETE FROM chunks WHERE doc_id = ?').run(id)
     await db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+    logger.info('documents.route', 'DELETE /:id — 出口', { id })
     res.json({ success: true })
   })
 )

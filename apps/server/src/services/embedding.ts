@@ -3,6 +3,8 @@
  * 调用智谱 AI 的 embedding 接口将文本转为向量
  */
 
+import { logger } from './logger.js'
+
 function getEnv() {
   return {
     apiUrl: process.env.AI_API_URL || 'https://open.bigmodel.cn/api/paas/v4',
@@ -14,27 +16,37 @@ function getEnv() {
 /** 将单段文本转为向量 */
 export const getEmbedding = async (text: string): Promise<number[]> => {
   const { apiUrl, apiKey, model } = getEnv()
-  const response = await fetch(`${apiUrl}/embeddings`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      input: text,
-    }),
-  })
+  const start = Date.now()
+  logger.info('embedding.service', 'getEmbedding — 入口', { textLen: text.length })
+  try {
+    const response = await fetch(`${apiUrl}/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: text,
+      }),
+    })
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Embedding 请求失败 (${response.status}): ${errorText}`)
-  }
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Embedding 请求失败 (${response.status}): ${errorText}`)
+    }
 
-  const data = (await response.json()) as {
-    data: Array<{ embedding: number[] }>;
+    const data = (await response.json()) as {
+      data: Array<{ embedding: number[] }>;
+    }
+    const costMs = Date.now() - start
+    logger.info('embedding.service', 'getEmbedding — 出口', { costMs })
+    return data.data[0].embedding
+  } catch (err) {
+    const costMs = Date.now() - start
+    logger.error('embedding.service', 'getEmbedding — 错误', { costMs, error: (err as Error).message })
+    throw err
   }
-  return data.data[0].embedding
 }
 
 /** 批量获取 embedding（每次最多 25 条） */

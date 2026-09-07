@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto'
 
 import { getDb } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
+import { logger } from '../services/logger.js'
 
 const router = Router()
 
@@ -74,6 +75,7 @@ router.post(
     ).run(id, title, model, systemPrompt, now, now)
 
     const session = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(id)
+    logger.info('sessions.route', 'POST / 完成', { sessionId: id, title })
     res.status(201).json(session)
   })
 )
@@ -143,7 +145,8 @@ router.delete(
     const db = getDb()
     const result = await db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id)
     if (result.changes === 0) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
-    res.json({ success: true })
+    logger.info('sessions.route', 'DELETE /:id 完成', { sessionId: req.params.id })
+    res.status(204).end()
   })
 )
 
@@ -165,7 +168,7 @@ router.post(
        VALUES (?, ?, ?, ?, ?, ?)`
     )
 
-    const insertResult = await insert.run(
+    await insert.run(
       msgId,
       req.params.id,
       role,
@@ -177,6 +180,7 @@ router.post(
     await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
 
     const message = await db.prepare('SELECT * FROM messages WHERE id = ?').get(msgId)
+    logger.info('sessions.route', 'POST /:id/messages 完成', { sessionId: req.params.id, role })
     res.status(201).json(message)
   })
 )
@@ -190,7 +194,8 @@ router.delete(
     const result = await db.prepare('DELETE FROM messages WHERE session_id = ?').run(req.params.id)
     const now = Date.now()
     await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
-    res.json({ success: true, deleted: result.changes })
+    logger.info('sessions.route', 'DELETE /:id/messages 完成', { sessionId: req.params.id, deleted: result.changes })
+    res.status(204).end()
   })
 )
 

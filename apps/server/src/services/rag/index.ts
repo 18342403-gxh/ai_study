@@ -7,6 +7,7 @@ import { loadFromFile, loadFromString, type LoadedDocument } from './loader.js'
 import { createSplitter, type TextChunk } from './splitter.js'
 import { createEmbeddings } from './embeddings.js'
 import { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
+import { logger } from '../logger.js'
 import { randomUUID } from 'crypto'
 
 export interface RAGIngestResult {
@@ -55,24 +56,35 @@ export function createRAGService() {
     },
 
     async ingestDocumentWithId(doc: LoadedDocument, documentId: string): Promise<RAGIngestResult> {
-      const chunks = await splitter.splitDocument(doc)
+      const start = Date.now()
+      logger.info('rag.service', 'ingestDocumentWithId — 入口', { documentId, docName: doc.name })
+      try {
+        const chunks = await splitter.splitDocument(doc)
 
-      const texts = chunks.map((c) => c.content)
-      const vectors = await embeddings.embedDocuments(texts)
+        const texts = chunks.map((c) => c.content)
+        const vectors = await embeddings.embedDocuments(texts)
 
-      const vectorDocs = chunks.map((chunk, i) => ({
-        id: chunk.id,
-        content: chunk.content,
-        metadata: chunk.metadata,
-        embedding: vectors[i],
-      }))
+        const vectorDocs = chunks.map((chunk, i) => ({
+          id: chunk.id,
+          content: chunk.content,
+          metadata: chunk.metadata,
+          embedding: vectors[i],
+        }))
 
-      await vectorStore.addDocuments(vectorDocs, documentId)
+        await vectorStore.addDocuments(vectorDocs, documentId)
 
-      return {
-        documentId,
-        chunkCount: chunks.length,
-        chunks,
+        const costMs = Date.now() - start
+        logger.info('rag.service', 'ingestDocumentWithId — 出口', { documentId, chunkCount: chunks.length, costMs })
+
+        return {
+          documentId,
+          chunkCount: chunks.length,
+          chunks,
+        }
+      } catch (err) {
+        const costMs = Date.now() - start
+        logger.error('rag.service', 'ingestDocumentWithId — 错误', { documentId, costMs, error: (err as Error).message })
+        throw err
       }
     },
 
@@ -80,14 +92,36 @@ export function createRAGService() {
      * 检索流程：用户 query → embedding → 向量搜索
      */
     async search(query: string, k = 4, docId?: string): Promise<VectorSearchResult[]> {
-      return vectorStore.similaritySearch(query, k, docId)
+      const start = Date.now()
+      logger.info('rag.service', 'search — 入口', { k, docId })
+      try {
+        const results = await vectorStore.similaritySearch(query, k, docId)
+        const costMs = Date.now() - start
+        logger.info('rag.service', 'search — 出口', { resultCount: results.length, costMs })
+        return results
+      } catch (err) {
+        const costMs = Date.now() - start
+        logger.error('rag.service', 'search — 错误', { costMs, error: (err as Error).message })
+        throw err
+      }
     },
 
     /**
      * 删除文档及其向量
      */
     async deleteDocument(documentId: string): Promise<number> {
-      return vectorStore.deleteByDocId(documentId)
+      const start = Date.now()
+      logger.info('rag.service', 'deleteDocument — 入口', { documentId })
+      try {
+        const deleted = await vectorStore.deleteByDocId(documentId)
+        const costMs = Date.now() - start
+        logger.info('rag.service', 'deleteDocument — 出口', { documentId, deleted, costMs })
+        return deleted
+      } catch (err) {
+        const costMs = Date.now() - start
+        logger.error('rag.service', 'deleteDocument — 错误', { documentId, costMs, error: (err as Error).message })
+        throw err
+      }
     },
   }
 }
