@@ -270,8 +270,17 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
         async run(...params: unknown[]) {
           const t0 = Date.now()
           try {
-            const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
-            const result = { lastInsertRowid: rows?.[0]?.id ?? null, changes: rows?.length ?? 0 }
+            const raw: any = await client.unsafe(pgSql, coerceParams(params) as any)
+            // postgres.js 返回数组：SELECT/INSERT RETURNING → rows[] (length=N, count=N)
+            //                   UPDATE/DELETE 无 RETURNING → [] (length=0, count=affected)
+            let changes = 0
+            let lastInsertRowid: bigint | number | null = null
+            if (Array.isArray(raw)) {
+              // count 是非枚举属性，包含 UPDATE/DELETE 影响行数
+              changes = (raw as any).count ?? raw.length ?? 0
+              lastInsertRowid = raw[0]?.id ?? null
+            }
+            const result = { lastInsertRowid, changes }
             logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0, changes: result.changes })
             return result
           } catch (err) {

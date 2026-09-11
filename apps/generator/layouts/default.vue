@@ -46,15 +46,19 @@
         <!-- 分隔线 -->
         <div class="my-3 mx-3 h-px bg-slate-200"></div>
 
-        <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">即将推出</div>
-        <button class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-400 cursor-not-allowed">
-          <span class="text-base">📋</span>
-          <span>历史记录</span>
-          <span class="ml-auto text-[10px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded">soon</span>
-        </button>
-        <button class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-400 cursor-not-allowed">
-          <span class="text-base">⚙️</span>
-          <span>设置</span>
+        <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">历史</div>
+        <button
+          @click="activeTab = 'history'"
+          :class="[
+            'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left',
+            activeTab === 'history'
+              ? 'active bg-sidebar-active text-sidebar-activeText font-medium'
+              : 'text-slate-600 hover:bg-slate-100',
+          ]"
+        >
+          <span class="text-base">📜</span>
+          <span>我的生成</span>
+          <span v-if="historyCount > 0" class="ml-auto text-[10px] bg-primary-100 text-primary-600 px-1.5 py-0.5 rounded-full">{{ historyCount }}</span>
         </button>
       </nav>
 
@@ -73,15 +77,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, provide, watch } from 'vue'
+import { ref, provide, watch, onMounted } from 'vue'
 
 // 共享的 activeTab — layout 管理，provide 给 page 使用
-type ArtifactType = 'component' | 'skill'
+type ArtifactType = 'component' | 'skill' | 'history'
 const activeTab = ref<ArtifactType>('component')
 provide('activeTab', activeTab)
 
-// 监听变化，也 emit 给可能需要的地方
+// 历史记录数量（侧边栏徽章）
+const historyCount = ref(0)
+const config = useRuntimeConfig()
+const bffUrl = config.public.bffUrl as string
+
+async function fetchHistoryCount() {
+  try {
+    const res = await fetch(`${bffUrl}/api/generator/sessions?limit=1`)
+    if (res.ok) {
+      const list = await res.json()
+      historyCount.value = list.length
+    }
+  } catch { /* BFF 没启动就静默忽略 */ }
+}
+
+onMounted(fetchHistoryCount)
 watch(activeTab, (val) => {
-  // 可以在这里做路由跳转或其他副作用
+  if (val === 'history') fetchHistoryCount()
 })
 </script>

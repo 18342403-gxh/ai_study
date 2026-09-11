@@ -292,12 +292,12 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
   }
 }
 
-// ── 持久化 ────────────────────────────────────────────────────
+// ── 持久化（generator_sessions + generator_files 多表） ────────
 
 async function getGeneratorState(stateId: string): Promise<GeneratorState | null> {
   const db = getDb()
   const row = await db
-    .prepare('SELECT state_json FROM generator_states WHERE id = ?')
+    .prepare('SELECT state_json FROM generator_sessions WHERE id = ?')
     .get(stateId) as { state_json: string } | undefined
   return row ? JSON.parse(row.state_json) : null
 }
@@ -305,14 +305,61 @@ async function getGeneratorState(stateId: string): Promise<GeneratorState | null
 async function persistGeneratorState(state: GeneratorState): Promise<void> {
   const db = getDb()
   const now = Date.now()
+  const { artifactType, framework, skillName } = state
+
+  // 1. 写入/更新 generator_sessions（session 级元数据 + state_json）
   await db.prepare(
-    `INSERT INTO generator_states (id, state_json, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO generator_sessions
+       (id, requirement, artifact_type, framework, skill_name, script_lang, state_json, status, iteration, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        state_json = excluded.state_json,
        status = excluded.status,
+       iteration = excluded.iteration,
        updated_at = excluded.updated_at`
-  ).run(state.id, JSON.stringify(state), state.status, now, now)
+  ).run(
+    state.id,
+    state.requirement,
+    artifactType,
+    framework || null,
+    skillName || null,
+    null,
+    JSON.stringify(state),
+    state.status,
+    state.iteration,
+    now,
+    now
+  )
+
+  // 2. 写入 generator_files（如果生成有产物）
+  if (state.result?.files?.length) {
+    // 先把当前迭代之前的 files 全部标记为非 current
+    await db.prepare(
+      `UPDATE generator_files SET is_current = false
+       WHERE session_id = ? AND iteration < ?`
+    ).run(state.id, state.iteration)
+
+    // 写入新迭代的 files
+    const insertFile = db.prepare(
+      `INSERT INTO generator_files
+         (id, session_id, iteration, file_path, content, language, is_current, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, true, ?)`
+    )
+    const tx = db.transaction(async () => {
+      for (const file of state.result!.files) {
+        await insertFile.run(
+          randomUUID(),
+          state.id,
+          state.iteration,
+          file.path,
+          file.content,
+          file.language || 'tsx',
+          now
+        )
+      }
+    })
+    await tx()
+  }
 }
 
 // ── Zod Schema（路由层用） ────────────────────────────────────

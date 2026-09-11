@@ -2,9 +2,10 @@
 import { ref, computed, nextTick, inject } from 'vue'
 
 // ── 模式切换：从 layout inject 进来 ──
-type ArtifactType = 'component' | 'skill'
+type ArtifactType = 'component' | 'skill' | 'history'
 const activeTab = inject<{ value: ArtifactType }>('activeTab', ref<ArtifactType>('component'))
 const isComponent = computed(() => activeTab.value === 'component')
+const isHistory = computed(() => activeTab.value === 'history')
 
 // ── 表单字段 ──
 const input = ref('')                      // 统一输入框（首次 + 迭代共用）
@@ -278,7 +279,13 @@ const startNewChat = () => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-white">
+  <!-- ═══════════════ History 面板 ═══════════════ -->
+  <div v-if="isHistory" class="h-full flex flex-col bg-white">
+    <HistoryPanel />
+  </div>
+
+  <!-- ═══════════════ 生成面板（组件 + Skill 共用） ═══════════════ -->
+  <div v-else class="h-full flex flex-col bg-white">
     <!-- ═══════════════ 上方：浅色显示区 ═══════════════ -->
     <div class="flex-1 bg-slate-50 flex flex-col overflow-hidden">
       <!-- 顶部工具栏 -->
