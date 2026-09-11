@@ -168,13 +168,29 @@ const wrapSqliteAsAsync = (db: Database.Database): AsyncDb => ({
 
 /** PG (postgres.js) → async 包装（内部已是 async） */
 const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
-  /** 把 SQLite 风格的 ? 占位符转换成 PG 的 $1, $2, $3...  */
+  /**
+   * 把 SQLite 风格的 ? 占位符转换成 PG 的 $1, $2, $3...
+   * 只转不在引号里的 ?（避免字符串字面量里的 ? 被误转）
+   */
   const sqliteToPgParams = (sql: string): string => {
-    let i = 0
-    return sql.replace(/\?/g, () => `$${++i}`)
+    let counter = 0
+    let inSingle = false
+    let inDouble = false
+    let escapeNext = false
+    let result = ''
+    for (let i = 0; i < sql.length; i++) {
+      const c = sql[i]
+      if (escapeNext) { result += c; escapeNext = false; continue }
+      if (c === '\\') { result += c; escapeNext = true; continue }
+      if (c === "'" && !inDouble) { inSingle = !inSingle; result += c; continue }
+      if (c === '"' && !inSingle) { inDouble = !inDouble; result += c; continue }
+      if (c === '?' && !inSingle && !inDouble) { result += `$${++counter}`; continue }
+      result += c
+    }
+    return result
   }
 
-  /** 把裸表名加 app schema 前缀（简单正则，覆盖常见情况） */
+  /** 把裸表名加 app schema 前缀 */
   const qualifySchema = (sql: string): string => {
     // SQL 关键字白名单（这些不是表名，不能加 schema）
     const reserved = new Set([
@@ -184,14 +200,31 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
       'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'EXISTS', 'TRUE', 'FALSE',
       'RETURNING', 'DO', 'CONFLICT', 'EXCLUDED', 'DEFAULT', 'CHECK',
       'PRIMARY', 'FOREIGN', 'KEY', 'REFERENCES', 'CONSTRAINT', 'UNIQUE',
+      'WITH', 'RECURSIVE', 'LATERAL', 'CROSS', 'NATURAL', 'LEFT', 'RIGHT',
+      'INNER', 'OUTER', 'FULL', 'TABLESAMPLE', 'ONLY', 'USING',
     ])
-    return sql.replace(
+
+    // Step 1: 标准 keyword + table 匹配
+    // FROM/JOIN/INTO/UPDATE 后面的裸表名 → app.table
+    let result = sql.replace(
       /\b(FROM|JOIN|INTO|UPDATE)\s+(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
       (m, kw: string, table: string) => {
         if (reserved.has(table.toUpperCase())) return m
         return `${kw} app.${table}`
       }
     )
+
+    // Step 2: 逗号分隔多表 — FROM app.t1, t2 中的 t2 也要加 schema
+    // 匹配: FROM|JOIN app.table [alias] , bare_table
+    result = result.replace(
+      /((?:FROM|JOIN)\s+app\.\w+(?:\s+(?:AS\s+)?\w+)?)\s*,\s*(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
+      (m, prefix: string, table: string) => {
+        if (reserved.has(table.toUpperCase())) return m
+        return `${prefix}, app.${table}`
+      }
+    )
+
+    return result
   }
 
   /**
