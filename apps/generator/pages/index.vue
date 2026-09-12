@@ -21,11 +21,27 @@ const currentFiles = ref<FileItem[]>([])
 const activeFileIdx = ref(0)
 const errorMsg = ref('')
 const stateId = ref('')
-const chatHistory = ref<Array<{ role: 'user' | 'ai'; content: string; files?: FileItem[]; phases?: typeof phases.value }>>([])
+const lastPreviewInfo = ref<{ type: 'iframe' | 'markdown'; url?: string; files?: any[] } | null>(null)
+const chatHistory = ref<Array<{
+  role: 'user' | 'ai'
+  content: string
+  files?: FileItem[]
+  phases?: typeof phases.value
+  previewInfo?: { type: 'iframe' | 'markdown'; url?: string; files?: any[] }
+}>>([])
 const scrollRef = ref<HTMLElement | null>(null)
+const previewTabMap = ref<Record<number, 'code' | 'preview'>>({})  // 每个 AI 消息的 Tab 状态
+
+function getPreviewTab(idx: number): 'code' | 'preview' {
+  return previewTabMap.value[idx] || 'code'
+}
+function setPreviewTab(idx: number, tab: 'code' | 'preview') {
+  previewTabMap.value[idx] = tab
+}
 
 const hasResult = computed(() => chatHistory.value.some((m) => m.role === 'ai'))
 const canIterate = computed(() => !!stateId.value && !isGenerating.value)
+const bffUrl = useRuntimeConfig().public.bffUrl as string
 
 // ── 自动滚动到底部 ──
 const scrollToBottom = async () => {
@@ -128,6 +144,7 @@ const runGenerator = async () => {
       content: errorMsg.value ? `生成失败：${errorMsg.value}` : '✅ 生成完成，以下是产出文件：',
       files: currentFiles.value.length ? currentFiles.value : undefined,
       phases: phases.value,
+      previewInfo: lastPreviewInfo.value || undefined,
     })
 
     scrollToBottom()
@@ -175,6 +192,14 @@ const handleEvent = (event: any) => {
     if ((data as any).result?.files) {
       currentFiles.value = (data as any).result.files
     }
+    if ((data as any).previewInfo) {
+      lastPreviewInfo.value = (data as any).previewInfo
+    }
+  }
+
+  // preview 节点结束时也会带 previewInfo
+  if (kind === 'on_chain_end' && node === 'preview' && (data as any)?.url) {
+    lastPreviewInfo.value = data as any
   }
 }
 
@@ -188,6 +213,7 @@ const runIterate = async () => {
   isGenerating.value = true
   errorMsg.value = ''
   phases.value = []
+  lastPreviewInfo.value = null
 
   const { bffUrl } = useRuntimeConfig().public
 
@@ -238,6 +264,7 @@ const runIterate = async () => {
       content: errorMsg.value ? `修改失败：${errorMsg.value}` : '✅ 已根据反馈更新：',
       files: currentFiles.value.length ? currentFiles.value : undefined,
       phases: phases.value,
+      previewInfo: lastPreviewInfo.value || undefined,
     })
 
     scrollToBottom()
@@ -275,6 +302,7 @@ const startNewChat = () => {
   errorMsg.value = ''
   input.value = ''
   activeFileIdx.value = 0
+  lastPreviewInfo.value = null
 }
 </script>
 
@@ -369,37 +397,79 @@ const startNewChat = () => {
                 </div>
               </div>
 
-              <!-- 文件预览 — 气泡内部延伸 -->
+              <!-- 文件预览 + iframe 预览 Tab →-->
               <div v-if="msg.files?.length" class="space-y-2 mt-2">
                 <div class="flex items-center gap-2 text-xs text-slate-500">
                   <span>📎 {{ msg.files.length }} 个文件</span>
                   <button
                     @click="downloadAllFiles(msg.files)"
-                    class="ml-auto px-2.5 py-1 rounded border border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 transition-colors bg-white"
+                    class="px-2.5 py-1 rounded border border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 transition-colors bg-white"
                   >
                     📦 全部下载
                   </button>
+
+                  <!-- iframe 预览 Tab 切换（仅 component 模式） -->
+                  <template v-if="msg.previewInfo?.type === 'iframe'">
+                    <div class="ml-auto flex gap-0.5">
+                      <button
+                        @click="setPreviewTab(idx, 'code')"
+                        :class="[
+                          'px-2.5 py-1 rounded text-xs transition-colors',
+                          getPreviewTab(idx) === 'code'
+                            ? 'bg-slate-200 text-slate-700 font-medium'
+                            : 'text-slate-400 hover:text-slate-600',
+                        ]"
+                      >📄 代码</button>
+                      <button
+                        @click="setPreviewTab(idx, 'preview')"
+                        :class="[
+                          'px-2.5 py-1 rounded text-xs transition-colors',
+                          getPreviewTab(idx) === 'preview'
+                            ? 'bg-primary-100 text-primary-700 font-medium'
+                            : 'text-slate-400 hover:text-slate-600',
+                        ]"
+                      >👁️ 预览</button>
+                    </div>
+                  </template>
                 </div>
 
-                <!-- Tab 栏（仅多文件时显示） -->
-                <div v-if="msg.files.length > 1" class="flex gap-0.5 px-1 py-1 border-b border-slate-200">
-                  <button
-                    v-for="(f, fidx) in msg.files"
-                    :key="fidx"
-                    @click="activeFileIdx = fidx; currentFiles = msg.files!"
-                    :class="[
-                      'px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors',
-                      activeFileIdx === fidx
-                        ? 'bg-primary-100 text-primary-700 font-medium'
-                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100',
-                    ]"
-                  >
-                    {{ f.path.split('/').pop() }}
-                  </button>
+                <!-- 预览 Tab：iframe sandbox -->
+                <div
+                  v-if="msg.previewInfo?.type === 'iframe' && getPreviewTab(idx) === 'preview'"
+                  class="rounded-lg border border-slate-200 overflow-hidden bg-white"
+                >
+                  <div class="h-1 w-full bg-gradient-to-r from-primary-400 to-primary-600"></div>
+                  <iframe
+                    :src="bffUrl + msg.previewInfo.url"
+                    sandbox="allow-scripts"
+                    class="w-full"
+                    style="height: 400px"
+                    @load="($event.target as HTMLIFrameElement).style.height = '500px'"
+                  ></iframe>
                 </div>
 
-                <!-- 代码区域：极淡灰底，跟气泡白形成轻微区分，但不是独立卡片 -->
-                <pre class="code-block text-slate-800 bg-slate-50 p-3 rounded-lg overflow-x-auto light-scroll">{{ msg.files[activeFileIdx]?.content }}</pre>
+                <!-- 代码 Tab（默认） -->
+                <template v-if="!msg.previewInfo || getPreviewTab(idx) === 'code'">
+                  <!-- Tab 栏（仅多文件时显示） -->
+                  <div v-if="msg.files.length > 1" class="flex gap-0.5 px-1 py-1 border-b border-slate-200">
+                    <button
+                      v-for="(f, fidx) in msg.files"
+                      :key="fidx"
+                      @click="activeFileIdx = fidx; currentFiles = msg.files!"
+                      :class="[
+                        'px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors',
+                        activeFileIdx === fidx
+                          ? 'bg-primary-100 text-primary-700 font-medium'
+                          : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100',
+                      ]"
+                    >
+                      {{ f.path.split('/').pop() }}
+                    </button>
+                  </div>
+
+                  <!-- 代码区域 -->
+                  <pre class="code-block text-slate-800 bg-slate-50 p-3 rounded-lg overflow-x-auto light-scroll">{{ msg.files[activeFileIdx]?.content }}</pre>
+                </template>
               </div>
             </div>
           </div>

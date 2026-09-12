@@ -210,8 +210,8 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
         yield { event: 'on_chain_start', node: 'preview', data: { artifactType } }
 
         if (artifactType === 'component') {
-          // 组件模式：iframe 预览 URL（预留）
-          state.previewInfo = { type: 'iframe', url: `/preview/${state.id}` }
+          // 组件模式：iframe 预览 URL（浏览器端运行时编译）
+          state.previewInfo = { type: 'iframe', url: `/api/generator/preview/${state.id}` }
         } else {
           // Skill 模式：markdown 预览（直接返回生成的文件列表）
           state.previewInfo = { type: 'markdown', files: state.result?.files }

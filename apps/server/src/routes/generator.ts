@@ -15,6 +15,7 @@ import { createGeneratorAgent, generatorInputSchema, generatorIterateSchema } fr
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { getDb } from '../db/index.js'
 import { logger } from '../services/logger.js'
+import { buildPreviewHtml } from '../services/generator/previewTemplate.js'
 
 const router = Router()
 const generator = createGeneratorAgent({ enableRAG: true })
@@ -97,6 +98,45 @@ router.get(
     const state = generator.getState(req.params.id)
     if (!state) throw createError('状态不存在', 404, 'STATE_NOT_FOUND')
     res.json(state)
+  })
+)
+
+/** GET /api/generator/preview/:id — 返回自包含 HTML（iframe 预览组件） */
+router.get(
+  '/preview/:id',
+  validate({ params: stateIdParam }),
+  asyncHandler(async (req, res) => {
+    const db = getDb()
+    const id = req.params.id
+
+    logger.info('generator.route', 'GET /preview/:id', { sessionId: id })
+
+    const session = await db
+      .prepare('SELECT id, artifact_type, framework FROM generator_sessions WHERE id = ? AND deleted_at IS NULL')
+      .get(id) as { id: string; artifact_type: string; framework: string | null } | undefined
+    if (!session) throw createError('生成记录不存在', 404, 'SESSION_NOT_FOUND')
+    if (session.artifact_type !== 'component') throw createError('只有 component 模式支持 iframe 预览', 400, 'NOT_COMPONENT')
+
+    // 取最新版本文件（按 is_current 优先，然后 iteration 倒序第一个）
+    const files = await db
+      .prepare(
+        `SELECT file_path, content, language FROM generator_files
+         WHERE session_id = ? AND is_current = true
+         ORDER BY iteration DESC, file_path ASC LIMIT 1`
+      )
+      .all(id) as Array<{ file_path: string; content: string; language: string }>
+
+    if (!files?.length) throw createError('没有文件产出，无法预览', 400, 'NO_FILES')
+
+    const code = files[0].content
+    const framework = (session.framework as 'vue' | 'react') || (files[0].language === 'vue' ? 'vue' : 'react')
+
+    const html = buildPreviewHtml(code, framework)
+
+    // iframe 需要允许呈现
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('X-Frame-Options', 'ALLOWALL')
+    res.send(html)
   })
 )
 
