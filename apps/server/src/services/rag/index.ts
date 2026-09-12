@@ -3,7 +3,7 @@
  * 对外暴露 ingest() 和 query() 两个核心方法
  */
 
-import { loadFromFile, loadFromString, type LoadedDocument } from './loader.js'
+import { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from './loader.js'
 import { createSplitter, type TextChunk } from './splitter.js'
 import { createEmbeddings } from './embeddings.js'
 import { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
@@ -42,6 +42,15 @@ export function createRAGService() {
 
     async ingestFromFileWithId(filePath: string, originalName: string | undefined, documentId: string): Promise<RAGIngestResult> {
       const doc = await loadFromFile(filePath, originalName)
+      return this.ingestDocumentWithId(doc, documentId)
+    },
+
+    /**
+     * 从 URL 抓取并灌入（指定 documentId，方便路由层先写 DB 记录）
+     */
+    async ingestFromUrlWithId(url: string, name: string | undefined, documentId: string): Promise<RAGIngestResult> {
+      logger.info('rag.service', 'ingestFromUrlWithId — 入口', { documentId, url, name })
+      const doc = await loadFromUrl(url, name)
       return this.ingestDocumentWithId(doc, documentId)
     },
 

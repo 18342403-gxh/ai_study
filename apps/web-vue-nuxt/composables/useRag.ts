@@ -11,6 +11,7 @@ import type { RagDocument, RagIngestResult, RagQueryResult, RagStreamEvent } fro
 const documents = ref<RagDocument[]>([])
 const isLoading = ref(false)
 const isUploading = ref(false)
+const isUrlImporting = ref(false)
 const isDeleting = ref(false)
 const lastResult = ref<RagQueryResult | null>(null)
 const streamingAnswer = ref('')
@@ -60,6 +61,31 @@ export function useRag() {
       return null
     } finally {
       isUploading.value = false
+    }
+  }
+
+  /** 通过 URL 导入文档 */
+  const ingestFromUrl = async (url: string, name?: string): Promise<RagIngestResult | null> => {
+    isUrlImporting.value = true
+    error.value = null
+    try {
+      const res = await fetch(`${baseUrl}/documents/url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, name }),
+      })
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(errText || `URL 导入失败: ${res.status}`)
+      }
+      const result: RagIngestResult = await res.json()
+      await loadDocuments()
+      return result
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'URL 导入失败'
+      return null
+    } finally {
+      isUrlImporting.value = false
     }
   }
 
@@ -218,6 +244,7 @@ export function useRag() {
     documents,
     isLoading,
     isUploading,
+    isUrlImporting,
     isDeleting,
     lastResult,
     streamingAnswer,
@@ -225,6 +252,7 @@ export function useRag() {
     error,
     loadDocuments,
     uploadDocument,
+    ingestFromUrl,
     deleteDocument,
     queryRag,
     queryRagStream,

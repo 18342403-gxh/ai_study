@@ -3,6 +3,7 @@ const {
   documents,
   isLoading,
   isUploading,
+  isUrlImporting,
   isDeleting,
   lastResult,
   streamingAnswer,
@@ -10,6 +11,7 @@ const {
   error,
   loadDocuments,
   uploadDocument,
+  ingestFromUrl,
   deleteDocument,
   queryRagStream,
   clearResult,
@@ -23,6 +25,21 @@ const isQuerying = ref(false)
 const selectedDocIds = ref<string[]>([])
 const topK = ref(4)
 const activeTab = ref<'documents' | 'query'>('documents')
+
+// URL 导入相关
+const urlTab = ref<'file' | 'url'>('file')
+const urlInput = ref('')
+const urlName = ref('')
+
+const handleUrlImport = async () => {
+  if (!urlInput.value.trim() || isUrlImporting.value) return
+  const url = urlInput.value.trim()
+  const result = await ingestFromUrl(url, urlName.value.trim() || undefined)
+  if (result) {
+    urlInput.value = ''
+    urlName.value = ''
+  }
+}
 
 const formatSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`
@@ -151,7 +168,23 @@ onMounted(() => {
       </div>
 
       <div v-if="activeTab === 'documents'">
+        <!-- 文件 / URL 切换 -->
+        <div class="flex items-center gap-1 mb-3 bg-slate-100 rounded-lg p-1 w-fit">
+          <button
+            class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors"
+            :class="urlTab === 'file' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            @click="urlTab = 'file'"
+          >📁 文件上传</button>
+          <button
+            class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors"
+            :class="urlTab === 'url' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            @click="urlTab = 'url'"
+          >🔗 URL 导入</button>
+        </div>
+
+        <!-- 文件上传区 -->
         <div
+          v-if="urlTab === 'file'"
           class="border-2 border-dashed rounded-2xl p-8 mb-6 text-center transition-all"
           :class="isDragging ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-300'"
           @dragover.prevent="isDragging = true"
@@ -163,7 +196,7 @@ onMounted(() => {
               📁
             </div>
             <h3 class="text-lg font-semibold text-slate-800 mb-1">拖拽文件到此处上传</h3>
-            <p class="text-sm text-slate-500">支持 .txt, .md, .json, .csv 文件，最大 10MB</p>
+            <p class="text-sm text-slate-500">支持 .txt, .md, .json, .csv, .pdf 文件，最大 10MB</p>
           </div>
           <div class="flex items-center justify-center gap-3">
             <input
@@ -190,6 +223,49 @@ onMounted(() => {
             </button>
           </div>
           <p v-if="error" class="mt-3 text-sm text-red-500">{{ error }}</p>
+        </div>
+
+        <!-- URL 导入区 -->
+        <div
+          v-else
+          class="border-2 border-slate-200 rounded-2xl p-6 mb-6 bg-white"
+        >
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 rounded-xl bg-brand-100 flex items-center justify-center text-2xl flex-shrink-0">🔗</div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-base font-semibold text-slate-800 mb-1">导入网页内容</h3>
+              <p class="text-xs text-slate-500 mb-4">输入网页 URL，系统会自动抓取并提取文本灌入知识库。仅支持 http/https。</p>
+
+              <div class="space-y-3">
+                <input
+                  v-model="urlInput"
+                  type="url"
+                  placeholder="https://example.com/article"
+                  class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition-colors"
+                  :disabled="isUrlImporting"
+                  @keydown.enter.exact.prevent="handleUrlImport"
+                />
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model="urlName"
+                    type="text"
+                    placeholder="文档名称（可选，留空用页面标题）"
+                    class="flex-1 px-4 py-2.5 text-sm border border-slate-200 rounded-lg outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition-colors"
+                    :disabled="isUrlImporting"
+                  />
+                  <button
+                    class="px-5 py-2.5 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors disabled:opacity-50 whitespace-nowrap"
+                    :disabled="!urlInput.trim() || isUrlImporting"
+                    @click="handleUrlImport"
+                  >
+                    {{ isUrlImporting ? '抓取中...' : '抓取导入' }}
+                  </button>
+                </div>
+              </div>
+
+              <p v-if="error" class="mt-3 text-sm text-red-500">{{ error }}</p>
+            </div>
+          </div>
         </div>
 
         <div class="bg-white rounded-2xl border border-slate-200">
