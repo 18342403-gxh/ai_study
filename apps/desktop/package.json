@@ -6,8 +6,8 @@
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently -k -n build,electron -c cyan,magenta \"pnpm build:watch\" \"pnpm start\"",
-    "build": "esbuild src/main/index.ts src/preload/index.ts --bundle --outdir=dist --platform=node --format=cjs --external:electron --external:electron-store",
-    "build:watch": "esbuild src/main/index.ts src/preload/index.ts --bundle --outdir=dist --platform=node --format=cjs --external:electron --external:electron-store --watch",
+    "build": "esbuild src/main/index.ts src/main/spawnServer.ts src/main/spawnGenerator.ts src/main/waitForPort.ts src/main/lifecycle.ts src/preload/index.ts --bundle --outdir=dist --platform=node --format=cjs --external:electron --external:electron-store",
+    "build:watch": "esbuild src/main/index.ts src/main/spawnServer.ts src/main/spawnGenerator.ts src/main/waitForPort.ts src/main/lifecycle.ts src/preload/index.ts --bundle --outdir=dist --platform=node --format=cjs --external:electron --external:electron-store --watch",
     "start": "wait-on tcp:3001 tcp:3003 && electron .",
     "start:no-wait": "electron .",
     "typecheck": "tsc --noEmit"
