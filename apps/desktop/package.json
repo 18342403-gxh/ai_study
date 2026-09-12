@@ -1,0 +1,24 @@
+{
+  "name": "@ai-study/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 组件生成器 — Electron 桌面壳层",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "concurrently -k -n build,electron -c cyan,magenta \"pnpm build:watch\" \"pnpm start\"",
+    "build": "esbuild src/main/index.ts src/preload/index.ts --bundle --outdir=dist --platform=node --format=cjs --external:electron --external:electron-store",
+    "build:watch": "esbuild src/main/index.ts src/preload/index.ts --bundle --outdir=dist --platform=node --format=cjs --external:electron --external:electron-store --watch",
+    "start": "wait-on tcp:3001 tcp:3003 && electron .",
+    "start:no-wait": "electron .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electronmon": "^2.0.4",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.3",
+    "wait-on": "^8.0.0"
+  }
+}
