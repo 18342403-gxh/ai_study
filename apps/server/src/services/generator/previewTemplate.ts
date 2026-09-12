@@ -162,15 +162,88 @@ function buildVueHtml(sfcCode: string): string {
 // ── React TSX 模板 ──────────────────────────────────────────
 
 function buildReactHtml(tsxCode: string): string {
-  // React 代码里大概率有 `import React from 'react'` / `import { useState } from 'react'`
-  // Babel standalone 只负责转译语法，不会处理 import。UMD 全局有 React，所以把 import 行去掉即可
-  const strippedCode = tsxCode
-    .replace(/^\s*import\s+React[^;]*;\s*$/gm, '')          // import React, { useState } from 'react'
-    .replace(/^\s*import\s*\{[^}]*\}[^;]*;\s*$/gm, '')      // import { useState } from 'react'
-    .replace(/^\s*import\s+type\s+\{[^}]*\}[^;]*;\s*$/gm, '')  // import type { Props } from 'react'
-    .replace(/^\s*import[^'";]*['"][^'";]+['"];\s*$/gm, '')  // 其他 import ... from '...'
+  // 先 strip markdown fence（generator 存的 content 可能有 ```tsx ... ``` 包裹）
+  let code = tsxCode
+    .replace(/^\s*```(?:tsx|ts|jsx|js)?\s*\n?/i, '')   // 开头 ```tsx
+    .replace(/\n?\s*```\s*$/i, '')                       // 结尾 ```
 
-  const { decodeExpr } = toSafeJsSource(strippedCode)
+  // import 处理策略：
+  //  - import React, { useState } from 'react' → const React = window.React; const { useState, useEffect, ... } = React;
+  //  - import { useState, useEffect } from 'react' → const { useState, useEffect } = React;
+  //  - import type { Foo } from 'react' → 直接删掉（类型只在 TS 编译时用）
+  //  - import './style.css' → 删掉（Babel 不处理 CSS import）
+  //  - import default from 'other-lib' → 删掉（只支持 react/react-dom）
+  const reactNamedImports: string[] = []
+
+  code = code
+    // import type { ... } from '...' — 类型导入直接删
+    .replace(/^\s*import\s+type\s+[^;]+;\s*$/gm, '')
+    // import { useState, useEffect } from 'react' — 提取 named imports 后面删掉
+    .replace(/^\s*import\s+\{([^}]+)\}\s*from\s*['"]react['"];\s*$/gm, (_m, names) => {
+      names.split(',').forEach((n: string) => {
+        const name = n.trim()
+        if (name && name !== 'default') reactNamedImports.push(name)
+      })
+      return ''
+    })
+    // import React, { useState } from 'react' — default + named（删整行，React/ReactDOM 由 prelude 注入）
+    .replace(/^\s*import\s+React\s*(?:,\s*\{([^}]+)\})?\s*from\s*['"]react['"];\s*$/gm, (_m, names) => {
+      if (names) {
+        names.split(',').forEach((n: string) => {
+          const name = n.trim()
+          if (name && name !== 'default') reactNamedImports.push(name)
+        })
+      }
+      return ''
+    })
+    // import ReactDOM from 'react-dom/client' 或 'react-dom' — 删掉（ReactDOM 由 prelude 注入）
+    .replace(/^\s*import\s+ReactDOM\s+from\s*['"]react-dom(?:\/client)?['"];\s*$/gm, '')
+    // 其他 import ... from '...' — 删掉
+    .replace(/^\s*import[^'";]*['"][^'";]+['"];\s*$/gm, '')
+
+  // export 处理（只处理代码区，跳过注释）：
+  //  export default Counter → const __defaultExport = Counter
+  //  export const Foo → const Foo
+  //  export { foo }; → 删掉
+  // 注意：只在不是注释的行做替换
+  const codeLines = code.split('\n')
+  let inBlockComment = false
+  const processedLines: string[] = []
+  for (const line of codeLines) {
+    // 简单块注释跟踪 /* ... */
+    const trimmed = line.trim()
+    if (!inBlockComment && trimmed.startsWith('/*')) inBlockComment = true
+    if (inBlockComment && trimmed.endsWith('*/')) inBlockComment = false
+    if (inBlockComment) {
+      processedLines.push(line)
+      continue
+    }
+    // 跳过 // 注释行
+    if (trimmed.startsWith('//')) {
+      processedLines.push(line)
+      continue
+    }
+    // export default X → const __defaultExport = X
+    let newLine = line.replace(/^(\s*)export\s+default\s+/, '$1const __defaultExport = ')
+    // export const/function/class X → const/function/class X
+    newLine = newLine.replace(/^(\s*)export\s+(const|function|class|let|var)\s+/, '$1$2 ')
+    // export { ... }; → 删掉
+    if (/^\s*export\s*\{[^}]*\}\s*;?\s*$/.test(newLine)) {
+      continue // 跳过这行
+    }
+    processedLines.push(newLine)
+  }
+  code = processedLines.join('\n')
+
+  // 代码开头注入 hooks 解构（React/ReactDOM 本身是 UMD 全局，不用再声明）
+  const preludeLines: string[] = []
+  // hooks 解构（只有代码里有 import { useState } from 'react' 时才注入）
+  if (reactNamedImports.length > 0) {
+    preludeLines.push(`const { ${reactNamedImports.join(', ')} } = React;`)
+  }
+  code = preludeLines.join('\n') + (preludeLines.length ? '\n' : '') + code
+
+  const { decodeExpr } = toSafeJsSource(code)
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -209,44 +282,53 @@ function buildReactHtml(tsxCode: string): string {
     const reactCode = ${decodeExpr}
 
     try {
-      // Babel standalone 转译 TSX → JS（React UMD 全局已注入）
-      const transpiled = Babel.transform(reactCode, {
-        presets: ['react', 'typescript'],
+      // 1. Babel 转译 TSX → JS
+      // 关键：react preset 用 classic runtime，生成 React.createElement() 而不是 _jsx() helper
+      // automatic runtime（默认）会生成 import { jsx } from 'react/jsx-runtime' — UMD 全局没有这个
+      let finalCode = Babel.transform(reactCode, {
+        presets: [
+          ['react', { runtime: 'classic' }],
+          'typescript',
+        ],
         filename: 'Component.tsx',
       }).code
 
-      // 包装：把组件挂载到 #root（假设导出了 default，或者是第一个 const 组件）
-      const wrapped = transpiled + \`
+      // 2. 暴力清除所有 import/export
+      // 注意：这些正则在 template literal 内部！反斜杠必须加倍！
+      finalCode = finalCode
+        .replace(/^\\s*import\\b.*$/gm, '')
+        .replace(/^\\s*export\\s+default\\s+/gm, 'const __defaultExport = ')
+        .replace(/^\\s*export\\s+(const|function|class|let|var)\\s+/gm, '$1 ')
+        .replace(/^\\s*export\\s*\\{[^}]*\\}\\s*;?\\s*$/gm, '')
 
-// 自动挂载：尝试找默认导出的组件
-if (typeof Component !== 'undefined') {
-  const el = React.createElement(Component)
-  const rootEl = document.getElementById('root')
-  if (ReactDOM.createRoot) {
-    ReactDOM.createRoot(rootEl).render(el)
-  } else {
-    ReactDOM.render(el, rootEl)
-  }
-} else if (typeof defaultExport !== 'undefined') {
-  const el = React.createElement(defaultExport)
-  const rootEl = document.getElementById('root')
-  if (ReactDOM.createRoot) {
-    ReactDOM.createRoot(rootEl).render(el)
-  } else {
-    ReactDOM.render(el, rootEl)
-  }
-} else if (typeof exports !== 'undefined' && exports.default) {
-  const el = React.createElement(exports.default)
-  ReactDOM.createRoot(document.getElementById('root')).render(el)
-}
-\`
+      // 3. 执行 + 挂组件到 window
+      const execCode = finalCode +
+        "try { if (typeof __defaultExport !== 'undefined') window.__comp = __defaultExport } catch(e) {}" +
+        "try { if (typeof Counter !== 'undefined') window.__comp = window.__comp || Counter } catch(e) {}" +
+        "try { if (typeof Component !== 'undefined') window.__comp = window.__comp || Component } catch(e) {}" +
+        "try { if (typeof App !== 'undefined') window.__comp = window.__comp || App } catch(e) {}"
+      new Function('React', 'ReactDOM', execCode)(React, ReactDOM)
 
-      // eslint-disable-next-line no-new-func
-      new Function('React', 'ReactDOM', wrapped)(React, ReactDOM)
+      // 4. 找组件
+      let Comp = window.__comp || null
+      if (!Comp && typeof window.default === 'function') Comp = window.default
+
+      const rootEl = document.getElementById('root')
+      if (Comp) {
+        const el = React.createElement(Comp)
+        if (ReactDOM.createRoot) {
+          ReactDOM.createRoot(rootEl).render(el)
+        } else {
+          ReactDOM.render(el, rootEl)
+        }
+      } else {
+        rootEl.innerHTML = '<div class="preview-error">⚠️ 没找到组件。<pre>' + finalCode.slice(0, 400) + '</pre></div>'
+      }
     } catch (err) {
       const msg = err?.message || String(err)
-      parent && parent.postMessage({ type: 'preview-error', message: msg, phase: 'babel-transform' }, '*')
-      document.getElementById('root').innerHTML = '<div class="preview-error">⚠️ 编译失败: ' + msg + '</div>'
+      const stack = err?.stack || ''
+      parent && parent.postMessage({ type: 'preview-error', message: msg, stack, phase: 'react' }, '*')
+      document.getElementById('root').innerHTML = '<div class="preview-error">⚠️ ' + msg + '<br/><pre>' + stack + '</pre></div>'
     }
   </script>
 </body>

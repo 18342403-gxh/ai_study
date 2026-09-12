@@ -12,7 +12,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 
-import { getDb } from '../db/index.js'
+import { getDb, getDriver } from '../db/index.js'
 import { splitIntoChunks } from '../services/chunker.js'
 import { getEmbeddings } from '../services/embedding.js'
 import { logger } from '../services/logger.js'
@@ -20,6 +20,7 @@ import { validate, asyncHandler, createError } from '../middleware/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const router = Router()
+const IS_PG = getDriver() === 'postgres'
 
 // ── Zod 校验 Schema ─────────────────────────────────
 const docIdParamSchema = z.object({
@@ -79,10 +80,17 @@ router.post(
     const docId = randomUUID()
     const now = Date.now()
 
-    await db.prepare(`
-      INSERT INTO documents (id, name, size, type, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'processing', ?, ?)
-    `).run(docId, file.originalname, file.size, path.extname(file.originalname), now, now)
+    // INSERT documents — 双驱动兼容
+    // PG 用 mime_type + storage_path，SQLite 用 type
+    const insertSql = IS_PG
+      ? `INSERT INTO documents (id, name, size, mime_type, storage_path, status, chunk_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'processing', 0, ?, ?)`
+      : `INSERT INTO documents (id, name, size, type, status, chunk_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'processing', 0, ?, ?)`
+    const insertParams = IS_PG
+      ? [docId, file.originalname, file.size, path.extname(file.originalname), file.path, now, now]
+      : [docId, file.originalname, file.size, path.extname(file.originalname), now, now]
+    await db.prepare(insertSql).run(...insertParams)
 
     // 异步处理文档（解析 → 分块 → 向量化）
     ;(async () => {
