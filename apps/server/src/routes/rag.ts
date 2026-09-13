@@ -198,7 +198,7 @@ router.post(
 上下文：
 ${results.map((r, i) => `[${i + 1}] ${r.doc.content}`).join('\n\n')}`
 
-    const chain = createChatChain({ temperature: 0.3 })
+    const chain = createChatChain({ temperature: 0.3, feature: 'rag' })
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt || defaultSystem },
       { role: 'user', content: query },

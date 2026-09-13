@@ -1,4 +1,5 @@
-import { logger } from '../logger.js'
+﻿import { logger } from '../logger.js'
+import { costTracker } from '../costTracker.js'
 
 /**
  * LangChain 模型初始化（m1 基础）
@@ -14,6 +15,8 @@ export interface ModelConfig {
   model?: string
   temperature?: number
   maxTokens?: number
+  /** 成本追踪用的功能标签，默认 'chat' */
+  feature?: 'chat' | 'generator' | 'rag' | 'eval'
 }
 
 function getEnv() {
@@ -34,6 +37,7 @@ export const createChatModel = (config: ModelConfig = {}) => {
   const provider = config.provider || 'zhipu'
   const modelName = config.model || defaultModel
   const temperature = config.temperature ?? 0.7
+  const feature = config.feature || 'chat'
 
   /**
    * 自定义 Runnable：封装 HTTP 调用为 LangChain Runnable 接口
@@ -65,6 +69,21 @@ export const createChatModel = (config: ModelConfig = {}) => {
         const data = (await response.json()) as { choices: Array<{ message: { content: string } }>; usage?: any }
         const cost = Date.now() - t0
         logger.info('llm.invoke', '调用完成', { model: modelName, costMs: cost, usage: data.usage })
+
+        // ── 成本追踪 ──────────────────────────────────
+        if (data.usage) {
+          const u = data.usage
+          costTracker.track({
+            feature,
+            model: modelName,
+            provider,
+            promptTokens: u.prompt_tokens ?? 0,
+            completionTokens: u.completion_tokens ?? 0,
+            totalTokens: u.total_tokens ?? 0,
+            costMs: cost,
+          })
+        }
+
         return data.choices[0]?.message?.content || ''
       } catch (err) {
         if ((err as Error).message.startsWith('AI 请求失败')) throw err
@@ -109,6 +128,7 @@ export const createChatModel = (config: ModelConfig = {}) => {
         const decoder = new TextDecoder()
         let buffer = ''
         let finishReason = ''
+        let streamUsage: any = null  // SSE 最后一个 chunk 可能带 usage
 
         while (true) {
           const { value, done } = await reader.read()
@@ -125,6 +145,8 @@ export const createChatModel = (config: ModelConfig = {}) => {
 
             try {
               const json = JSON.parse(trimmed.slice(6))
+              // 最后几个 chunk 里可能带 usage
+              if (json.usage) streamUsage = json.usage
               const delta = json.choices?.[0]?.delta?.content || ''
               if (delta) {
                 chunkCount++
@@ -136,6 +158,19 @@ export const createChatModel = (config: ModelConfig = {}) => {
 
         const cost = Date.now() - t0
         logger.info('llm.stream', '调用完成', { model: modelName, chunkCount, costMs: cost, finishReason })
+
+        // ── 成本追踪（stream 的 usage 在最后一个 chunk 里）──
+        if (streamUsage) {
+          costTracker.track({
+            feature,
+            model: modelName,
+            provider,
+            promptTokens: streamUsage.prompt_tokens ?? 0,
+            completionTokens: streamUsage.completion_tokens ?? 0,
+            totalTokens: streamUsage.total_tokens ?? 0,
+            costMs: cost,
+          })
+        }
       } catch (err) {
         logger.error('llm.stream', '调用异常', { model: modelName, chunkCount, error: (err as Error).message, costMs: Date.now() - t0 })
         throw err

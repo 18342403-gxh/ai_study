@@ -123,6 +123,26 @@ const initSqlite = () => {
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`)
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)`)
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id)`)
+
+  // AI Token 用量日志表（成本控制核心）
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS ai_usage_logs (
+      id TEXT PRIMARY KEY,
+      feature TEXT NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
+      model TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'zhipu',
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_ms INTEGER NOT NULL DEFAULT 0,
+      user_id TEXT,
+      session_id TEXT,
+      metadata TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `)
+  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON ai_usage_logs(created_at)`)
+  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON ai_usage_logs(feature, created_at)`)
 }
 
 // ─────────────────────────────────────────────
@@ -357,6 +377,30 @@ const initPostgres = () => {
     connect_timeout: 10,
   })
   pgDb = wrapPostgresAsAsync(pgClient)
+
+  // 确保 app schema 存在 + ai_usage_logs 表自动创建
+  pgClient.unsafe(`CREATE SCHEMA IF NOT EXISTS app`).catch(() => {})
+  pgClient.unsafe(`
+    CREATE TABLE IF NOT EXISTS app.ai_usage_logs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      feature VARCHAR(32) NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
+      model VARCHAR(128) NOT NULL,
+      provider VARCHAR(32) NOT NULL DEFAULT 'zhipu',
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_ms INTEGER NOT NULL DEFAULT 0,
+      user_id UUID,
+      session_id UUID,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).catch((e: unknown) => {
+    // 忽略建表失败（可能用户已手动建过）
+    logger.debug('db', 'PG ai_usage_logs 建表跳过或已存在', { error: (e as Error).message })
+  })
+  pgClient.unsafe(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON app.ai_usage_logs(created_at DESC)`).catch(() => {})
+  pgClient.unsafe(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON app.ai_usage_logs(feature, created_at DESC)`).catch(() => {})
 }
 
 // ─────────────────────────────────────────────

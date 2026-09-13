@@ -94,7 +94,7 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
   /** 需求细化（clarify）：LLM 将模糊需求转化为结构化描述 */
   async function clarify(requirement: string, type: ArtifactType): Promise<string> {
-    const chain = createChatChain({ temperature: 0.7 })
+    const chain = createChatChain({ temperature: 0.7, feature: 'generator' })
     const result = await chain.invoke({
       messages: [
         { role: 'system', content: buildClarifySystemPrompt(type) },

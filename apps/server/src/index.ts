@@ -37,6 +37,7 @@ import ragRouter from './routes/rag.js'
 import agentRouter from './routes/agent.js'
 import generatorRouter from './routes/generator.js'
 import logsRouter from './routes/logs.js'
+import costRouter from './routes/cost.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -75,6 +76,7 @@ app.use('/api/rag', ragRouter)
 app.use('/api/agent', agentRouter)
 app.use('/api/generator', generatorRouter)
 app.use('/api/logs', logsRouter)
+app.use('/api/cost', costRouter)
 
 // 日志查看器 — 单文件 HTML
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

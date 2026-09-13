@@ -101,7 +101,7 @@ router.post(
       }
     }))
 
-    const chain = createChatChain({ temperature: 0.3 })
+    const chain = createChatChain({ temperature: 0.3, feature: 'rag' })
 
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream')

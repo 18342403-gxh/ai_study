@@ -255,7 +255,7 @@ export function createCodegenEngine() {
   /** 同步生成（返回多文件结构） */
   async function generate(req: CodegenRequest): Promise<CodegenResult> {
     const startTime = Date.now()
-    const chain = createChatChain({ temperature: 0.7 })
+    const chain = createChatChain({ temperature: 0.7, feature: 'generator' })
 
     // 根据 type 路由 prompt 构建
     let systemPrompt: string
@@ -320,7 +320,7 @@ export function createCodegenEngine() {
     data?: unknown
   }> {
     const startTime = Date.now()
-    const chain = createChatChain({ temperature: 0.7 })
+    const chain = createChatChain({ temperature: 0.7, feature: 'generator' })
 
     try {
       // 根据 type 路由 prompt

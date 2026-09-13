@@ -13,6 +13,7 @@
  */
 
 import { logger } from './logger.js'
+import { costTracker } from './costTracker.js'
 import crypto from 'node:crypto'
 
 const EMBEDDING_DIM = 1536  // 和智谱 embedding-3 一致
@@ -94,6 +95,15 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
   // ── 强制 mock 模式 ────────────────────────────────
   if (forceMock) {
     logger.debug('embedding.service', 'getEmbedding — 强制 mock 模式', { textLen: text.length })
+    costTracker.track({
+      feature: 'embedding',
+      model,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      costMs: 0,
+      metadata: { mock: true, forceMock: true },
+    })
     return hashVector(text)
   }
 
@@ -117,9 +127,23 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
 
     const data = (await response.json()) as {
       data: Array<{ embedding: number[] }>
+      usage?: { prompt_tokens?: number; total_tokens?: number }
     }
     const costMs = Date.now() - start
     logger.info('embedding.service', 'getEmbedding — 成功', { costMs })
+
+    // ── 成本追踪 ──────────────────────────────────
+    if (data.usage) {
+      costTracker.track({
+        feature: 'embedding',
+        model,
+        promptTokens: data.usage.prompt_tokens ?? 0,
+        completionTokens: 0, // Embedding 没有 completion
+        totalTokens: data.usage.total_tokens ?? 0,
+        costMs,
+      })
+    }
+
     return data.data[0].embedding
   } catch (err) {
     // ── 降级：hash 向量 ───────────────────────────────
@@ -140,6 +164,18 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
 
     const costMs = Date.now() - start
     logger.debug('embedding.service', 'getEmbedding — hash 降级', { costMs, textLen: text.length })
+
+    // 降级也记一笔（total_tokens=0，metadata 带 mock 标记）
+    costTracker.track({
+      feature: 'embedding',
+      model,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      costMs,
+      metadata: { mock: true, reason: (err as Error).message.slice(0, 100) },
+    })
+
     return hashVector(text)
   }
 }
