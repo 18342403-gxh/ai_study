@@ -129,7 +129,10 @@ function createWindow() {
 
   mainWindow.loadURL(generatorUrl)
 
-  if (process.env.NODE_ENV === 'development') {
+  // 自动打开 DevTools（默认关闭；AUTO_OPEN_DEBUG_PAGES=1 开启）
+  // 本地开发不想每次弹 DevTools — 默认关
+  // 线上仓库/分享给别人方便调试 — 设 AUTO_OPEN_DEBUG_PAGES=1 默认开
+  if (process.env.AUTO_OPEN_DEBUG_PAGES === '1') {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 

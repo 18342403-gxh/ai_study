@@ -96,8 +96,10 @@ const server = app.listen(PORT, () => {
   process.stdout.write(`║  GET  /api/logs-view  — 📋 实时日志    ║\n`)
   process.stdout.write(`╚══════════════════════════════════════╝\n\n`)
 
-  // 自动打开日志查看器（默认开启，NO_AUTO_OPEN=1 可禁用）
-  if (process.env.NO_AUTO_OPEN !== '1') {
+  // 自动打开调试页面（默认关闭；AUTO_OPEN_DEBUG_PAGES=1 开启）
+  // 本地开发不想每次自动弹浏览器 — 默认关
+  // 线上仓库/分享给别人方便调试 — 设 AUTO_OPEN_DEBUG_PAGES=1 默认开
+  if (process.env.AUTO_OPEN_DEBUG_PAGES === '1') {
     const url = `${base}/api/logs-view`
     const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`
     exec(cmd, () => { /* 忽略打开失败（WSL/无桌面环境） */ })
