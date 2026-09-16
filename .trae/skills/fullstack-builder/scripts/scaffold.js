@@ -215,7 +215,52 @@ function generate(stack, opts = {}) {
   else dirs = getSingleAppDirs()
 
   // app/server 前缀（monorepo 的 server 目录）
-  const prefix = layout.includes('monorepo') ? 'apps/server/' : ''
+  const isMonorepo = layout.includes('monorepo')
+  const prefix = isMonorepo ? 'apps/server/' : ''
+
+  // 1.5 Monorepo 根配置（pnpm-workspace.yaml + root package.json）
+  if (isMonorepo && !existsSync(join(CWD, 'pnpm-workspace.yaml'))) {
+    if (!dryRun) {
+      writeFileSync(join(CWD, 'pnpm-workspace.yaml'), 'packages:\n  - "apps/*"\n  - "packages/*"\n')
+      writeFileSync(join(CWD, 'package.json'), JSON.stringify({
+        name: stack.projectName || 'my-app',
+        private: true,
+        scripts: {
+          'dev:server': 'pnpm --filter server dev',
+          'dev:web':    'pnpm --filter web dev',
+          'dev':        'concurrently -k "pnpm dev:server" "pnpm dev:web"',
+          'build':      'pnpm -r build',
+          'typecheck':  'pnpm -r typecheck',
+        },
+        devDependencies: { concurrently: '^9.0.0' },
+        packageManager: 'pnpm@9',
+      }, null, 2) + '\n')
+    }
+    created.push('📄 pnpm-workspace.yaml')
+    created.push('📄 package.json (root)')
+
+    // server package.json
+    if (!existsSync(join(CWD, prefix + 'package.json'))) {
+      if (!dryRun) writeFileSync(join(CWD, prefix + 'package.json'), JSON.stringify({
+        name: 'server', version: '0.1.0', private: true, type: 'module',
+        scripts: { dev: 'tsx watch src/index.ts', build: 'tsc', start: 'node dist/index.js', typecheck: 'tsc --noEmit' },
+        dependencies: { express: '^5.0.0', 'better-sqlite3': '^11.0.0', zod: '^3.23.0', 'cors': '^2.8.5' },
+        devDependencies: { '@types/express': '^5.0.0', '@types/better-sqlite3': '^7.6.0', '@types/cors': '^2.8.0', '@types/node': '^22.0.0', tsx: '^4.0.0', typescript: '^5.5.0' },
+      }, null, 2) + '\n')
+      created.push('📄 apps/server/package.json')
+    }
+
+    // web package.json (Vite + Vue)
+    if (!existsSync(join(CWD, 'apps/web/package.json'))) {
+      if (!dryRun) writeFileSync(join(CWD, 'apps/web/package.json'), JSON.stringify({
+        name: 'web', version: '0.1.0', private: true, type: 'module',
+        scripts: { dev: 'vite', build: 'vue-tsc && vite build', preview: 'vite preview', typecheck: 'vue-tsc --noEmit' },
+        dependencies: { vue: '^3.5.0', pinia: '^2.2.0', axios: '^1.7.0' },
+        devDependencies: { '@vitejs/plugin-vue': '^5.1.0', typescript: '^5.5.0', vite: '^5.4.0', 'vue-tsc': '^2.1.0' },
+      }, null, 2) + '\n')
+      created.push('📄 apps/web/package.json')
+    }
+  }
 
   for (const d of dirs) {
     const fullPath = join(CWD, prefix + d)

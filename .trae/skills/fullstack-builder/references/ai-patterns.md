@@ -139,6 +139,36 @@ async *stream(messages): AsyncGenerator<string> {
 
 **不要在 Skill 里硬编码具体 prompt 内容。** 每个项目的领域、风格、输出要求都不同。Skill 负责告诉 AI **prompt 应该怎么设计**，然后在 Phase 3 按规范为当前项目生成。
 
+### 0. 上下文：默认技术栈 + Node.js 方向
+
+本 Skill 默认技术栈是 **TypeScript + Node.js + Express + Vue + SQLite + Monorepo**。在为新项目生成 Prompt 时，遵循以下约束以获得更高质量的输出：
+
+**System Prompt 里必须体现的技术约束**：
+```
+- 语言: TypeScript (strict mode)
+- 后端框架: Express 5 (或 Fastify/Hono，视 techStack.backend)
+- 数据库: SQLite (better-sqlite3)，需要时可切 PostgreSQL
+- 状态管理: 统一 AsyncDb facade (prepare().run/get/all)
+- 错误处理: express-async-errors + asyncHandler 包装
+- 输入校验: Zod (body/query/params 各一个 schema)
+- 日志: 结构化 logger，禁止 console.log
+- AI 调用: Node.js SDK (LangChain.js / 原生 fetch OpenAI-compatible API)
+- 流式输出: SSE (res.write + res.flush + done)
+- Token 追踪: costTracker EventEmitter 注入
+- Embedding: 优先 API 调用，API 不可用时 hashVector 降级
+- 前端: Vue 3 Composition API + Pinia + Vite
+- 代码风格: 2 空格缩进，单引号，无分号
+```
+
+**为什么要这样约束？**
+- 没有技术约束的 prompt 会产出"空泛的正确答案" — 比如"创建一个 REST API"但不说用 Express 还是 FastAPI、用 Zod 还是 Joi
+- 明确技术约束后，LLM 可以**调用它训练数据里的具体实现**，产出的代码直接可运行
+- 所有这些约束都来自 references/ 里经过验证的模式，不是随便选的
+
+**例外**：如果 state.json 里 `techStack.backend` 不是 Node.js（比如 `fastapi` 或 `gin`），把上面的 Node.js 约束替换成对应语言的等价约束。但**绝大多数项目不需要改**。
+
+---
+
 ### 4a. 结构规则 — 三层式
 
 所有 LLM 交互必须拆成三层,永远不要一个大 prompt:

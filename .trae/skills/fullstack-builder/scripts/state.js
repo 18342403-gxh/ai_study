@@ -80,10 +80,10 @@ function init(projectName) {
     startedAt: new Date().toISOString(),
     gatesPassed: {},
     projectProfile: {
-      size: null, team: null, deployment: null, aiScale: null, frontendScope: null,
+      size: 'startup-mvp', team: 'solo', deployment: 'single-vps', aiScale: 'low', frontendScope: 'spa',
     },
     techStack: {
-      backend: null, frontend: null, database: null, vectorStore: null, layout: null,
+      backend: 'express', frontend: 'vite+vue', database: 'sqlite', vectorStore: 'sqlite-cosine', layout: 'monorepo-noshared',
     },
     phaseHistory: [],
   }
@@ -91,6 +91,8 @@ function init(projectName) {
   console.log(`✅ 初始化完成: ${STATE_PATH}`)
   console.log(`   项目: ${projectName}`)
   console.log(`   当前 Phase: 1 — Discovery & Design`)
+  console.log(`\n   默认栈: Node(Express) + Vue + SQLite + Monorepo`)
+  console.log(`   如需修改: node state.js set techStack.backend fastify`)
   console.log(`\n下一步: 运行 node state.js show 查看 Phase 1 需要过的 gate`)
 }
 

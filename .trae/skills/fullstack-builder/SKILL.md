@@ -7,6 +7,23 @@ description: Build full-stack AI-powered apps from zero to production through a 
 
 A **deterministic state machine** with 6 phases, each with mandatory gates. The workflow persists its state to `.workflow-state.json` so it survives across sessions.
 
+## 默认技术栈（开箱即用）
+
+`state.js init` 创建的状态文件自带以下默认值。这不是硬限制 — 每个都可以用 `state.js set` 覆盖。
+
+| 层 | 默认值 | 理由 |
+|----|--------|------|
+| **Layout** | `monorepo-noshared` | 两个 app（server + web），不需要共享包。pnpm workspaces 零配置 |
+| **Backend** | `express` | Node.js 生态，AI SDK（LangChain/Dify/Mastra）都是 TS first |
+| **Frontend** | `vite+vue` | SPA 开发效率高，Pinia 状态管理 |
+| **Database** | `sqlite` | 零 infra，本地开发秒启动；部署时可切 PG |
+| **Vector Store** | `sqlite-cosine` | 零 infra，app 内计算 cosine，<100K 文档完全够用 |
+| **Package** | `pnpm` | 磁盘高效 + Monorepo workspaces 原生支持 |
+
+**Node.js 是第一公民**。本 Skill 产出的所有 Prompt、代码模板、脚手架都以 TypeScript + Node.js 为主方向。Python Go Rust 等后端可选，但不是默认路径。
+
+---
+
 ## 启动命令
 
 当你想启动构建流程时，**必须**显式说出来。触发方式：
