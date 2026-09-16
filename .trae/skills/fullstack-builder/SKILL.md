@@ -19,9 +19,11 @@ A **deterministic state machine** with 6 phases, each with mandatory gates. The 
 
 收到启动命令后，**立即执行以下 3 步**：
 
-1. 在项目根目录创建 `.workflow-state.json`（初始状态见下方）
+1. **`node skill/scripts/state.js init <project-name>`** — 创建 `.workflow-state.json`
 2. 输出 Phase 1 的 Actions 清单，开始执行
-3. 每完成一个 gate，更新状态文件并输出进度
+3. 每完成一个 gate，运行 `node skill/scripts/state.js pass <gate-slug>` 标记通过并输出进度
+
+**所有脚本都在 `.trae/skills/fullstack-builder/scripts/` 目录下，零依赖，纯 Node.js。**
 
 ---
 
@@ -330,13 +332,15 @@ ASCII 图，标注每个服务和协议：
 
 ## Gate 执行规则
 
-1. **Gate 必须由 AI 主动执行命令验证**，不能只问用户 "过了吗？"
-   - ✅ 好：`执行 npx tsc --noEmit` → 贴出输出 → 判断
+1. **优先用脚本检查**：先跑 `node scripts/gate-check.js single <gate-slug>`，贴出结果
+   - ✅ 好：`node gate-check.js single phase2.typecheck` → 脚本输出结果 → 判断
+   - ⚠️ 脚本未覆盖的 gate：自己跑命令 + 贴输出 + 判断
    - ❌ 坏："typecheck 过了吗？"
-2. **Gate 失败 → 回到那个 gate 对应的 action 修复**，修复后**重新执行完整 gate**
-3. **可以暂时跳过某个 gate 吗？** — 不建议。Phase 3 的 per-module gate 可以标记 `skipped` 但要写清楚为什么。其他 phase 的 gate 不能跳过
-4. **状态文件在 gate 通过后立即更新**，不是 phase 结束才更新
-5. **每次 session 开始时先读状态文件**，确定 `currentPhase` 和哪些 gate 过了
+2. **Gate 通过后立即运行 `node scripts/state.js pass <gate-slug>`** — 这会自动更新 JSON 并推进 phase
+3. **Gate 失败 → 回到那个 gate 对应的 action 修复**，修复后**重新执行完整 gate 检查**
+4. **Phase 1 填 profile/stack 时**，用 `node scripts/state.js set projectProfile.size startup-mvp` 而不是手动改 JSON
+5. **每次 session 开始时先运行 `node scripts/state.js show`** — 确定 currentPhase 和哪些 gate 过了
+6. **跳过 gate 要写理由** — 只有 Phase 3 per-module gate 可以临时 skip，其他不能跳过
 
 ---
 
@@ -354,6 +358,29 @@ ASCII 图，标注每个服务和协议：
 ---
 
 ## References
+
+### Scripts（零依赖 Node.js，开箱即用）
+
+| Script | 作用 | 常用命令 |
+|--------|------|---------|
+| `scripts/state.js` | 状态管理 | `init` / `show` / `pass <slug>` / `check <slug>` / `set <key> <val>` / `goto <1-6>` / `reset` |
+| `scripts/gate-check.js` | 自动验证 gate | `run`（当前 phase）/ `phase <1-6>` / `single <slug>` / `list` |
+| `scripts/scaffold.js` | 生成项目骨架 | `run` / `dry-run` / `list` |
+
+**典型工作流**：
+```bash
+node scripts/state.js init my-app              # 启动
+node scripts/state.js set projectProfile.size startup-mvp
+node scripts/state.js set techStack.backend express
+node scripts/scaffold.js dry-run               # 预览骨架
+node scripts/scaffold.js run                   # 生成骨架
+# ... 写代码 ...
+node scripts/gate-check.js run                 # 自动检查当前 phase 所有 gate
+node scripts/state.js pass phase2.typecheck    # 标记通过（自动推进 phase）
+node scripts/state.js show                     # 随时看进度
+```
+
+### Code Patterns（可复制到任何项目）
 
 | File | What's In It |
 |------|-------------|
