@@ -167,13 +167,14 @@ For **each** feature module, follow this exact sequence:
 | Code / Content Generation | Prompt builder chain, sandbox preview (iframe / web worker / Docker), iteration loop |
 | Classification / Tagging | Single LLM call with structured output (JSON schema enforced) |
 
-**All Prompt templates follow the 3-layer shape: system (stable) + context (RAG results) + user query. See `references/ai-patterns.md#4-prompt-template`.**
+**All AI interactions follow the 3-layer structure: system (stable role/constraints) + context (dynamic RAG/history/few-shot) + user query (raw). DO NOT hardcode specific prompt templates — generate them per-project using the rules in `references/ai-patterns.md#4-prompt-design-specification`. Prompt design has its own 8-item checkpoint in that reference.**
 
 ### Gate Check (per module)
 
 - [ ] Feature works end-to-end (UI → API → response)
 - [ ] Bad input → graceful error, not a crash
 - [ ] LLM calls log usage to cost tracker
+- [ ] **Prompt passed the 8-item checklist** in `references/ai-patterns.md#4f-prompt-generation-checklist`
 - [ ] Committed
 
 ---

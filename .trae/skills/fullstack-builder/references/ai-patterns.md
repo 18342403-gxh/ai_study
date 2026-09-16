@@ -135,40 +135,89 @@ async *stream(messages): AsyncGenerator<string> {
 
 ---
 
-## 4. Prompt Template — 三段式
+## 4. Prompt Design Specification
 
-永远把 LLM 交互拆成三层,不要一个大 prompt:
+**不要在 Skill 里硬编码具体 prompt 内容。** 每个项目的领域、风格、输出要求都不同。Skill 负责告诉 AI **prompt 应该怎么设计**，然后在 Phase 3 按规范为当前项目生成。
+
+### 4a. 结构规则 — 三层式
+
+所有 LLM 交互必须拆成三层,永远不要一个大 prompt:
 
 ```
 ┌─────────────────────────────────────┐
-│  System Prompt — 稳定的角色设定       │  写一次,不改
+│ ① System Prompt — 稳定、不变、写一次  │  角色 + 领域约束 + 输出格式要求
 ├─────────────────────────────────────┤
-│  Context — RAG 检索结果 / Few-Shot   │  每次动态拼接
+│ ② Context — 动态变化层              │  RAG 检索结果 / Few-Shot 示例 / 当前会话历史
 ├─────────────────────────────────────┤
-│  User Query — 用户输入               │  原样传递
+│ ③ User Query — 原样传递             │  用户输入,不做清洗或重写
 └─────────────────────────────────────┘
 ```
 
-**Template**:
-```typescript
-const SYSTEM_PROMPT = `你是一名专业的 {{ domain }} 助手。
-- 始终基于提供的参考资料回答,不要编造
-- 回答要结构化,分点列出
-- 如果资料中没有答案,直接说"我不知道"`
+**规则**:
+- ① 和 ② 永远分开 — 把 RAG context 拼进 system prompt 会污染角色设定
+- ② 每次构建时都要检查 token 预算,超出就截断或摘要
+- ③ 原样传 — 不要在服务端改写用户 query(会丢失用户意图细节)
 
-function buildRagPrompt(system: string, contextDocs: string[], userQuery: string): any[] {
-  const contextBlock = contextDocs.map((doc, i) => `[${i+1}] ${doc}`).join('\n\n')
-  return [
-    { role: 'system', content: system },
-    { role: 'user',   content: `
-## 参考资料
-${contextBlock}
+### 4b. System Prompt 必须包含什么
 
-## 用户问题
-${userQuery}` },
-  ]
-}
+按优先级从上到下排列(LLM 对靠前的指令权重更高):
+
 ```
+[角色设定]  → 你是谁,在什么领域,擅长什么
+[硬约束]    → 必须遵守的规则(不要编造 / 必须分点 / 必须引用来源)
+[输出格式]  → JSON schema / Markdown 结构 / 代码风格
+[风格偏好]  → 简洁 / 详细 / 正式 / 口语(可选)
+[边界条件]  → 什么情况下应该拒绝回答(可选)
+```
+
+**强制检查**: System prompt 里必须有至少一条硬约束禁止编造。
+
+### 4c. Context 层怎么构建
+
+| Context 来源 | 构建方式 | Token 预算 |
+|-------------|---------|-----------|
+| RAG 检索结果 | Top-K 拼接,加编号 `[1] [2]` 引用标记 | 不超过 prompt 总预算的 60% |
+| Few-Shot 示例 | 2-3 个正反例,格式: `输入→期望输出` | 不超过 20% |
+| 历史对话 | 最近 N 轮完整保留,更早的做摘要 | 不超过 20% |
+
+**Token 预算公式**:
+```
+system_prompt(15%) + context(60%) + user_query(25%) = 100%
+```
+超出 → 优先截断更早的历史,然后减少 context K 值,最后摘要 system prompt 里的次要内容。
+
+### 4d. 输出格式约束
+
+**如果需要结构化输出**(JSON / Schema),必须有一层强制解析:
+
+```
+LLM 输出 → JSON.parse() → 用 Zod / JSON Schema 校验 → 校验失败? 重试 1 次 + "上次输出不是合法 JSON,请修正"
+```
+
+不要假设 LLM 永远输出合法 JSON。它会偶尔输出 `...```json\n{...}\n```...` 或 trailing commas。
+
+### 4e. Prompt Anti-Patterns
+
+| ❌ 反模式 | ✅ 替代 |
+|---------|--------|
+| 一个 2000 token 的大 prompt 塞所有东西 | 三层分离 + 动态拼接 + token 预算 |
+| 没有角色设定直接让 LLM 做事 | 开头写清楚角色 + 领域 + 约束 |
+| 不禁止编造 | "如果资料中没有答案,直接说'我不知道',不要编造" |
+| context 超过 token 预算硬塞进去 | 截断 K 值 / 摘要 / 拒绝并提示用户缩小范围 |
+| 不校验 JSON 输出 | JSON.parse + Zod schema 校验 + 失败重试 1 次 |
+| 每次都写新 prompt 不做版本管理 | Prompt 也是代码,改了要能回溯。至少记录 "为什么改、改了什么、效果对比" |
+| 把敏感信息硬编码进 prompt | API key、DB password 永远在 env var,prompt 里写占位符 |
+
+### 4f. Prompt 生成 Checklist(Phase 3 每个模块完成前过一遍)
+
+- [ ] System prompt 有明确角色设定
+- [ ] 有至少一条硬约束禁止编造 / 幻觉
+- [ ] Context 层 token 用量在预算内
+- [ ] 输出有格式要求(JSON schema / Markdown 结构)
+- [ ] 如果用 RAG: context 里的每条资料加了 `[编号]` 引用标记
+- [ ] Token 超限策略明确(截断 / 摘要 / 拒绝)
+- [ ] 错误路径:LLM 输出格式不对会发生什么(有重试吗?)
+- [ ] Prompt 版本可追溯(commit message 或 changelog)
 
 ---
 
