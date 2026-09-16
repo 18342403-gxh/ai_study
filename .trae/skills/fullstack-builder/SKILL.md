@@ -1,322 +1,397 @@
 ---
 name: fullstack-builder
-description: Build full-stack AI-powered apps from zero to production. Use when starting a new project, choosing architecture, or when the user needs structured development phases. Do not use for single-feature bug fixes.
+description: Build full-stack AI-powered apps from zero to production through a gated 6-phase workflow. Use when starting a new project, choosing architecture, or when the user needs structured development phases. Do not use for single-feature bug fixes.
 ---
 
-# Fullstack Builder
+# Fullstack Builder Workflow
 
-Complete a production-ready AI application through **6 mandatory phases**. Each phase has deliverables and a gate check — do not skip phases.
+A **deterministic state machine** with 6 phases, each with mandatory gates. The workflow persists its state to `.workflow-state.json` so it survives across sessions.
 
-This skill does NOT force a tech stack. Every Phase 1 tech decision is a deliberate choice based on the project's scale, team, and constraints. The anti-patterns and gate checks apply regardless of stack.
+## 启动命令
+
+当你想启动构建流程时，**必须**显式说出来。触发方式：
+
+```
+"/build <project-name>"
+"start fullstack builder for <project>"
+"按工作流来做 <project>"
+```
+
+收到启动命令后，**立即执行以下 3 步**：
+
+1. 在项目根目录创建 `.workflow-state.json`（初始状态见下方）
+2. 输出 Phase 1 的 Actions 清单，开始执行
+3. 每完成一个 gate，更新状态文件并输出进度
 
 ---
 
-## When to Use
+## 状态文件 schema
 
-**CRITICAL: Invoke this skill IMMEDIATELY when:**
-- User says "let's build a new app", "start a project", or describes a product idea
-- User asks for architecture recommendations or tech stack choices
-- User wants step-by-step guidance through building a full application
+`.workflow-state.json` — 整个工作流的真相来源。**每完成一个 gate 就 update 一次**。
 
-**DO NOT use for:**
-- Adding a single API endpoint or fixing a bug
-- Code reviews on existing code
-- Learning a specific framework in isolation
+```json
+{
+  "project": "ai-blog-assistant",
+  "currentPhase": 1,
+  "startedAt": "2026-09-16T10:00:00Z",
+  "gatesPassed": {
+    "phase1.productBrief": true,
+    "phase1.profile": true,
+    "phase1.techChoices": false
+  },
+  "projectProfile": {
+    "size": "startup-mvp",
+    "team": "solo",
+    "deployment": "single-vps",
+    "aiScale": "low",
+    "frontendScope": "spa"
+  },
+  "techStack": {
+    "backend": "express",
+    "frontend": "vite+vue",
+    "database": "sqlite",
+    "vectorStore": "sqlite-cosine",
+    "layout": "single-package"
+  },
+  "phaseHistory": [
+    { "phase": 1, "enteredAt": "...", "gatesPassed": 0, "notes": "..." }
+  ]
+}
+```
+
+**规则**：
+- 任何时候被中断（session 断了、用户切话题），回来后先读这个文件，`currentPhase` 就是你该继续的地方
+- Gate key 格式：`phase{N}.{gateSlug}`（比如 `phase2.typecheck`）
+- Gate 只有 `true` / `false` / 不存在（=false）三种状态
+
+---
+
+## 状态机图
+
+```
+                    ┌──────────────┐
+  startup command ─→│  Phase 1     │
+                    │  Discovery   │
+                    └──────┬───────┘
+                           │ ALL gates pass
+                           ▼
+                    ┌──────────────┐
+                    │  Phase 2     │
+                    │  Scaffolding │
+                    └──────┬───────┘
+                           │ ALL gates pass
+                           ▼
+                    ┌──────────────┐
+                    │  Phase 3     │◄──────────────────┐
+                    │  Core Features│                   │
+                    └──────┬───────┘                   │
+                           │ ALL gates pass            │ more modules?
+                           ▼                           │
+                    ┌──────────────┐                   │
+                    │  Phase 4     │                   │
+                    │  Cross-Cut   │                   │
+                    └──────┬───────┘                   │
+                           │ ALL gates pass            │
+                           ▼                           │
+                    ┌──────────────┐                   │
+                    │  Phase 5     │                   │
+                    │  Productize  │                   │
+                    └──────┬───────┘                   │
+                           │ ALL gates pass            │
+                           ▼                           │
+                    ┌──────────────┐                   │
+                    │  Phase 6     │                   │
+                    │  Handoff     │                   │
+                    └──────┬───────┘                   │
+                           │ ALL gates pass            │
+                           ▼                           │
+                    ✅ WORKFLOW COMPLETE               │
+                                                       │
+                  Any gate fails ──────────────────────┘
+                  → 修复 → 重新检查那个 gate
+```
 
 ---
 
 ## Phase 1: Discovery & Design
 
-**Goal**: Decide what to build and how to build it before writing any code.
+**Goal**: 决定做什么、怎么做。**零代码**。
 
-### Actions
+### Actions（按顺序执行）
 
-1. **Clarify the product** — Write a 2-paragraph Product Brief:
-   - Who is the user? What pain are they solving?
-   - What AI capability is the core differentiator? (chat? RAG? agent? code generation?)
-   - What's out of scope for MVP?
+**1.1 Product Brief（对话形式收集）**
+向用户问 3 个问题，然后把回答整理成 2 段话：
+- "这个产品给谁用？解决什么具体痛点？"
+- "AI 在哪里？核心 AI 能力是什么（chat / RAG / agent / code gen / 多模态）？"
+- "MVP 不做什么？（边界声明，防止 scope creep）"
 
-2. **Profile the project** — Answer these, they drive every tech choice:
-   - **Size**: personal side project? startup MVP? enterprise internal tool?
-   - **Team**: solo dev? 2-3 people? 10+?
-   - **Deployment**: local only? single VPS? Kubernetes? serverless?
-   - **AI dependency**: one LLM call per hour? thousands per minute?
-   - **Frontend scope**: single SPA? multi-page SSR? mobile? desktop?
+**1.2 Project Profile（填进状态文件）**
+| 维度 | 选项 | 作用 |
+|------|------|------|
+| `size` | personal / startup-mvp / enterprise-internal | 决定你能接受多少运维复杂度 |
+| `team` | solo / 2-3 / 10+ | 决定技术栈的学习成本优先级 |
+| `deployment` | local-only / single-vps / k8s / serverless | 决定数据库和部署方案 |
+| `aiScale` | low (<10/hr) / medium (<1K/min) / high (>1K/min) | 决定成本控制和缓存策略 |
+| `frontendScope` | spa / ssr / mobile / desktop | 决定前端框架 |
 
-3. **Choose tech stack** — For each layer, pick an option that fits the project profile. Write a 1-sentence justification linking the choice to a specific profile constraint (not "it's the latest").
+**1.3 Tech Stack Selection（填进状态文件）**
+对每一层，给 2-3 个候选方案 + 1 句 justification（必须引用 profile 里的某个值，不能说"最新"）：
 
-   **Backend / BFF**
-   | Profile | Pick |
-   |---------|------|
-   | Any Node.js app | Express 5, Fastify, or Hono |
-   | Python-heavy team | FastAPI |
-   | Go-heavy team | Gin, Fiber |
-   | Edge/serverless | Hono, Cloudflare Workers |
+| 层 | 候选方案 | 选择依据 |
+|----|---------|---------|
+| Backend | Express / Fastify / Hono / FastAPI / Gin | 团队熟悉度 + deployment 约束 |
+| Frontend | Vite+Vue / Nuxt / Vite+React / Next / RN+Expo / Tauri / Electron | frontendScope + SEO 需求 |
+| Database | SQLite / PostgreSQL / MongoDB / DynamoDB | size + deployment |
+| Vector Store | SQLite-cosine / pgvector / Pinecone / Qdrant | 文档规模预估 + 零 infra |
+| Layout | single-package / monorepo-noshared / monorepo-shared | 有几个 app |
 
-   **Frontend**
-   | Profile | Pick |
-   |---------|------|
-   | SSR + SEO needed | Nuxt (Vue) or Next.js (React) |
-   | SPA / dashboard | Vite + Vue + Pinia, or Vite + React + Zustand |
-   | Mobile-first | React Native + Expo, or Flutter (Dart) |
-   | Desktop app | Tauri (Rust backend) or Electron (Node backend) |
+**1.4 Architecture Diagram**
+ASCII 图，标注每个服务和协议：
+```
+[Frontend :3003] ──HTTP──▶ [BFF :3001] ──SQL──▶ [(DB)]
+                                │
+                                ├──HTTP──▶ [LLM API]
+                                └──HTTP──▶ [Embedding API]
+```
 
-   **Database**
-   | Profile | Pick |
-   |---------|------|
-   | Small / local-first | SQLite (better-sqlite3 or sql.js) |
-   | Standard web app | PostgreSQL |
-   | NoSQL fit | MongoDB (only if data is genuinely document-shaped) |
-   | Serverless | Supabase, PlanetScale, or DynamoDB |
+**1.5 Data Model**
+每个表 5-8 个关键列，形状只写名字和类型，不写实现。
 
-   **Vector / Embedding store**
-   | Profile | Pick |
-   |---------|------|
-   | < 100K docs, zero infra | SQLite + cosine similarity or DuckDB |
-   | 100K — 10M | PostgreSQL + pgvector |
-   | > 10M or hybrid search | Pinecone, Qdrant, Weaviate |
-   | Multi-modal | Chroma or LanceDB |
+### Gate Check（必须全部 pass 才能进 Phase 2）
 
-   **Package management / layout**
-   | Profile | Pick |
-   |---------|------|
-   | One app | Single package.json |
-   | 2+ related apps | Monorepo (pnpm workspaces, npm workspaces, or Turborepo) |
-   | Monorepo needed but simpler | Monorepo without shared packages |
+| Gate | Slug | 检查动作 |
+|------|------|---------|
+| Product Brief 写好了 | `phase1.productBrief` | 打开文档，有 2 段清晰描述 |
+| Project Profile 填满 | `phase1.profile` | 状态文件里 5 个维度都有值 |
+| 每个 tech choice 有 justification | `phase1.techChoices` | 状态文件 `techStack` 里每项都有一句"因为 profile.X 选了 Y 所以..." |
+| 架构图画了 | `phase1.archDiagram` | 有 ASCII 图 |
+| 数据模型列了 | `phase1.dataModel` | 有所有表的列清单 |
 
-4. **Draw the architecture** — 1 ASCII diagram. Label every service and the protocol between them (HTTP? WebSocket? queue?).
-
-5. **List the data model** — Every table/collection with 5-8 key columns. Shapes only, no implementation.
-
-### Gate Check (must pass before Phase 2)
-
-- [ ] Product Brief written
-- [ ] Project profile answered (size, team, deploy, AI scale, frontend scope)
-- [ ] Every tech choice has a justification tied to the profile
-- [ ] Architecture diagram drawn
-- [ ] Data model listed
+**Gate 失败处理**：向用户指出缺什么，补完再检查。
 
 ---
 
 ## Phase 2: Scaffolding
 
-**Goal**: Create the project shell and infrastructure. No feature code yet.
+**Goal**: 创建项目骨架和基础设施。**零功能代码**。
 
 ### Actions
 
-1. **Directory structure** — Match the choices from Phase 1:
-   ```
-   Monorepo example:              Single-app example:
-   <project>/                     <project>/
-   ├── apps/                      ├── src/
-   │   ├── server/                │   ├── routes/
-   │   └── web/                   │   ├── services/
-   ├── packages/                  │   ├── db/
-   │   └── shared/                │   └── index.ts
-   ├── docs/                      ├── public/
-   ├── package.json               ├── docs/
-   └── .env.example               └── package.json
-   ```
+**2.1 目录结构**（按 Phase 1 选的 layout 创建）
 
-2. **Database layer** — Single-driver projects: wrap your ORM/driver in a thin service module. Multi-driver (SQLite + PG): implement a unified async facade. **See `references/db-patterns.md`** for PG/SQLite schema templates and the 9-compatibility-rule checklist.
+**2.2 DB Layer** — 按 Phase 1 选的 DB 建连接层。多驱动（SQLite+PG）必须实现统一 async facade。**参考 `references/db-patterns.md`**。
 
-3. **BFF middleware pipeline** — Minimum set:
-   ```
-   cors → body parser → request logger → error handler
-   ```
-   Add based on profile: rate-limit, circuit-breaker, cache, auth middleware. **See `references/backend-patterns.md#5-middleware-pipeline`** for exact ordering.
+**2.3 Middleware Pipeline** — Minimum: `cors → body parser → request logger → error handler`。按 profile 加 rate-limit / circuit-breaker / cache / auth。
 
-4. **Logger** — Structured logger with levels. No `console.log` in production code. The logger should emit request IDs so you can trace one user's path through the system.
+**2.4 Logger** — 结构化 logger，requestId 追踪。**禁止 `console.log`**。
 
-5. **Health check** — Single endpoint that reports dependency status:
-   ```
-   GET /health → { status: "ok", uptime, db: "ok|fail", llm: "ok|fail" }
-   ```
+**2.5 Health Check** — `GET /health` 返回 `{ status, uptime, db, llm }`。
 
-### Gate Check (must pass before Phase 3)
+### Gate Check
 
-- [ ] Dev server starts and serves the health endpoint
-- [ ] DB tables auto-create on first run (or migrations run clean)
-- [ ] Zero type errors in strict mode (TypeScript: `tsc --noEmit`, Python: `mypy`, Go: `go vet`)
-- [ ] No `console.log` / `print` / `fmt.Println` in production source
+| Gate | Slug | 检查动作 |
+|------|------|---------|
+| Server 能启动 + /health 返回 200 | `phase2.health` | **执行** `curl http://localhost:PORT/health`（或 PowerShell `Invoke-WebRequest`），贴出响应 |
+| DB 表自动创建 | `phase2.db` | **执行** `curl /health`，db 字段 = `"ok"` |
+| Type 检查零错误 | `phase2.typecheck` | **执行** TypeScript: `npx tsc --noEmit` / Python: `mypy` / Go: `go vet`，贴出输出 |
+| 零 console.log / print | `phase2.noconsole` | **执行** Grep: `rg "console\.(log|warn|error)" src/` (TS) / `rg "^\s*print\(" src/` (Python)，应该零匹配 |
+| .env.example 存在 | `phase2.envExample` | 文件存在，包含所有必需变量 |
 
 ---
 
 ## Phase 3: Core Features
 
-**Goal**: Implement features one module at a time.
+**Goal**: 逐模块实现。**每个模块走完整个 per-module 流程再下一个**。
 
-### Per-Module Procedure
+### Per-Module Workflow
 
-For **each** feature module, follow this exact sequence:
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ① Design Doc（10-20 行）                                    │
+│     → 写什么功能？API 端点？数据形状？                         │
+├─────────────────────────────────────────────────────────────┤
+│  ② Prompt Design（有 LLM 调用的模块）                         │
+│     → 按 references/ai-patterns.md#4 规范生成 prompt          │
+│     → 过 8 项 checklist                                       │
+├─────────────────────────────────────────────────────────────┤
+│ ③ Route + Handler                                           │
+│     → 输入校验(Zod/Joi/Pydantic) → 业务逻辑 → 错误处理         │
+│     → 参考 references/backend-patterns.md#1                  │
+├─────────────────────────────────────────────────────────────┤
+│ ④ Service Layer                                             │
+│     → 业务逻辑 + costTracker 注入(有 LLM 调用时)                │
+│     → 参考 references/backend-patterns.md#3                  │
+├─────────────────────────────────────────────────────────────┤
+│ ⑤ Frontend                                                  │
+│     → 只做后端已暴露的 API 的 UI                               │
+├─────────────────────────────────────────────────────────────┤
+│ ⑥ Manual Test                                               │
+│     → curl 端点 → 验证响应形状 → 验证错误路径                   │
+├─────────────────────────────────────────────────────────────┤
+│ ⑦ Commit                                                    │
+│     → `type(feature): description`                            │
+└─────────────────────────────────────────────────────────────┘
+         │
+         ▼
+    Per-Module Gate ←── 不通过则回去修
+         │
+         ▼
+    还有下一个模块吗？──是──▶ 回到 ①
+         │
+        否
+         ▼
+    Phase 3 Gate（所有模块都过了）
+```
 
-1. **Design doc** — 10-20 lines: what does it do? What API endpoints? What data shapes?
-2. **Route / handler** — Validate inputs, handle errors at module boundaries. **See `references/backend-patterns.md#1-route--zod-validation-handler`** for the Express + Zod pattern.
-3. **Service layer** — Business logic. **Inject cost tracking** if it calls an LLM or Embedding API — **see `references/backend-patterns.md#3-cost-tracker`** for the EventEmitter + non-blocking write pattern.
-4. **Frontend** — UI component that consumes the API. **Only build UI for what the backend exposes.**
-5. **Manual test** — Hit the endpoint, verify response shape and error paths.
-6. **Commit** — Descriptive message: `type(feature): description`
+### Per-Module Gate
 
-### Common AI Feature Patterns (adapt to your product)
+| Gate | 检查动作 |
+|------|---------|
+| E2E 通 | curl 端点 + 打开前端页面，走完整流程 |
+| 错误路径通 | 发 bad request（缺字段、越界值）→ 返回 4xx 不崩 |
+| Cost Tracker 有记录 | 执行 API 后 `SELECT * FROM ai_usage_logs WHERE feature = ?` 有新行 |
+| Prompt Checklist 过（有 LLM 调用时） | 8 项全勾（references/ai-patterns.md#4f） |
+| 已 commit | git log 有新 commit |
 
-| Pattern | Key Techniques |
-|---------|---------------|
-| Chat / Completion | Streaming (SSE or WebSocket), abort/cancel, token counting. **See `references/ai-patterns.md#3-sse-streaming`** |
-| RAG | Chunking → Embedding → Vector search → Prompt assembly → LLM answer. **See `references/ai-patterns.md#5-rag-pipeline`** + `references/db-patterns.md` |
-| Agent | StateGraph or equivalent node graph, checkpoint/resume, tool calling |
-| Code / Content Generation | Prompt builder chain, sandbox preview (iframe / web worker / Docker), iteration loop |
-| Classification / Tagging | Single LLM call with structured output (JSON schema enforced) |
+### Phase 3 Exit Gate
 
-**All AI interactions follow the 3-layer structure: system (stable role/constraints) + context (dynamic RAG/history/few-shot) + user query (raw). DO NOT hardcode specific prompt templates — generate them per-project using the rules in `references/ai-patterns.md#4-prompt-design-specification`. Prompt design has its own 8-item checkpoint in that reference.**
-
-### Gate Check (per module)
-
-- [ ] Feature works end-to-end (UI → API → response)
-- [ ] Bad input → graceful error, not a crash
-- [ ] LLM calls log usage to cost tracker
-- [ ] **Prompt passed the 8-item checklist** in `references/ai-patterns.md#4f-prompt-generation-checklist`
-- [ ] Committed
+| Gate | Slug | 检查动作 |
+|------|------|---------|
+| 所有计划模块已完成 | `phase3.allModules` | 状态文件里记录了每个模块的完成时间 |
+| Type 检查仍然零错误 | `phase3.typecheck` | 同 Phase 2 的 typecheck gate，**跑一遍确保没引入回归** |
 
 ---
 
 ## Phase 4: Cross-Cutting Concerns
 
-**Goal**: Add production safety nets. These are **not optional** — ship with them or your app will break in production.
+**Goal**: 生产安全网。**不是可选的**。
 
-### 4a. Cost & Usage Tracking
+### Actions
 
-Every LLM and Embedding call must be logged. **See `references/backend-patterns.md#3-cost-tracker`** for the full EventEmitter pattern + `ai_usage_logs` schema in `references/db-patterns.md`.
+**4.1 Cost Tracking** — 所有 LLM + Embedding 调用都要 log usage。参考 `references/backend-patterns.md#3` + schema 在 `references/db-patterns.md`。
 
-- **Non-blocking**: Write asynchronously. Never await usage logging in the hot path.
-- **Budget alerts**: Configurable threshold via env var. 80% → warn. 100% → emit a frontend-consumable event.
-- **Query API**: At minimum, today's total + last 7 days by feature+model breakdown.
+**4.2 Embedding Fallback** — hashVector 降级。参考 `references/ai-patterns.md#1`。
 
-### 4b. Graceful Degradation
+**4.3 Input Safety** — Prompt injection 检测。
 
-**Embedding fallback (hash vectors) is the single most important fallback — see `references/ai-patterns.md#1-embedding-fallback`.** It's a zero-dependency, <1ms solution that keeps RAG working (with reduced precision) when the API is dead.
-
-### 4c. Input Safety
-
-Before sending user input to an LLM, check for injection patterns:
-- "ignore previous instructions", "you are now", "system prompt is"
-- If detected: either reject or tag for human review
+**4.4 预算告警** — env var 阈值 + 80% warn / 100% block。
 
 ### Gate Check
 
-- [ ] Disabling the LLM API key → app still boots (shows degraded state)
-- [ ] Usage query endpoint returns real numbers after an LLM call
-- [ ] Budget threshold documented in `.env.example`
+| Gate | Slug | 检查动作 |
+|------|------|---------|
+| 禁用 API key 仍能启动 | `phase4.degrade` | 设 `ENABLE_MOCK_EMBEDDING=1` + 无效 LLM key → `curl /health` 仍返回 200，db 和 embedding 字段 `"degraded"` |
+| Usage 查询有数据 | `phase4.usageQuery` | 执行一次 LLM 调用后，`curl /api/usage/today` 返回非零 total_tokens |
+| 预算阈值在 .env.example | `phase4.budgetEnv` | `.env.example` 里有 `DAILY_BUDGET_USD=` 或类似变量 |
 
 ---
 
 ## Phase 5: Productization
 
-**Goal**: Make it feel like a real product, not a prototype.
+**Goal**: 像产品，不像原型。
 
-### Actions
+### Actions（按 Phase 1 profile 选的项目做，不是全做）
 
-Pick only what your project needs:
-
-1. **Empty states & loading** — Every list view has "nothing here yet" with a hint. Every async action shows a spinner.
-2. **Error boundaries** — Frontend catches API failures, shows retry button. No white screens.
-3. **Desktop wrapper** (only if you chose Electron/Tauri in Phase 1):
-   - Wrapper spawns server + frontend as child processes
-   - Wait for health check before creating the window
-   - Graceful shutdown on app quit
-4. **Build & deploy** — Match your deployment choice from Phase 1:
-   - Single VPS: process manager (PM2, systemd) + reverse proxy (Caddy, Nginx)
-   - Container: `docker-compose.yml` + `.env.production`
-   - Serverless: config files for your platform (Vercel, Fly.io, etc.)
-5. **Database migrations** — If you chose Postgres/MySQL: migration strategy (Drizzle, Prisma, or hand-written SQL files). If SQLite: skip — schema evolves with code.
+1. Empty states + Loading
+2. Error boundaries（白屏禁止）
+3. Desktop wrapper（选了 Electron/Tauri 才做）
+4. Build & deploy（按 Phase 1 选的 deployment）
+5. DB migrations（选了 PG/MySQL 才做；SQLite 跳过）
 
 ### Gate Check
 
-- [ ] App looks presentable on first launch (no blank screens)
-- [ ] Invalid API key → app shows "please configure" instead of crashing
-- [ ] Fresh clone + production config → app starts without hand-waving
+| Gate | Slug | 检查动作 |
+|------|------|---------|
+| 首屏不空 | `phase5.firstScreen` | 截图或打开页面，有内容有引导 |
+| 无效配置不崩 | `phase5.badConfig` | 删 .env 或填错 key → app 显示 "please configure" 页面 |
+| Fresh clone 能跑 | `phase5.freshClone` | `rm -rf node_modules && npm install && npm run dev` 能在 10 分钟内启动 |
 
 ---
 
 ## Phase 6: Documentation & Handoff
 
-**Goal**: Leave a trail so you (or someone else) can maintain this app in 6 months.
+**Goal**: 留后路。
 
 ### Actions
 
-1. **Architecture walkthrough** — 1 doc explaining every major decision with trade-offs. "Why Express over Fastify?" "Why SQLite for vectors?"
-2. **If this is a portfolio project**: 10 Q&A pairs about hard decisions you made.
-3. **Cost summary** — "This app costs $X/month in API calls. Here are the top 3 things that cost money and how to reduce them."
-4. **Troubleshooting guide** — Top 5 things that break, with fixes:
-   - "Port already in use"
-   - "Database connection refused"
-   - "Embedding returns 429"
+1. Architecture walkthrough（每个主要决策写 trade-off）
+2. Portfolio Q&A（10 道硬决策题，面试准备）
+3. Cost summary（一个月 token 费多少 + top 3 省钱手段）
+4. Troubleshooting guide（Top 5 故障 + 修复）
 
 ### Gate Check
 
-- [ ] A new dev can clone, configure env, start the app, and see it working in under 10 minutes
-- [ ] Every "why" decision has a written rationale
+| Gate | Slug | 检查动作 |
+|------|------|---------|
+| 新开发者 10 分钟内跑起来 | `phase6.fastStart` | （假装你是新开发者）按文档做一遍，计时 |
+| 每个 "为什么" 有答案 | `phase6.rationale` | 随机挑 3 个技术决策，文档里能找到理由 |
 
 ---
 
-## Anti-Patterns (Do Not Do)
+## Gate 执行规则
 
-1. **Skip scaffolding** — Don't start with features. Bad scaffolding = painful refactors later.
-2. **Force a monolith schema across drivers** — If you support both SQLite and Postgres, column names and types differ. Don't `SELECT *`.
-3. **console.log / print in production code** — Use a structured logger everywhere.
-4. **No error boundary** — An LLM 429 response should not white-screen the frontend.
-5. **Hard-code secrets** — API keys, DB passwords always come from env vars or a secret manager.
-6. **One giant prompt** — Break LLM interactions into: system prompt (stable) + context (RAG results) + user query.
-7. **Embedding without fallback** — Embedding APIs go down, run out of credits, or throttle. Plan for it.
-8. **No cost visibility** — If you can't answer "how much did that cost?", you can't control it.
-9. **Over-engineering for the scale you don't have** — Don't set up a 5-node Kubernetes cluster for a personal project that serves 10 requests/day.
-10. **Under-engineering for the scale you do have** — Don't run a SQLite file on a network share serving 10K users.
+1. **Gate 必须由 AI 主动执行命令验证**，不能只问用户 "过了吗？"
+   - ✅ 好：`执行 npx tsc --noEmit` → 贴出输出 → 判断
+   - ❌ 坏："typecheck 过了吗？"
+2. **Gate 失败 → 回到那个 gate 对应的 action 修复**，修复后**重新执行完整 gate**
+3. **可以暂时跳过某个 gate 吗？** — 不建议。Phase 3 的 per-module gate 可以标记 `skipped` 但要写清楚为什么。其他 phase 的 gate 不能跳过
+4. **状态文件在 gate 通过后立即更新**，不是 phase 结束才更新
+5. **每次 session 开始时先读状态文件**，确定 `currentPhase` 和哪些 gate 过了
 
 ---
 
-## Decision Reference
+## Anti-Patterns（工作流执行中的红线）
 
-### Which LLM Provider?
+1. **Skip phases 或 gates** — 每一步都必须 pass 才能进下一步
+2. **Gate 不执行命令只靠用户确认** — 跑命令，贴输出，自己判断
+3. **状态文件不更新** — gate pass 立刻 update JSON
+4. **一个 phase 搞 3 小时不 commit** — Phase 3 每个模块做完就 commit
+5. **Prompt 不按规范写** — 按 references/ai-patterns.md#4 来，过 8 项 checklist
+6. **成本不追踪** — 有 LLM 调用就注 costTracker
+7. **Embedding 没降级** — 一定要加 hashVector fallback
+8. **console.log 残留** — Phase 2 gate 就卡这个，Phase 3 回来再卡一次
+
+---
+
+## References
+
+| File | What's In It |
+|------|-------------|
+| `references/backend-patterns.md` | Express + Zod routes, DB facade, cost tracker, logger, middleware, health check |
+| `references/ai-patterns.md` | Embedding hash fallback, cosine similarity, SSE stream, **Prompt Design Specification** (rules + anti-patterns + 8-item checklist), RAG pipeline |
+| `references/db-patterns.md` | ai_usage_logs + RAG tables (SQLite + PG), 9 compatibility rules, multi-driver INSERT |
+
+---
+
+## Decision Reference（选型速查）
+
+### LLM Provider
 | Need | Pick |
 |------|------|
 | Quick prototype, China | Zhipu AI (glm-4-flash) |
 | US market | OpenAI (gpt-4o-mini for cheap, gpt-4o for quality) |
 | Fully offline / private | Ollama + llama3 |
 | Budget-conscious | DeepSeek (deepseek-chat) |
-| Function calling focus | Any OpenAI-compatible API with tool support |
 
-### Which Vector Store?
+### Vector Store
 | Scale | Pick |
 |-------|------|
-| < 100K documents, zero infra | SQLite + cosine similarity, or DuckDB |
+| < 100K docs, zero infra | SQLite + cosine similarity, DuckDB |
 | 100K — 10M | PostgreSQL + pgvector |
 | > 10M or hybrid search | Pinecone, Qdrant, Weaviate |
-| Multi-modal | Chroma, LanceDB |
 
-### Which Frontend?
+### Frontend
 | Need | Pick |
 |------|------|
-| SSR + SEO + full stack | Nuxt 3 (Vue) or Next.js (React) |
-| SPA + dashboard feel | Vite + Vue + Pinia, or Vite + React + Zustand |
-| Mobile-first | React Native + Expo, or Flutter |
-| Desktop with web tech | Electron (Node) or Tauri (Rust, smaller binary) |
+| SSR + SEO | Nuxt 3 (Vue) or Next.js (React) |
+| SPA / dashboard | Vite + Vue + Pinia, Vite + React + Zustand |
+| Mobile | React Native + Expo, Flutter |
+| Desktop | Electron (Node) or Tauri (Rust, smaller binary) |
 
-### Which DB?
+### DB
 | Need | Pick |
 |------|------|
 | Local-first, embedded | SQLite |
 | Standard web app | PostgreSQL |
-| Multi-region / globally distributed | CockroachDB, Supabase |
 | Serverless | DynamoDB, PlanetScale, Upstash |
-| Document-shaped data | MongoDB (only if data is genuinely document-shaped) |
-
----
-
-## References — Battle-Tested Patterns
-
-| File | What's In It |
-|------|-------------|
-| `references/backend-patterns.md` | Express + Zod routes, DB facade, cost tracker EventEmitter, structured logger, middleware pipeline, health check |
-| `references/ai-patterns.md` | Embedding hash fallback, cosine similarity, SSE stream (with usage from last chunk), 3-layer prompt template, RAG 4-step pipeline |
-| `references/db-patterns.md` | ai_usage_logs + RAG tables (both SQLite and PG), PG/SQLite 9 compatibility rules, multi-driver INSERT + date aggregation patterns |
-
-These are copy-paste starting points. Adapt variable names and error handling to your stack.
+| Document-shaped data | MongoDB (only if genuinely document-shaped) |
