@@ -118,17 +118,13 @@ This skill does NOT force a tech stack. Every Phase 1 tech decision is a deliber
    └── .env.example               └── package.json
    ```
 
-2. **Database layer** — Single-driver projects: wrap your ORM/driver in a thin service module. Multi-driver (SQLite + PG): implement a `getDb()` facade with unified async API (`prepare().run()`, `.get()`, `.all()`).
+2. **Database layer** — Single-driver projects: wrap your ORM/driver in a thin service module. Multi-driver (SQLite + PG): implement a unified async facade. **See `references/db-patterns.md`** for PG/SQLite schema templates and the 9-compatibility-rule checklist.
 
-3. **BFF middleware pipeline** — Minimum set for any Node.js BFF:
+3. **BFF middleware pipeline** — Minimum set:
    ```
    cors → body parser → request logger → error handler
    ```
-   Add these based on profile:
-   - Public-facing API → rate-limit
-   - Expensive AI calls → circuit-breaker
-   - Read-heavy endpoints → cache
-   - Multi-tenant → auth middleware
+   Add based on profile: rate-limit, circuit-breaker, cache, auth middleware. **See `references/backend-patterns.md#5-middleware-pipeline`** for exact ordering.
 
 4. **Logger** — Structured logger with levels. No `console.log` in production code. The logger should emit request IDs so you can trace one user's path through the system.
 
@@ -155,8 +151,8 @@ This skill does NOT force a tech stack. Every Phase 1 tech decision is a deliber
 For **each** feature module, follow this exact sequence:
 
 1. **Design doc** — 10-20 lines: what does it do? What API endpoints? What data shapes?
-2. **Route / handler** — Validate inputs, handle errors at module boundaries
-3. **Service layer** — Business logic. **Inject cost tracking** if it calls an LLM or Embedding API.
+2. **Route / handler** — Validate inputs, handle errors at module boundaries. **See `references/backend-patterns.md#1-route--zod-validation-handler`** for the Express + Zod pattern.
+3. **Service layer** — Business logic. **Inject cost tracking** if it calls an LLM or Embedding API — **see `references/backend-patterns.md#3-cost-tracker`** for the EventEmitter + non-blocking write pattern.
 4. **Frontend** — UI component that consumes the API. **Only build UI for what the backend exposes.**
 5. **Manual test** — Hit the endpoint, verify response shape and error paths.
 6. **Commit** — Descriptive message: `type(feature): description`
@@ -165,11 +161,13 @@ For **each** feature module, follow this exact sequence:
 
 | Pattern | Key Techniques |
 |---------|---------------|
-| Chat / Completion | Streaming (SSE or WebSocket), abort/cancel, token counting |
-| RAG | Chunking → Embedding → Vector search → Prompt assembly → LLM answer |
+| Chat / Completion | Streaming (SSE or WebSocket), abort/cancel, token counting. **See `references/ai-patterns.md#3-sse-streaming`** |
+| RAG | Chunking → Embedding → Vector search → Prompt assembly → LLM answer. **See `references/ai-patterns.md#5-rag-pipeline`** + `references/db-patterns.md` |
 | Agent | StateGraph or equivalent node graph, checkpoint/resume, tool calling |
 | Code / Content Generation | Prompt builder chain, sandbox preview (iframe / web worker / Docker), iteration loop |
 | Classification / Tagging | Single LLM call with structured output (JSON schema enforced) |
+
+**All Prompt templates follow the 3-layer shape: system (stable) + context (RAG results) + user query. See `references/ai-patterns.md#4-prompt-template`.**
 
 ### Gate Check (per module)
 
@@ -186,25 +184,15 @@ For **each** feature module, follow this exact sequence:
 
 ### 4a. Cost & Usage Tracking
 
-Every LLM and Embedding call must be logged to a durable store:
-```
-feature (chat|rag|generator|…), model, prompt_tokens, completion_tokens, total_tokens, latency_ms, timestamp
-```
+Every LLM and Embedding call must be logged. **See `references/backend-patterns.md#3-cost-tracker`** for the full EventEmitter pattern + `ai_usage_logs` schema in `references/db-patterns.md`.
 
-- **Non-blocking**: Write asynchronously (EventEmitter, queue, fire-and-forget with try/catch). Never await usage logging in the hot path.
-- **Budget alerts**: Configurable threshold. At 80% of daily budget → warn. At 100% → emit a structured event the frontend can subscribe to.
-- **Query API**: At minimum, today's total, last 7 days by feature+model breakdown.
+- **Non-blocking**: Write asynchronously. Never await usage logging in the hot path.
+- **Budget alerts**: Configurable threshold via env var. 80% → warn. 100% → emit a frontend-consumable event.
+- **Query API**: At minimum, today's total + last 7 days by feature+model breakdown.
 
 ### 4b. Graceful Degradation
 
-Every external dependency that can fail must have a fallback story:
-
-| Dependency | Minimum Fallback |
-|------------|-----------------|
-| LLM API down | Retry with backoff, then show a clear "AI unavailable" state |
-| Embedding API down | Deterministic fake vectors (hash-based: same text → same vector, different text → random directions). RAG works but precision drops. |
-| Vector store down | Revert to keyword search or skip retrieval entirely |
-| DB down | If you use SQLite as primary: no fallback needed (it's local). If you use a remote DB: have a local cache or read-only replica plan. |
+**Embedding fallback (hash vectors) is the single most important fallback — see `references/ai-patterns.md#1-embedding-fallback`.** It's a zero-dependency, <1ms solution that keeps RAG working (with reduced precision) when the API is dead.
 
 ### 4c. Input Safety
 
@@ -319,3 +307,15 @@ Pick only what your project needs:
 | Multi-region / globally distributed | CockroachDB, Supabase |
 | Serverless | DynamoDB, PlanetScale, Upstash |
 | Document-shaped data | MongoDB (only if data is genuinely document-shaped) |
+
+---
+
+## References — Battle-Tested Patterns
+
+| File | What's In It |
+|------|-------------|
+| `references/backend-patterns.md` | Express + Zod routes, DB facade, cost tracker EventEmitter, structured logger, middleware pipeline, health check |
+| `references/ai-patterns.md` | Embedding hash fallback, cosine similarity, SSE stream (with usage from last chunk), 3-layer prompt template, RAG 4-step pipeline |
+| `references/db-patterns.md` | ai_usage_logs + RAG tables (both SQLite and PG), PG/SQLite 9 compatibility rules, multi-driver INSERT + date aggregation patterns |
+
+These are copy-paste starting points. Adapt variable names and error handling to your stack.
