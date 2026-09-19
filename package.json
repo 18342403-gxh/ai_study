@@ -26,7 +26,11 @@
     "lint-staged": "lint-staged"
   },
   "lint-staged": {
-    "*.{ts,tsx,vue,js,mjs}": [
+    "apps/**/*.{ts,tsx,vue}": [
+      "eslint --fix --max-warnings 9999",
+      "prettier --write"
+    ],
+    "packages/**/*.{ts,tsx,vue}": [
       "eslint --fix --max-warnings 9999",
       "prettier --write"
     ],
