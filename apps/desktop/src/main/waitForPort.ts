@@ -10,13 +10,10 @@ const DEFAULT_INTERVAL_MS = 500
 export interface WaitPortOptions {
   timeoutMs?: number
   intervalMs?: number
-  path?: string  // 健康检查路径，默认 /
+  path?: string // 健康检查路径，默认 /
 }
 
-export async function waitForPort(
-  url: string,
-  opts: WaitPortOptions = {},
-): Promise<void> {
+export async function waitForPort(url: string, opts: WaitPortOptions = {}): Promise<void> {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = DEFAULT_INTERVAL_MS, path = '/' } = opts
   const deadline = Date.now() + timeoutMs
   const fullUrl = url.replace(/\/$/, '') + path

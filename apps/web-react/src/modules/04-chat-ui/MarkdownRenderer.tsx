@@ -38,11 +38,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
             )
           }
           const language = className?.replace('language-', '') || ''
-          return (
-            <CodeBlock language={language}>
-              {String(children).replace(/\n$/, '')}
-            </CodeBlock>
-          )
+          return <CodeBlock language={language}>{String(children).replace(/\n$/, '')}</CodeBlock>
         },
         // 段落样式
         p({ children }) {
@@ -68,7 +64,12 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
         // 链接样式
         a({ href, children }) {
           return (
-            <a href={href} className="text-indigo-400 underline" target="_blank" rel="noopener noreferrer">
+            <a
+              href={href}
+              className="text-indigo-400 underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               {children}
             </a>
           )

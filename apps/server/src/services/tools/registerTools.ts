@@ -62,7 +62,7 @@ export function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
 export async function executeTool(
   toolName: string,
   rawArgs: Record<string, unknown>,
-  context?: ToolContext
+  context?: ToolContext,
 ): Promise<unknown> {
   const tool = getTool(toolName)
   if (!tool) throw new Error(`工具 ${toolName} 不存在`)
@@ -77,17 +77,19 @@ export async function executeTool(
   // 审计日志
   if (context?.sessionId) {
     const db = getDb()
-    await db.prepare(
-      `INSERT INTO tool_calls (id, session_id, tool_name, args_json, result_json, status, created_at)
-       VALUES (?, ?, ?, ?, ?, 'completed', ?)`
-    ).run(
-      randomUUID(),
-      context.sessionId,
-      toolName,
-      JSON.stringify(parsed.data),
-      JSON.stringify(result),
-      Date.now()
-    )
+    await db
+      .prepare(
+        `INSERT INTO tool_calls (id, session_id, tool_name, args_json, result_json, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'completed', ?)`,
+      )
+      .run(
+        randomUUID(),
+        context.sessionId,
+        toolName,
+        JSON.stringify(parsed.data),
+        JSON.stringify(result),
+        Date.now(),
+      )
   }
 
   return result
@@ -142,7 +144,7 @@ export const listSessionsTool: ToolDefinition = {
       .prepare(
         `SELECT s.*, COUNT(m.id) as message_count
          FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-         GROUP BY s.id ORDER BY s.updated_at DESC LIMIT ?`
+         GROUP BY s.id ORDER BY s.updated_at DESC LIMIT ?`,
       )
       .all(args.limit || 20)
     return { sessions }

@@ -29,7 +29,9 @@ const formatTime = (ts?: number) => {
               : 'bg-white card-shadow text-gray-800 rounded-bl-md',
         ]"
       >
-        <span v-if="role !== 'system'" class="text-sm leading-relaxed whitespace-pre-wrap">{{ content }}</span>
+        <span v-if="role !== 'system'" class="text-sm leading-relaxed whitespace-pre-wrap">{{
+          content
+        }}</span>
         <span v-else class="text-xs">{{ content }}</span>
 
         <span
@@ -37,7 +39,9 @@ const formatTime = (ts?: number) => {
           class="inline-block w-1.5 h-4 ml-0.5 bg-brand-500 animate-pulse rounded-full"
         />
       </div>
-      <span v-if="timestamp" class="text-[10px] text-gray-400 mt-1 px-1">{{ formatTime(timestamp) }}</span>
+      <span v-if="timestamp" class="text-[10px] text-gray-400 mt-1 px-1">{{
+        formatTime(timestamp)
+      }}</span>
     </div>
   </div>
 </template>

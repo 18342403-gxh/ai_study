@@ -35,7 +35,7 @@ export const createChatChain = (config: ModelConfig = {}) => {
   /** 流式调用 — 返回 AsyncGenerator，支持 for-await-of */
   async function* stream(
     request: ChatRequest,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal },
   ): AsyncGenerator<string> {
     for await (const delta of model.stream(request.messages, options)) {
       yield delta
@@ -45,20 +45,19 @@ export const createChatChain = (config: ModelConfig = {}) => {
   return { invoke, stream }
 }
 
-export function simpleChat(
-  prompt: string,
-  config?: ModelConfig
-): Promise<string> {
+export function simpleChat(prompt: string, config?: ModelConfig): Promise<string> {
   const chain = createChatChain(config)
-  return chain.invoke({
-    messages: [{ role: 'user', content: prompt }],
-  }).then((r) => r.content)
+  return chain
+    .invoke({
+      messages: [{ role: 'user', content: prompt }],
+    })
+    .then((r) => r.content)
 }
 
 export async function simpleChatStream(
   prompt: string,
   onChunk: (delta: string) => void,
-  config?: ModelConfig
+  config?: ModelConfig,
 ): Promise<string> {
   const chain = createChatChain(config)
   let fullContent = ''

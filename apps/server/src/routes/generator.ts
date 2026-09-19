@@ -11,7 +11,11 @@
 import { Router } from 'express'
 import { z } from 'zod'
 
-import { createGeneratorAgent, generatorInputSchema, generatorIterateSchema } from '../services/generator/agent.js'
+import {
+  createGeneratorAgent,
+  generatorInputSchema,
+  generatorIterateSchema,
+} from '../services/generator/agent.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { getDb } from '../db/index.js'
 import { logger } from '../services/logger.js'
@@ -59,7 +63,7 @@ router.post(
       res.write(`data: ${JSON.stringify({ type: 'error', message: (err as Error).message })}\n\n`)
     }
     res.end()
-  })
+  }),
 )
 
 /** POST /api/generator/iterate */
@@ -82,12 +86,15 @@ router.post(
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
       logger.info('generator.route', 'POST /iterate 完成', { stateId })
     } catch (err) {
-      logger.error('generator.route', 'POST /iterate 失败', { stateId, error: (err as Error).message })
+      logger.error('generator.route', 'POST /iterate 失败', {
+        stateId,
+        error: (err as Error).message,
+      })
       if (!res.headersSent) throw err
       res.write(`data: ${JSON.stringify({ type: 'error', message: (err as Error).message })}\n\n`)
     }
     res.end()
-  })
+  }),
 )
 
 /** GET /api/generator/state/:id */
@@ -98,7 +105,7 @@ router.get(
     const state = generator.getState(req.params.id)
     if (!state) throw createError('状态不存在', 404, 'STATE_NOT_FOUND')
     res.json(state)
-  })
+  }),
 )
 
 /** GET /api/generator/preview/:id — 返回自包含 HTML（iframe 预览组件） */
@@ -111,25 +118,29 @@ router.get(
 
     logger.info('generator.route', 'GET /preview/:id', { sessionId: id })
 
-    const session = await db
-      .prepare('SELECT id, artifact_type, framework FROM generator_sessions WHERE id = ? AND deleted_at IS NULL')
-      .get(id) as { id: string; artifact_type: string; framework: string | null } | undefined
+    const session = (await db
+      .prepare(
+        'SELECT id, artifact_type, framework FROM generator_sessions WHERE id = ? AND deleted_at IS NULL',
+      )
+      .get(id)) as { id: string; artifact_type: string; framework: string | null } | undefined
     if (!session) throw createError('生成记录不存在', 404, 'SESSION_NOT_FOUND')
-    if (session.artifact_type !== 'component') throw createError('只有 component 模式支持 iframe 预览', 400, 'NOT_COMPONENT')
+    if (session.artifact_type !== 'component')
+      throw createError('只有 component 模式支持 iframe 预览', 400, 'NOT_COMPONENT')
 
     // 取最新版本文件（按 is_current 优先，然后 iteration 倒序第一个）
-    const files = await db
+    const files = (await db
       .prepare(
         `SELECT file_path, content, language FROM generator_files
          WHERE session_id = ? AND is_current = true
-         ORDER BY iteration DESC, file_path ASC LIMIT 1`
+         ORDER BY iteration DESC, file_path ASC LIMIT 1`,
       )
-      .all(id) as Array<{ file_path: string; content: string; language: string }>
+      .all(id)) as Array<{ file_path: string; content: string; language: string }>
 
     if (!files?.length) throw createError('没有文件产出，无法预览', 400, 'NO_FILES')
 
     const code = files[0].content
-    const framework = (session.framework as 'vue' | 'react') || (files[0].language === 'vue' ? 'vue' : 'react')
+    const framework =
+      (session.framework as 'vue' | 'react') || (files[0].language === 'vue' ? 'vue' : 'react')
 
     const html = buildPreviewHtml(code, framework)
 
@@ -137,7 +148,7 @@ router.get(
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('X-Frame-Options', 'ALLOWALL')
     res.send(html)
-  })
+  }),
 )
 
 // ── History 列表 ──────────────────────────────────────────────
@@ -148,7 +159,11 @@ router.get(
   validate({ query: listQuerySchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const { type, limit, offset } = req.query as unknown as { type?: string; limit: number; offset: number }
+    const { type, limit, offset } = req.query as unknown as {
+      type?: string
+      limit: number
+      offset: number
+    }
 
     const realLimit = Number(limit) || 20
     const realOffset = Number(offset) || 0
@@ -161,12 +176,12 @@ router.get(
          FROM generator_sessions s
          WHERE s.deleted_at IS NULL${type ? ' AND s.artifact_type = ?' : ''}
          ORDER BY s.updated_at DESC
-         LIMIT ? OFFSET ?`
+         LIMIT ? OFFSET ?`,
       )
       .all(...(type ? [type, realLimit, realOffset] : [realLimit, realOffset]))
 
     res.json(sessions)
-  })
+  }),
 )
 
 /** GET /api/generator/sessions/:id — 详情（含文件版本） */
@@ -190,12 +205,12 @@ router.get(
         `SELECT id, iteration, file_path, content, language, is_current, created_at
          FROM generator_files
          WHERE session_id = ?
-         ORDER BY iteration ASC, file_path ASC`
+         ORDER BY iteration ASC, file_path ASC`,
       )
       .all(id)
 
     res.json({ ...(session as object), files })
-  })
+  }),
 )
 
 /** DELETE /api/generator/sessions/:id — 软删除 */
@@ -215,7 +230,7 @@ router.delete(
     if (result.changes === 0) throw createError('生成记录不存在', 404, 'SESSION_NOT_FOUND')
 
     res.status(204).end()
-  })
+  }),
 )
 
 export default router

@@ -31,7 +31,7 @@ interface UseConversationReturn {
 }
 
 const MAX_TOKENS = 4000 // Token 预算上限
-const MAX_ROUNDS = 10   // 最多保留最近 N 轮对话
+const MAX_ROUNDS = 10 // 最多保留最近 N 轮对话
 
 export const useConversation = (initialSystemPrompt: string): UseConversationReturn => {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -85,73 +85,79 @@ export const useConversation = (initialSystemPrompt: string): UseConversationRet
     setError('')
   }, [])
 
-  const send = useCallback(async (content: string) => {
-    controllerRef.current?.abort()
-    setError('')
-    setIsStreaming(true)
+  const send = useCallback(
+    async (content: string) => {
+      controllerRef.current?.abort()
+      setError('')
+      setIsStreaming(true)
 
-    // 📝 面试考点：新的 user 消息追加到数组
-    const userMessage: ChatMessage = { role: 'user', content, timestamp: Date.now() }
+      // 📝 面试考点：新的 user 消息追加到数组
+      const userMessage: ChatMessage = { role: 'user', content, timestamp: Date.now() }
 
-    setMessages((prev) => {
-      const updated = [...prev, userMessage]
-      return applyWindow(updated)
-    })
-
-    const controller = new AbortController()
-    controllerRef.current = controller
-
-    try {
-      // 构造发送给 API 的消息（应用滑动窗口后的）
-      const currentMessages = applyWindow([...messages, userMessage])
-      const apiMessages = currentMessages.map(({ role, content: c }) => ({ role, content: c }))
-
-      const response = await chatCompletionStream({
-        messages: apiMessages.map((m) => ({ role: m.role, content: m.content })),
-        signal: controller.signal,
+      setMessages((prev) => {
+        const updated = [...prev, userMessage]
+        return applyWindow(updated)
       })
 
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('无法获取响应流')
+      const controller = new AbortController()
+      controllerRef.current = controller
 
-      const decoder = new TextDecoder()
-      const parse = createSSEParser()
-      let assistantContent = ''
+      try {
+        // 构造发送给 API 的消息（应用滑动窗口后的）
+        const currentMessages = applyWindow([...messages, userMessage])
+        const apiMessages = currentMessages.map(({ role, content: c }) => ({ role, content: c }))
 
-      // 📝 面试考点：流式接收时实时更新 assistant 消息
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
+        const response = await chatCompletionStream({
+          messages: apiMessages.map((m) => ({ role: m.role, content: m.content })),
+          signal: controller.signal,
+        })
 
-        const text = decoder.decode(value, { stream: true })
-        const results = parse(text)
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error('无法获取响应流')
 
-        for (const result of results) {
-          if (result.done) break
-          if (result.content) {
-            assistantContent += result.content
-            // 实时更新最后一条 assistant 消息
-            setMessages((prev) => {
-              const last = prev[prev.length - 1]
-              if (last?.role === 'assistant') {
-                return [...prev.slice(0, -1), { ...last, content: assistantContent }]
-              }
-              return [...prev, { role: 'assistant', content: assistantContent, timestamp: Date.now() }]
-            })
+        const decoder = new TextDecoder()
+        const parse = createSSEParser()
+        let assistantContent = ''
+
+        // 📝 面试考点：流式接收时实时更新 assistant 消息
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+
+          const text = decoder.decode(value, { stream: true })
+          const results = parse(text)
+
+          for (const result of results) {
+            if (result.done) break
+            if (result.content) {
+              assistantContent += result.content
+              // 实时更新最后一条 assistant 消息
+              setMessages((prev) => {
+                const last = prev[prev.length - 1]
+                if (last?.role === 'assistant') {
+                  return [...prev.slice(0, -1), { ...last, content: assistantContent }]
+                }
+                return [
+                  ...prev,
+                  { role: 'assistant', content: assistantContent, timestamp: Date.now() },
+                ]
+              })
+            }
           }
         }
-      }
 
-      setIsStreaming(false)
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        // 用户中断，保留已有内容
-      } else {
-        setError(err instanceof Error ? err.message : '未知错误')
+        setIsStreaming(false)
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          // 用户中断，保留已有内容
+        } else {
+          setError(err instanceof Error ? err.message : '未知错误')
+        }
+        setIsStreaming(false)
       }
-      setIsStreaming(false)
-    }
-  }, [messages, applyWindow])
+    },
+    [messages, applyWindow],
+  )
 
   return { messages, isStreaming, error, tokenCount, send, stop, clear, setSystemPrompt }
 }

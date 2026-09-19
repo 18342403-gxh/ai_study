@@ -20,7 +20,7 @@ import type { ChatMessage } from '../../store/chatSlice'
 
 interface MessageListProps {
   messages: ChatMessage[]
-  isStreaming?: boolean  // 是否正在流式生成（用于触发滚动）
+  isStreaming?: boolean // 是否正在流式生成（用于触发滚动）
 }
 
 const MessageList: React.FC<MessageListProps> = ({ messages, isStreaming }) => {
@@ -51,7 +51,7 @@ const MessageList: React.FC<MessageListProps> = ({ messages, isStreaming }) => {
         // entry.isIntersecting 为 true = 底部哨兵可见 = 用户在底部
         isAtBottomRef.current = entry.isIntersecting
       },
-      { root: containerRef.current, threshold: 0.1 }
+      { root: containerRef.current, threshold: 0.1 },
     )
 
     observer.observe(bottomEl)
@@ -82,9 +82,7 @@ const MessageList: React.FC<MessageListProps> = ({ messages, isStreaming }) => {
           <p className="text-sm text-slate-500">发送消息开始对话</p>
         </div>
       ) : (
-        messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))
+        messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
       )}
       {/* 底部哨兵元素：IntersectionObserver 观察它来判断滚动位置 */}
       <div ref={bottomRef} className="h-1" />

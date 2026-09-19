@@ -66,15 +66,24 @@ const Streaming: React.FC = () => {
         {/* 状态标签 */}
         {status !== 'idle' && (
           <div className="mb-2 flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded ${
-              isStreaming ? 'bg-emerald-500/20 text-emerald-400' :
-              status === 'done' ? 'bg-indigo-500/20 text-indigo-400' :
-              status === 'aborted' ? 'bg-amber-500/20 text-amber-400' :
-              'bg-slate-700 text-slate-400'
-            }`}>
-              {isStreaming ? '● 生成中' :
-               status === 'done' ? '● 已完成' :
-               status === 'aborted' ? '● 已停止' : ''}
+            <span
+              className={`text-xs px-2 py-0.5 rounded ${
+                isStreaming
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : status === 'done'
+                    ? 'bg-indigo-500/20 text-indigo-400'
+                    : status === 'aborted'
+                      ? 'bg-amber-500/20 text-amber-400'
+                      : 'bg-slate-700 text-slate-400'
+              }`}
+            >
+              {isStreaming
+                ? '● 生成中'
+                : status === 'done'
+                  ? '● 已完成'
+                  : status === 'aborted'
+                    ? '● 已停止'
+                    : ''}
             </span>
           </div>
         )}

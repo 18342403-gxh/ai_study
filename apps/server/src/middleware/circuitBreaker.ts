@@ -34,12 +34,12 @@ const AI_ROUTE_PATHS = [
   /^\/api\/kb\/query$/,
 ]
 
-const FAILURE_THRESHOLD = 3          // 连续失败几次触发开路
-const OPEN_DURATION_MS = 30_000      // 开路多久后进入半开
-const HALF_OPEN_TIMEOUT_MS = 10_000  // 半开探测请求超时时间
+const FAILURE_THRESHOLD = 3 // 连续失败几次触发开路
+const OPEN_DURATION_MS = 30_000 // 开路多久后进入半开
+const HALF_OPEN_TIMEOUT_MS = 10_000 // 半开探测请求超时时间
 
 function isAiRoute(path: string): boolean {
-  return AI_ROUTE_PATHS.some(p => p.test(path))
+  return AI_ROUTE_PATHS.some((p) => p.test(path))
 }
 
 function getOrCreateCircuit(key: string): CircuitStats {
@@ -95,7 +95,10 @@ export function circuitBreaker(req: Request, res: Response, next: NextFunction) 
     } else {
       // 还在开路期 — 快速失败
       res.setHeader('X-Circuit-State', 'OPEN')
-      res.setHeader('Retry-After', String(Math.ceil((circuit.openedAt + OPEN_DURATION_MS - now) / 1000)))
+      res.setHeader(
+        'Retry-After',
+        String(Math.ceil((circuit.openedAt + OPEN_DURATION_MS - now) / 1000)),
+      )
       res.status(503).json({
         error: {
           message: 'AI 上游暂时不可用（熔断器已开路），请稍后重试',

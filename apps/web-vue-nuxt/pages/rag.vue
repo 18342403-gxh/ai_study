@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { FileText, Search, FolderOpen, Link, RotateCcw, Trash2, BookOpen, Lightbulb, MessageCircle, Inbox } from 'lucide-vue-next'
+
 const {
   documents,
   isLoading,
@@ -44,7 +46,7 @@ const handleUrlImport = async () => {
 const formatSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 * 1024).toFixed(1)} MB`
+  return `${((bytes / 1024) * 1024).toFixed(1)} MB`
 }
 
 const formatDate = (timestamp: number): string => {
@@ -58,10 +60,14 @@ const formatDate = (timestamp: number): string => {
 
 const getStatusClass = (status: string): string => {
   switch (status) {
-    case 'ready': return 'bg-emerald-50 text-emerald-600 border-emerald-200'
-    case 'processing': return 'bg-amber-50 text-amber-600 border-amber-200'
-    case 'error': return 'bg-red-50 text-red-600 border-red-200'
-    default: return 'bg-slate-50 text-slate-600 border-slate-200'
+    case 'ready':
+      return 'bg-emerald-50 text-emerald-600 border-emerald-200'
+    case 'processing':
+      return 'bg-amber-50 text-amber-600 border-amber-200'
+    case 'error':
+      return 'bg-red-50 text-red-600 border-red-200'
+    default:
+      return 'bg-slate-50 text-slate-600 border-slate-200'
   }
 }
 
@@ -90,7 +96,13 @@ const handleFileChange = (e: Event) => {
 }
 
 const handleUpload = async (file: File) => {
-  const allowedTypes = ['text/plain', 'text/markdown', 'application/pdf', 'application/json', 'text/csv']
+  const allowedTypes = [
+    'text/plain',
+    'text/markdown',
+    'application/pdf',
+    'application/json',
+    'text/csv',
+  ]
   const maxSize = 10 * 1024 * 1024
 
   if (file.size > maxSize) {
@@ -122,7 +134,7 @@ const handleQuery = async () => {
     queryInput.value,
     selectedDocIds.value.length > 0 ? selectedDocIds.value : undefined,
     topK.value,
-    abortController.signal
+    abortController.signal,
   )
 
   isQuerying.value = false
@@ -153,18 +165,26 @@ onMounted(() => {
       <div class="flex gap-2 mb-6">
         <button
           class="px-4 py-2 rounded-lg text-sm font-medium transition-all"
-          :class="activeTab === 'documents'
-            ? 'bg-brand-500 text-white shadow-sm'
-            : 'bg-white text-slate-600 border border-slate-200 hover:border-brand-300'"
+          :class="
+            activeTab === 'documents'
+              ? 'bg-brand-500 text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:border-brand-300'
+          "
           @click="activeTab = 'documents'"
-        >📄 文档管理</button>
+        >
+          <FileText class="w-4 h-4 inline-block -mt-0.5 mr-1" /> 文档管理
+        </button>
         <button
           class="px-4 py-2 rounded-lg text-sm font-medium transition-all"
-          :class="activeTab === 'query'
-            ? 'bg-brand-500 text-white shadow-sm'
-            : 'bg-white text-slate-600 border border-slate-200 hover:border-brand-300'"
+          :class="
+            activeTab === 'query'
+              ? 'bg-brand-500 text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:border-brand-300'
+          "
           @click="activeTab = 'query'"
-        >🔍 RAG 查询</button>
+        >
+          <Search class="w-4 h-4 inline-block -mt-0.5 mr-1" /> RAG 查询
+        </button>
       </div>
 
       <div v-if="activeTab === 'documents'">
@@ -172,28 +192,44 @@ onMounted(() => {
         <div class="flex items-center gap-1 mb-3 bg-slate-100 rounded-lg p-1 w-fit">
           <button
             class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors"
-            :class="urlTab === 'file' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            :class="
+              urlTab === 'file'
+                ? 'bg-white text-brand-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
             @click="urlTab = 'file'"
-          >📁 文件上传</button>
+          >
+            <FolderOpen class="w-3.5 h-3.5 inline-block -mt-0.5 mr-1" /> 文件上传
+          </button>
           <button
             class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors"
-            :class="urlTab === 'url' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            :class="
+              urlTab === 'url'
+                ? 'bg-white text-brand-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
             @click="urlTab = 'url'"
-          >🔗 URL 导入</button>
+          >
+            <Link class="w-3.5 h-3.5 inline-block -mt-0.5 mr-1" /> URL 导入
+          </button>
         </div>
 
         <!-- 文件上传区 -->
         <div
           v-if="urlTab === 'file'"
           class="border-2 border-dashed rounded-2xl p-8 mb-6 text-center transition-all"
-          :class="isDragging ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-300'"
+          :class="
+            isDragging ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-300'
+          "
           @dragover.prevent="isDragging = true"
           @dragleave="isDragging = false"
           @drop.prevent="onDrop"
         >
           <div class="mb-4">
-            <div class="w-16 h-16 mx-auto bg-brand-100 rounded-2xl flex items-center justify-center text-3xl mb-4">
-              📁
+            <div
+              class="w-16 h-16 mx-auto bg-brand-100 rounded-2xl flex items-center justify-center mb-4"
+            >
+              <FolderOpen class="w-8 h-8 text-brand-500" />
             </div>
             <h3 class="text-lg font-semibold text-slate-800 mb-1">拖拽文件到此处上传</h3>
             <p class="text-sm text-slate-500">支持 .txt, .md, .json, .csv, .pdf 文件，最大 10MB</p>
@@ -226,15 +262,18 @@ onMounted(() => {
         </div>
 
         <!-- URL 导入区 -->
-        <div
-          v-else
-          class="border-2 border-slate-200 rounded-2xl p-6 mb-6 bg-white"
-        >
+        <div v-else class="border-2 border-slate-200 rounded-2xl p-6 mb-6 bg-white">
           <div class="flex items-start gap-4">
-            <div class="w-12 h-12 rounded-xl bg-brand-100 flex items-center justify-center text-2xl flex-shrink-0">🔗</div>
+            <div
+              class="w-12 h-12 rounded-xl bg-brand-100 flex items-center justify-center flex-shrink-0"
+            >
+              <Link class="w-6 h-6 text-brand-500" />
+            </div>
             <div class="flex-1 min-w-0">
               <h3 class="text-base font-semibold text-slate-800 mb-1">导入网页内容</h3>
-              <p class="text-xs text-slate-500 mb-4">输入网页 URL，系统会自动抓取并提取文本灌入知识库。仅支持 http/https。</p>
+              <p class="text-xs text-slate-500 mb-4">
+                输入网页 URL，系统会自动抓取并提取文本灌入知识库。仅支持 http/https。
+              </p>
 
               <div class="space-y-3">
                 <input
@@ -274,15 +313,20 @@ onMounted(() => {
             <button
               class="text-sm text-brand-500 hover:text-brand-600 transition-colors"
               @click="loadDocs"
-            >🔄 刷新</button>
+            >
+              <RotateCcw class="w-3.5 h-3.5 inline-block -mt-0.5 mr-1" /> 刷新
+            </button>
           </div>
 
-          <div v-if="isLoading && documents.length === 0" class="py-12 flex items-center justify-center text-slate-400">
+          <div
+            v-if="isLoading && documents.length === 0"
+            class="py-12 flex items-center justify-center text-slate-400"
+          >
             <span>加载中...</span>
           </div>
 
           <div v-else-if="documents.length === 0" class="py-12 text-center text-slate-400">
-            <div class="text-4xl mb-3">📭</div>
+            <Inbox class="w-12 h-12 mx-auto mb-3 text-slate-300" />
             <p>暂无文档，上传文件开始构建知识库</p>
           </div>
 
@@ -292,8 +336,10 @@ onMounted(() => {
               :key="doc.id"
               class="px-6 py-4 flex items-center gap-4 hover:bg-slate-50 transition-colors"
             >
-              <div class="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center text-lg shrink-0">
-                📄
+              <div
+                class="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center shrink-0"
+              >
+                <FileText class="w-5 h-5 text-brand-500" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
@@ -301,10 +347,12 @@ onMounted(() => {
                   <span
                     class="px-2 py-0.5 text-xs rounded-full border"
                     :class="getStatusClass(doc.status)"
-                  >{{ doc.status }}</span>
+                    >{{ doc.status }}</span
+                  >
                 </div>
                 <div class="text-xs text-slate-400 mt-0.5">
-                  {{ formatSize(doc.size) }} · {{ doc.chunk_count }} 个分块 · {{ formatDate(doc.updated_at) }}
+                  {{ formatSize(doc.size) }} · {{ doc.chunk_count }} 个分块 ·
+                  {{ formatDate(doc.updated_at) }}
                 </div>
               </div>
               <label class="flex items-center gap-1.5 cursor-pointer">
@@ -321,7 +369,7 @@ onMounted(() => {
                 :disabled="isDeleting"
                 @click="handleDelete(doc.id)"
               >
-                🗑️
+                <Trash2 class="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -362,20 +410,29 @@ onMounted(() => {
               :disabled="!queryInput.trim() || isQuerying"
               @click="handleQuery"
             >
-              {{ isQuerying ? '查询中...' : '🔍 查询' }}
+              {{ isQuerying ? '查询中...' : '查询' }}
+              <Search class="w-3.5 h-3.5 inline-block -mt-0.5 ml-1" />
             </button>
           </div>
         </div>
 
-        <div v-if="error" class="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 mb-6">
+        <div
+          v-if="error"
+          class="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 mb-6"
+        >
           {{ error }}
         </div>
 
-        <div v-if="streamingSources.length > 0 || (lastResult && lastResult.sources.length > 0)" class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-          <h3 class="text-sm font-semibold text-slate-800 mb-3">📚 参考来源</h3>
+        <div
+          v-if="streamingSources.length > 0 || (lastResult && lastResult.sources.length > 0)"
+          class="bg-white rounded-2xl border border-slate-200 p-6 mb-6"
+        >
+          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5"><BookOpen class="w-4 h-4 text-brand-500" /> 参考来源</h3>
           <div class="space-y-2">
             <div
-              v-for="(source, idx) in (streamingSources.length > 0 ? streamingSources : lastResult?.sources)"
+              v-for="(source, idx) in streamingSources.length > 0
+                ? streamingSources
+                : lastResult?.sources"
               :key="idx"
               class="p-3 bg-slate-50 rounded-lg text-sm"
             >
@@ -388,16 +445,25 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="streamingAnswer || lastResult" class="bg-white rounded-2xl border border-slate-200 p-6">
-          <h3 class="text-sm font-semibold text-slate-800 mb-3">💡 AI 回答</h3>
+        <div
+          v-if="streamingAnswer || lastResult"
+          class="bg-white rounded-2xl border border-slate-200 p-6"
+        >
+          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5"><Lightbulb class="w-4 h-4 text-amber-500" /> AI 回答</h3>
           <div class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
             {{ streamingAnswer || lastResult?.answer }}
-            <span v-if="isQuerying" class="inline-block w-0.5 h-4 bg-brand-500 animate-pulse ml-0.5"></span>
+            <span
+              v-if="isQuerying"
+              class="inline-block w-0.5 h-4 bg-brand-500 animate-pulse ml-0.5"
+            ></span>
           </div>
         </div>
 
-        <div v-if="!streamingAnswer && !lastResult && !isQuerying" class="text-center text-slate-400 py-8">
-          <div class="text-4xl mb-3">💬</div>
+        <div
+          v-if="!streamingAnswer && !lastResult && !isQuerying"
+          class="text-center text-slate-400 py-8"
+        >
+          <MessageCircle class="w-10 h-10 mx-auto mb-3 text-slate-300" />
           <p>输入问题，开始 RAG 查询</p>
         </div>
       </div>

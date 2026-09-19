@@ -143,7 +143,8 @@ function createWindow() {
 
 // ── Electron 生命周期 ──────────────────────────────────
 
-app.whenReady()
+app
+  .whenReady()
   .then(async () => {
     try {
       await startEmbeddedServices()

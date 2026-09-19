@@ -1,5 +1,11 @@
 import { Link, useLocation } from 'react-router-dom'
-import { AppOutline, GlobalOutline, MessageOutline, SetOutline, AppstoreOutline } from 'antd-mobile-icons'
+import {
+  AppOutline,
+  GlobalOutline,
+  MessageOutline,
+  SetOutline,
+  AppstoreOutline,
+} from 'antd-mobile-icons'
 
 interface TabItem {
   path: string
@@ -23,9 +29,7 @@ const TabBar: React.FC = () => {
       <div className="flex items-center justify-around h-full">
         {tabs.map((tab) => {
           const isActive =
-            tab.path === '/'
-              ? location.pathname === '/'
-              : location.pathname.startsWith(tab.path)
+            tab.path === '/' ? location.pathname === '/' : location.pathname.startsWith(tab.path)
 
           return (
             <Link

@@ -46,9 +46,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ language, children }) => {
         </button>
       </div>
       <pre className="p-3 overflow-x-auto text-xs leading-relaxed">
-        <code className={`language-${language} text-slate-200`}>
-          {children}
-        </code>
+        <code className={`language-${language} text-slate-200`}>{children}</code>
       </pre>
     </div>
   )

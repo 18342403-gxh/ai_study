@@ -17,10 +17,10 @@ export type AgentStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed'
 export interface AgentStep {
   id: string
   type: StepType
-  content: string          // 思考内容 / 工具名 / 工具结果 / 最终回答
-  toolName?: string        // tool_call 时的工具名
-  toolArgs?: string        // tool_call 时的参数 JSON
-  isError?: boolean        // 步骤是否执行失败
-  timestamp: number        // 步骤开始时间
-  duration?: number        // 步骤耗时（毫秒）
+  content: string // 思考内容 / 工具名 / 工具结果 / 最终回答
+  toolName?: string // tool_call 时的工具名
+  toolArgs?: string // tool_call 时的参数 JSON
+  isError?: boolean // 步骤是否执行失败
+  timestamp: number // 步骤开始时间
+  duration?: number // 步骤耗时（毫秒）
 }

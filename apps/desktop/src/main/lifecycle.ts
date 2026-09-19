@@ -48,7 +48,11 @@ function killProcess(proc: ChildProcess, tag: string): Promise<void> {
     setTimeout(() => {
       if (!proc.killed) {
         console.log(`${tag} SIGTERM 后未退出，强制 SIGKILL`)
-        try { proc.kill('SIGKILL') } catch { /* ignore */ }
+        try {
+          proc.kill('SIGKILL')
+        } catch {
+          /* ignore */
+        }
       }
     }, 2000)
 

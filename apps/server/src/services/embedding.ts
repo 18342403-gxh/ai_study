@@ -16,7 +16,7 @@ import { logger } from './logger.js'
 import { costTracker } from './costTracker.js'
 import crypto from 'node:crypto'
 
-const EMBEDDING_DIM = 1536  // 和智谱 embedding-3 一致
+const EMBEDDING_DIM = 1536 // 和智谱 embedding-3 一致
 
 function getEnv() {
   return {
@@ -115,7 +115,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({ model, input: text }),
     })
@@ -159,7 +159,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
         error: (err as Error).message,
         hint: '充值 API Key 或设 ENABLE_MOCK_EMBEDDING=1 强制 mock',
       })
-      mockModeActivated = true  // 只打一次 warn
+      mockModeActivated = true // 只打一次 warn
     }
 
     const costMs = Date.now() - start

@@ -65,7 +65,7 @@ export interface EvalSummary {
  */
 export async function runEvalCases(
   cases: EvalCase[],
-  threadIdPrefix = 'eval'
+  threadIdPrefix = 'eval',
 ): Promise<EvalSummary> {
   const executor = createAgentExecutor()
   const summaryStart = Date.now()
@@ -112,10 +112,14 @@ export async function runEvalCases(
     results.push(result)
 
     // 实时打印（harness 评测专用，DEBUG 级别避免污染生产 INFO）
-    logger.debug('harness.eval', `${result.passed ? '✅' : '❌'} [${tc.id}] ${tc.input.slice(0, 30)}${tc.input.length > 30 ? '…' : ''} — ${result.details}`, { caseId: tc.id, passed: result.passed })
+    logger.debug(
+      'harness.eval',
+      `${result.passed ? '✅' : '❌'} [${tc.id}] ${tc.input.slice(0, 30)}${tc.input.length > 30 ? '…' : ''} — ${result.details}`,
+      { caseId: tc.id, passed: result.passed },
+    )
   }
 
-  const passed = results.filter(r => r.passed).length
+  const passed = results.filter((r) => r.passed).length
   return {
     total: cases.length,
     passed,
@@ -137,7 +141,7 @@ function evaluateOne(
     answer: string
     finalStatus: AgentState['status']
     durationMs: number
-  }
+  },
 ): EvalResult {
   const failures: string[] = []
   const a = tc.assert
@@ -154,10 +158,10 @@ function evaluateOne(
 
   // expectBlock
   if (a.expectBlock) {
-    const blocked = ctx.harnessEvents.some(h => h.result === 'block')
+    const blocked = ctx.harnessEvents.some((h) => h.result === 'block')
     if (!blocked) failures.push(`期望被 harness 拦截，实际未拦截`)
     if (a.blockBy) {
-      const by = ctx.harnessEvents.find(h => h.name === a.blockBy && h.result === 'block')
+      const by = ctx.harnessEvents.find((h) => h.name === a.blockBy && h.result === 'block')
       if (!by) failures.push(`期望由 ${a.blockBy} 拦截`)
     }
   }

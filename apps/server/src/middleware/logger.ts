@@ -9,7 +9,13 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Request, Response, NextFunction } from 'express'
-import { logger, withRequestId, getLogs as getLoggerLogs, subscribeLogs as subscribeLoggerLogs, type LogLevel } from '../services/logger.js'
+import {
+  logger,
+  withRequestId,
+  getLogs as getLoggerLogs,
+  subscribeLogs as subscribeLoggerLogs,
+  type LogLevel,
+} from '../services/logger.js'
 
 declare global {
   namespace Express {
@@ -33,10 +39,16 @@ export interface LogEntry {
 
 export function getLogs(filter?: { level?: LogLevel; limit?: number }): LogEntry[] {
   // 从通用日志中筛选 http 请求记录
-  const all = getLoggerLogs({ level: filter?.level, limit: filter?.limit ? filter.limit * 5 : undefined })
+  const all = getLoggerLogs({
+    level: filter?.level,
+    limit: filter?.limit ? filter.limit * 5 : undefined,
+  })
   return all
-    .filter(r => r.tag === 'http' && r.data && typeof r.data === 'object' && 'method' in (r.data as object))
-    .map(r => {
+    .filter(
+      (r) =>
+        r.tag === 'http' && r.data && typeof r.data === 'object' && 'method' in (r.data as object),
+    )
+    .map((r) => {
       const d = r.data as Record<string, unknown>
       return {
         id: r.id,
@@ -52,8 +64,13 @@ export function getLogs(filter?: { level?: LogLevel; limit?: number }): LogEntry
 }
 
 export function subscribeLogs(fn: (entry: LogEntry) => void): () => void {
-  return subscribeLoggerLogs(rec => {
-    if (rec.tag === 'http' && rec.data && typeof rec.data === 'object' && 'method' in (rec.data as object)) {
+  return subscribeLoggerLogs((rec) => {
+    if (
+      rec.tag === 'http' &&
+      rec.data &&
+      typeof rec.data === 'object' &&
+      'method' in (rec.data as object)
+    ) {
       const d = rec.data as Record<string, unknown>
       fn({
         id: rec.id,

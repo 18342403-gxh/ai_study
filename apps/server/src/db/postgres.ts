@@ -24,9 +24,9 @@ let db: ReturnType<typeof drizzle<typeof schema>> | null = null
 export const getPg = () => {
   if (!db) {
     client = postgres(DATABASE_URL, {
-      max: 10,              // 连接池大小
-      idle_timeout: 30,     // 空闲连接超时（秒）
-      connect_timeout: 10,  // 连接超时（秒）
+      max: 10, // 连接池大小
+      idle_timeout: 30, // 空闲连接超时（秒）
+      connect_timeout: 10, // 连接超时（秒）
     })
     db = drizzle(client, { schema })
   }

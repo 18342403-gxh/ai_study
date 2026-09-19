@@ -26,9 +26,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
 
 const DocumentList: React.FC<DocumentListProps> = ({ documents, onDelete }) => {
   if (documents.length === 0) {
-    return (
-      <p className="text-xs text-slate-500 text-center py-4">暂无文档，请上传文件</p>
-    )
+    return <p className="text-xs text-slate-500 text-center py-4">暂无文档，请上传文件</p>
   }
 
   return (
@@ -38,9 +36,11 @@ const DocumentList: React.FC<DocumentListProps> = ({ documents, onDelete }) => {
         return (
           <div key={doc.id} className="glass-card rounded-lg p-3 flex items-center gap-3">
             {/* 状态图标 */}
-            <CheckCircleFill className={`shrink-0 ${
-              doc.status === 'ready' ? 'text-emerald-400' : 'text-slate-500'
-            }`} />
+            <CheckCircleFill
+              className={`shrink-0 ${
+                doc.status === 'ready' ? 'text-emerald-400' : 'text-slate-500'
+              }`}
+            />
 
             {/* 文档信息 */}
             <div className="flex-1 min-w-0">
@@ -49,9 +49,7 @@ const DocumentList: React.FC<DocumentListProps> = ({ documents, onDelete }) => {
                 <span className={`text-xs px-1.5 py-0.5 rounded ${statusInfo.className}`}>
                   {statusInfo.label}
                 </span>
-                <span className="text-xs text-slate-500">
-                  {doc.chunks.length} 个分块
-                </span>
+                <span className="text-xs text-slate-500">{doc.chunks.length} 个分块</span>
               </div>
             </div>
 

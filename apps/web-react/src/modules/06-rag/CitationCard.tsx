@@ -24,15 +24,11 @@ const CitationCard: React.FC<CitationCardProps> = ({ citation }) => {
           </span>
           <span className="text-xs text-slate-400">{citation.source}</span>
         </div>
-        <span className="text-xs text-slate-500">
-          相关度 {Math.round(citation.score * 100)}%
-        </span>
+        <span className="text-xs text-slate-500">相关度 {Math.round(citation.score * 100)}%</span>
       </div>
 
       {/* 原文内容（截取前 200 字） */}
-      <p className="text-xs text-slate-300 leading-relaxed line-clamp-4">
-        {citation.content}
-      </p>
+      <p className="text-xs text-slate-300 leading-relaxed line-clamp-4">{citation.content}</p>
     </div>
   )
 }

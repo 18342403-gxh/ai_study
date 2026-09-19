@@ -24,30 +24,26 @@ export interface SplitOptions {
 
 /** 中文友好的分隔符优先级 */
 const DEFAULT_SEPARATORS = [
-  '\n\n',  // 段落
-  '\n',    // 换行
-  '。',    // 中文句号
-  '！',    // 中文感叹号
-  '？',    // 中文问号
-  '；',    // 中文分号
-  '，',    // 中文逗号（降级）
-  '. ',    // 英文句号空格
-  '! ',    // 英文感叹号
-  '? ',    // 英文问号
-  '; ',    // 英文分号
-  ', ',    // 英文逗号（降级）
-  '',      // 字符级兜底
+  '\n\n', // 段落
+  '\n', // 换行
+  '。', // 中文句号
+  '！', // 中文感叹号
+  '？', // 中文问号
+  '；', // 中文分号
+  '，', // 中文逗号（降级）
+  '. ', // 英文句号空格
+  '! ', // 英文感叹号
+  '? ', // 英文问号
+  '; ', // 英文分号
+  ', ', // 英文逗号（降级）
+  '', // 字符级兜底
 ]
 
 /**
  * 使用 LangChain RecursiveCharacterTextSplitter 分块
  */
 export function createSplitter(options: SplitOptions = {}) {
-  const {
-    chunkSize = 500,
-    chunkOverlap = 50,
-    separators = DEFAULT_SEPARATORS,
-  } = options
+  const { chunkSize = 500, chunkOverlap = 50, separators = DEFAULT_SEPARATORS } = options
 
   const splitter = new RecursiveCharacterTextSplitter({
     chunkSize,
@@ -73,7 +69,10 @@ export function createSplitter(options: SplitOptions = {}) {
     },
 
     /** 分割 LoadedDocument */
-    async splitDocument(doc: { content: string; metadata: Record<string, unknown> }): Promise<TextChunk[]> {
+    async splitDocument(doc: {
+      content: string
+      metadata: Record<string, unknown>
+    }): Promise<TextChunk[]> {
       return this.splitText(doc.content, doc.metadata)
     },
   }

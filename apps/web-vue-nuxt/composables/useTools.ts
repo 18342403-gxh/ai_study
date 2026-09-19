@@ -1,9 +1,9 @@
 /**
  * useTools — 工具调用 Composable
- * 
+ *
  * 连接 BFF /api/tools 接口
  * 支持工具列表查询和工具执行
- * 
+ *
  * 服务端格式：
  *   GET /api/tools/list → { tools: [{ name, description, schema }], count }
  *   POST /api/tools/execute → { toolName, result }
@@ -40,7 +40,7 @@ export function useTools() {
 
   const executeTool = async (
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<ToolExecuteResult | null> => {
     isExecuting.value = true
     error.value = null
@@ -54,7 +54,7 @@ export function useTools() {
         const errText = await res.text()
         throw new Error(errText || `工具执行失败: ${res.status}`)
       }
-      const result = await res.json() as ToolExecuteResult
+      const result = (await res.json()) as ToolExecuteResult
       lastResult.value = result
       return result
     } catch (err) {

@@ -52,7 +52,7 @@ export interface ToolCall {
   id: string
   function: {
     name: string
-    arguments: string  // JSON 字符串
+    arguments: string // JSON 字符串
   }
 }
 

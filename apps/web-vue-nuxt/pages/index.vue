@@ -35,6 +35,7 @@ import ChatBubble from '~/components/ChatBubble.vue'
 import ChatInput from '~/components/ChatInput.vue'
 import CodePreview from '~/components/CodePreview.vue'
 import TeachingPanel from '~/components/TeachingPanel.vue'
+import { Palette, FileText, BookOpen, Monitor, Microscope } from 'lucide-vue-next'
 
 const chat = useChat()
 const {
@@ -73,10 +74,26 @@ onMounted(() => {
 })
 
 const suggestions = [
-  { title: '搜索框组件', desc: '带防抖的输入框，支持下拉建议', prompt: '生成一个搜索框组件，支持输入防抖、下拉建议列表和清除按钮' },
-  { title: '商品卡片', desc: '带图片、价格、标签的商品卡片', prompt: '生成一个商品卡片组件，包含商品图片、名称、价格、标签和加入购物车按钮' },
-  { title: '数据表格', desc: '支持排序、分页的数据表格', prompt: '生成一个数据表格组件，支持列排序、分页、行选择和空状态' },
-  { title: '登录表单', desc: '用户名密码登录，带校验', prompt: '生成一个登录表单组件，包含用户名、密码、验证码和表单校验' },
+  {
+    title: '搜索框组件',
+    desc: '带防抖的输入框，支持下拉建议',
+    prompt: '生成一个搜索框组件，支持输入防抖、下拉建议列表和清除按钮',
+  },
+  {
+    title: '商品卡片',
+    desc: '带图片、价格、标签的商品卡片',
+    prompt: '生成一个商品卡片组件，包含商品图片、名称、价格、标签和加入购物车按钮',
+  },
+  {
+    title: '数据表格',
+    desc: '支持排序、分页的数据表格',
+    prompt: '生成一个数据表格组件，支持列排序、分页、行选择和空状态',
+  },
+  {
+    title: '登录表单',
+    desc: '用户名密码登录，带校验',
+    prompt: '生成一个登录表单组件，包含用户名、密码、验证码和表单校验',
+  },
 ]
 </script>
 
@@ -85,10 +102,16 @@ const suggestions = [
     <!-- 中间：对话主区域 -->
     <div class="flex-1 flex flex-col overflow-hidden min-w-0">
       <!-- 顶部工具栏 -->
-      <header class="flex items-center justify-between px-6 h-14 bg-white border-b border-slate-200 shrink-0">
+      <header
+        class="flex items-center justify-between px-6 h-14 bg-white border-b border-slate-200 shrink-0"
+      >
         <div class="flex items-center gap-3">
-          <h1 class="text-base font-semibold text-slate-800 truncate max-w-[240px]">{{ activeSessionTitle }}</h1>
-          <span class="px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 text-[11px] font-medium">对话模式</span>
+          <h1 class="text-base font-semibold text-slate-800 truncate max-w-[240px]">
+            {{ activeSessionTitle }}
+          </h1>
+          <span class="px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 text-[11px] font-medium"
+            >对话模式</span
+          >
         </div>
         <div class="flex items-center gap-2">
           <button
@@ -96,8 +119,16 @@ const suggestions = [
             class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors flex items-center gap-1.5"
             @click="clearCurrentSession"
           >
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+            <svg
+              class="w-3.5 h-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"
+              />
             </svg>
             清空
           </button>
@@ -105,7 +136,13 @@ const suggestions = [
             class="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-medium hover:shadow-md transition-all active:scale-[0.98] flex items-center gap-1.5"
             @click="createNewSession"
           >
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <svg
+              class="w-3.5 h-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
               <path d="M12 5v14M5 12h14" />
             </svg>
             新对话
@@ -116,8 +153,10 @@ const suggestions = [
       <!-- 消息区域 -->
       <main class="flex-1 overflow-y-auto px-6 py-6 no-scrollbar">
         <div v-if="!hasMessages" class="flex flex-col items-center justify-center h-full">
-          <div class="w-24 h-24 rounded-3xl bg-gradient-primary flex items-center justify-center text-5xl mb-6 shadow-lg shadow-brand-200">
-            🎨
+          <div
+            class="w-24 h-24 rounded-3xl bg-gradient-primary flex items-center justify-center mb-6 shadow-lg shadow-brand-200"
+          >
+            <Palette class="w-12 h-12 text-white" />
           </div>
           <h2 class="text-2xl font-bold text-slate-800 mb-2">AI 组件生成器</h2>
           <p class="text-sm text-slate-500 mb-8 max-w-md text-center leading-relaxed">
@@ -130,7 +169,11 @@ const suggestions = [
               class="p-4 rounded-2xl bg-white border border-slate-200 hover:border-brand-300 hover:shadow-md transition-all cursor-pointer group"
               @click="handleSend(suggestion.prompt)"
             >
-              <p class="text-sm font-medium text-slate-800 mb-1 group-hover:text-brand-600 transition-colors">{{ suggestion.title }}</p>
+              <p
+                class="text-sm font-medium text-slate-800 mb-1 group-hover:text-brand-600 transition-colors"
+              >
+                {{ suggestion.title }}
+              </p>
               <p class="text-xs text-slate-400">{{ suggestion.desc }}</p>
             </div>
           </div>
@@ -143,14 +186,16 @@ const suggestions = [
               :content="msg.content"
               :role="msg.role"
               :timestamp="msg.timestamp"
-              :is-streaming="isLoading && idx === currentMessages.length - 1 && msg.role === 'assistant'"
+              :is-streaming="
+                isLoading && idx === currentMessages.length - 1 && msg.role === 'assistant'
+              "
             />
             <button
               v-if="msg.role === 'assistant' && msg.content.includes('```')"
               class="chip bg-brand-50 text-brand-600 mt-2 active:bg-brand-100 transition-colors"
               @click="openCodePreview(msg.content)"
             >
-              📄 查看生成的代码
+              <FileText class="w-3.5 h-3.5 inline-block -mt-0.5 mr-1" /> 查看生成的代码
             </button>
           </template>
         </div>
@@ -174,14 +219,26 @@ const suggestions = [
       <div class="flex border-b border-slate-200 shrink-0">
         <button
           class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
-          :class="rightPanel === 'teaching' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-slate-500 hover:text-slate-700'"
+          :class="
+            rightPanel === 'teaching'
+              ? 'text-brand-600 border-b-2 border-brand-500'
+              : 'text-slate-500 hover:text-slate-700'
+          "
           @click="rightPanel = 'teaching'"
-        >📖 技术拆解</button>
+        >
+          <BookOpen class="w-3.5 h-3.5 inline-block -mt-0.5 mr-1" /> 技术拆解
+        </button>
         <button
           class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
-          :class="rightPanel === 'code' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-slate-500 hover:text-slate-700'"
+          :class="
+            rightPanel === 'code'
+              ? 'text-brand-600 border-b-2 border-brand-500'
+              : 'text-slate-500 hover:text-slate-700'
+          "
           @click="rightPanel = 'code'"
-        >💻 代码对照</button>
+        >
+          <Monitor class="w-3.5 h-3.5 inline-block -mt-0.5 mr-1" /> 代码对照
+        </button>
       </div>
 
       <!-- 教学面板 -->
@@ -192,7 +249,7 @@ const suggestions = [
       <!-- 代码对照面板 -->
       <div v-else class="flex-1 overflow-y-auto p-4 no-scrollbar">
         <div class="text-center py-12">
-          <div class="text-4xl mb-3">🔬</div>
+          <Microscope class="w-10 h-10 mx-auto mb-3 text-slate-300" />
           <p class="text-sm text-slate-500 mb-2">Vue vs React 代码对照</p>
           <p class="text-xs text-slate-400">选择一个已生成的组件查看双框架实现</p>
         </div>

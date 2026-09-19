@@ -250,7 +250,8 @@ export const interviewQuestions: InterviewQuestion[] = [
     knowledgePointId: '4.1',
     difficulty: 'mid',
     category: 'coding',
-    question: 'Redux Toolkit 的 createSlice 解决了传统 Redux 的哪些痛点？Immer 在其中扮演什么角色？',
+    question:
+      'Redux Toolkit 的 createSlice 解决了传统 Redux 的哪些痛点？Immer 在其中扮演什么角色？',
     answerPoints: [
       '传统 Redux 需要手写 action type 常量 + action creator + switch-case reducer，样板代码太多',
       'createSlice 一步搞定：自动生成 action type（如 chat/addMessage）和 action creator',

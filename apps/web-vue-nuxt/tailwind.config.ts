@@ -46,7 +46,7 @@ export default <Partial<Config>>{
       animation: {
         'bounce-slow': 'bounce 2s infinite',
         'pulse-slow': 'pulse 3s infinite',
-        'shimmer': 'shimmer 2s linear infinite',
+        shimmer: 'shimmer 2s linear infinite',
         'slide-up': 'slideUp 0.3s ease-out',
       },
       keyframes: {

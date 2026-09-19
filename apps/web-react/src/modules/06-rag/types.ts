@@ -19,16 +19,16 @@ export interface RagDocument {
 export interface DocumentChunk {
   id: string
   content: string
-  index: number  // 在原文档中的顺序
+  index: number // 在原文档中的顺序
 }
 
 /** 引用来源 */
 export interface Citation {
   chunkId: string
   content: string
-  source: string      // 来源文件名
-  score: number       // 相关度分数 0-1
-  chunkIndex: number  // 块序号
+  source: string // 来源文件名
+  score: number // 相关度分数 0-1
+  chunkIndex: number // 块序号
 }
 
 /** RAG 问答结果 */

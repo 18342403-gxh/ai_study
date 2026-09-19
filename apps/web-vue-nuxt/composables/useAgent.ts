@@ -1,9 +1,9 @@
 /**
  * useAgent — Agent 状态机 Composable
- * 
+ *
  * 连接 BFF /api/agent 接口
  * 支持 Agent SSE 流式运行、暂停、恢复、回滚
- * 
+ *
  * 服务端事件协议（streamEvents v2）：
  *   { type: 'thread_id', threadId }
  *   { type: 'event', event: 'on_chain_start', name, data }
@@ -151,7 +151,7 @@ export function useAgent() {
 
           case 'on_chain_stream':
             if (name === 'think' || name === 'answer') {
-              const delta = (data as unknown) as string
+              const delta = data as unknown as string
               finalAnswer.value += delta
             }
             break
@@ -159,7 +159,7 @@ export function useAgent() {
           case 'on_chain_end':
             if (name === 'answer') {
               if (data && typeof data === 'object' && 'content' in data) {
-                finalAnswer.value = (data.content as unknown) as string
+                finalAnswer.value = data.content as unknown as string
               }
             }
             if (name === 'Agent') {
@@ -170,10 +170,10 @@ export function useAgent() {
                   phase: 'answer',
                   step: (data.iterations as number) || state.value?.step || 0,
                   messageCount: 0,
-                  lastAnswer: (data.answer as unknown) as string,
+                  lastAnswer: data.answer as unknown as string,
                 }
                 if (data.answer) {
-                  finalAnswer.value = (data.answer as unknown) as string
+                  finalAnswer.value = data.answer as unknown as string
                 }
               }
             }
@@ -207,9 +207,10 @@ export function useAgent() {
             break
 
           case 'on_error':
-            error.value = (data && typeof data === 'object' && 'message' in data) 
-              ? (data.message as string) 
-              : '未知错误'
+            error.value =
+              data && typeof data === 'object' && 'message' in data
+                ? (data.message as string)
+                : '未知错误'
             if (state.value) {
               state.value.status = 'failed'
             }

@@ -27,10 +27,12 @@ const docIdParamSchema = z.object({
   id: z.string().uuid('文档 ID 必须是合法 UUID'),
 })
 
-const uploadMetadataSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().max(500).optional(),
-}).optional()
+const uploadMetadataSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(500).optional(),
+  })
+  .optional()
 
 // ── Multer 文件上传配置 ─────────────────────────────
 const upload = multer({
@@ -111,28 +113,42 @@ router.post(
               docId,
               chunks[i].content,
               chunks[i].index,
-              JSON.stringify(embeddings[i])
+              JSON.stringify(embeddings[i]),
             )
           }
         })
         insertMany()
 
-        await db.prepare(`
+        await db
+          .prepare(
+            `
           UPDATE documents SET status = 'ready', chunk_count = ?, updated_at = ?
           WHERE id = ?
-        `).run(chunks.length, Date.now(), docId)
-        logger.info('documents.route', 'POST /upload — 后台处理完成', { docId, chunkCount: chunks.length })
+        `,
+          )
+          .run(chunks.length, Date.now(), docId)
+        logger.info('documents.route', 'POST /upload — 后台处理完成', {
+          docId,
+          chunkCount: chunks.length,
+        })
       } catch (err) {
-        await db.prepare(`
+        await db
+          .prepare(
+            `
           UPDATE documents SET status = 'failed', updated_at = ? WHERE id = ?
-        `).run(Date.now(), docId)
-        logger.error('documents.route', 'POST /upload — 后台处理失败', { docId, error: (err as Error).message })
+        `,
+          )
+          .run(Date.now(), docId)
+        logger.error('documents.route', 'POST /upload — 后台处理失败', {
+          docId,
+          error: (err as Error).message,
+        })
       }
     })()
 
     logger.info('documents.route', 'POST /upload — 出口', { docId, fileName: file.originalname })
     res.json({ id: docId, name: file.originalname, status: 'processing' })
-  })
+  }),
 )
 
 /** GET /api/documents */
@@ -144,7 +160,7 @@ router.get(
     const documents = await db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
     logger.info('documents.route', 'GET / — 出口', { count: documents.length })
     res.json(documents)
-  })
+  }),
 )
 
 /** DELETE /api/documents/:id */
@@ -165,7 +181,7 @@ router.delete(
     await db.prepare('DELETE FROM documents WHERE id = ?').run(id)
     logger.info('documents.route', 'DELETE /:id — 出口', { id })
     res.json({ success: true })
-  })
+  }),
 )
 
 export default router

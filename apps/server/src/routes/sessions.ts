@@ -52,11 +52,11 @@ router.get(
          FROM sessions s
          LEFT JOIN messages m ON m.session_id = s.id
          GROUP BY s.id
-         ORDER BY s.updated_at DESC`
+         ORDER BY s.updated_at DESC`,
       )
       .all()
     res.json(sessions)
-  })
+  }),
 )
 
 /** POST /api/sessions */
@@ -69,15 +69,17 @@ router.post(
     const id = randomUUID()
     const { title = '新对话', model = 'glm-4-flash', systemPrompt = null } = req.body
 
-    await db.prepare(
-      `INSERT INTO sessions (id, title, model, system_prompt, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(id, title, model, systemPrompt, now, now)
+    await db
+      .prepare(
+        `INSERT INTO sessions (id, title, model, system_prompt, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, title, model, systemPrompt, now, now)
 
     const session = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(id)
     logger.info('sessions.route', 'POST / 完成', { sessionId: id, title })
     res.status(201).json(session)
-  })
+  }),
 )
 
 /** GET /api/sessions/:id */
@@ -94,7 +96,7 @@ router.get(
       .all(req.params.id)
 
     res.json({ ...(session as object), messages })
-  })
+  }),
 )
 
 /** PATCH /api/sessions/:id */
@@ -134,7 +136,7 @@ router.patch(
     await db.prepare(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`).run(...values)
     const updated = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
     res.json(updated)
-  })
+  }),
 )
 
 /** DELETE /api/sessions/:id */
@@ -147,7 +149,7 @@ router.delete(
     if (result.changes === 0) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
     logger.info('sessions.route', 'DELETE /:id 完成', { sessionId: req.params.id })
     res.status(204).end()
-  })
+  }),
 )
 
 /** POST /api/sessions/:id/messages */
@@ -165,7 +167,7 @@ router.post(
 
     const insert = db.prepare(
       `INSERT INTO messages (id, session_id, role, content, metadata, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
 
     await insert.run(
@@ -174,7 +176,7 @@ router.post(
       role,
       content,
       metadata ? JSON.stringify(metadata) : null,
-      now
+      now,
     )
 
     await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
@@ -182,7 +184,7 @@ router.post(
     const message = await db.prepare('SELECT * FROM messages WHERE id = ?').get(msgId)
     logger.info('sessions.route', 'POST /:id/messages 完成', { sessionId: req.params.id, role })
     res.status(201).json(message)
-  })
+  }),
 )
 
 /** DELETE /api/sessions/:id/messages — 清空会话消息 */
@@ -194,9 +196,12 @@ router.delete(
     const result = await db.prepare('DELETE FROM messages WHERE session_id = ?').run(req.params.id)
     const now = Date.now()
     await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
-    logger.info('sessions.route', 'DELETE /:id/messages 完成', { sessionId: req.params.id, deleted: result.changes })
+    logger.info('sessions.route', 'DELETE /:id/messages 完成', {
+      sessionId: req.params.id,
+      deleted: result.changes,
+    })
     res.status(204).end()
-  })
+  }),
 )
 
 export default router

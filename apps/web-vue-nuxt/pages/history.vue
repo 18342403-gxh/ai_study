@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { MessageCircle } from 'lucide-vue-next'
+
 const router = useRouter()
 
 const { sessions, activeSessionId, switchSession, deleteSession, loadOrCreateSession } = useChat()
@@ -49,8 +51,10 @@ const handleDelete = (e: Event, id: string) => {
 
       <!-- 空状态 -->
       <div v-if="sessions.length === 0" class="flex flex-col items-center justify-center py-20">
-        <div class="w-20 h-20 rounded-2xl bg-slate-100 flex items-center justify-center text-4xl mb-4">
-          💬
+        <div
+          class="w-20 h-20 rounded-2xl bg-slate-100 flex items-center justify-center mb-4"
+        >
+          <MessageCircle class="w-10 h-10 text-slate-400" />
         </div>
         <h3 class="text-lg font-medium text-slate-700 mb-2">暂无历史会话</h3>
         <p class="text-sm text-slate-400 mb-6">开始你的第一次 AI 对话吧</p>
@@ -68,7 +72,11 @@ const handleDelete = (e: Event, id: string) => {
           v-for="session in sessions"
           :key="session.id"
           class="group p-4 rounded-xl bg-white border transition-all cursor-pointer hover:border-brand-300 hover:shadow-sm"
-          :class="session.id === activeSessionId ? 'border-brand-400 bg-brand-50/30 shadow-sm' : 'border-slate-200'"
+          :class="
+            session.id === activeSessionId
+              ? 'border-brand-400 bg-brand-50/30 shadow-sm'
+              : 'border-slate-200'
+          "
           @click="goToSession(session.id)"
         >
           <div class="flex items-start justify-between">
@@ -78,11 +86,18 @@ const handleDelete = (e: Event, id: string) => {
                 <span
                   v-if="session.id === activeSessionId"
                   class="px-1.5 py-0.5 text-[10px] bg-brand-100 text-brand-600 rounded shrink-0"
-                >当前</span>
+                  >当前</span
+                >
               </div>
               <p class="text-xs text-slate-400">
                 <span class="inline-flex items-center gap-1">
-                  <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <svg
+                    class="w-3 h-3"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
                     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                   </svg>
                   {{ session.messages.length }} 条消息
@@ -95,8 +110,16 @@ const handleDelete = (e: Event, id: string) => {
               class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
               @click="(e) => handleDelete(e, session.id)"
             >
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+              <svg
+                class="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"
+                />
               </svg>
             </button>
           </div>

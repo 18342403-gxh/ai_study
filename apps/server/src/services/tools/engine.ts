@@ -16,7 +16,13 @@ export interface FunctionCallingOptions {
 }
 
 export interface FunctionCallEvent {
-  type: 'tool_call_start' | 'tool_call_result' | 'assistant_delta' | 'assistant_complete' | 'iteration' | 'error'
+  type:
+    | 'tool_call_start'
+    | 'tool_call_result'
+    | 'assistant_delta'
+    | 'assistant_complete'
+    | 'iteration'
+    | 'error'
   data?: unknown
   toolName?: string
   iteration?: number
@@ -36,7 +42,7 @@ export function createFunctionCallingEngine(options: FunctionCallingOptions = {}
      */
     async *stream(
       initialMessages: Array<{ role: string; content: string }>,
-      userInput?: string
+      userInput?: string,
     ): AsyncGenerator<FunctionCallEvent> {
       let messages = [...initialMessages]
       if (userInput) {
@@ -60,8 +66,14 @@ export function createFunctionCallingEngine(options: FunctionCallingOptions = {}
           parameters: t.schema._def,
         }))
 
-        const enhancedMessages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }> = [
-          ...messages as Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }>,
+        const enhancedMessages: Array<{
+          role: 'system' | 'user' | 'assistant' | 'tool'
+          content: string
+        }> = [
+          ...(messages as Array<{
+            role: 'system' | 'user' | 'assistant' | 'tool'
+            content: string
+          }>),
           {
             role: 'system',
             content: `你可以使用以下工具：\n${JSON.stringify(toolDescriptions, null, 2)}\n\n如果需要调用工具，在回复中使用格式：\n[TOOL_CALL] { "name": "工具名", "args": {...} } [/TOOL_CALL]`,
@@ -91,11 +103,7 @@ export function createFunctionCallingEngine(options: FunctionCallingOptions = {}
 
                 yield { type: 'tool_call_start', toolName: parsed.name, iteration: i + 1 }
 
-                const result = await executeTool(
-                  parsed.name,
-                  parsed.args || {},
-                  options.context
-                )
+                const result = await executeTool(parsed.name, parsed.args || {}, options.context)
 
                 yield {
                   type: 'tool_call_result',
@@ -133,8 +141,11 @@ export function createFunctionCallingEngine(options: FunctionCallingOptions = {}
      */
     async run(
       initialMessages: Array<{ role: string; content: string }>,
-      userInput?: string
-    ): Promise<{ content: string; toolCalls: Array<{ name: string; args: unknown; result: unknown }> }> {
+      userInput?: string,
+    ): Promise<{
+      content: string
+      toolCalls: Array<{ name: string; args: unknown; result: unknown }>
+    }> {
       const events = this.stream(initialMessages, userInput)
       let content = ''
       const toolCalls: Array<{ name: string; args: unknown; result: unknown }> = []

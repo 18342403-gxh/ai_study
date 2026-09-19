@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
+import { Search, ShoppingBag, BarChart3, FileText, Compass, MessageSquare, Rocket, BookOpen, Zap, Lightbulb } from 'lucide-vue-next'
+
 interface Template {
   id: string
   name: string
   desc: string
-  icon: string
+  icon: Component
   gradient: string
   prompt: string
   tags: string[]
@@ -21,25 +24,27 @@ const fallbackTemplates: Template[] = [
     id: 'search',
     name: '搜索框',
     desc: '带防抖、下拉建议的搜索组件',
-    icon: '🔍',
+    icon: Search,
     gradient: 'from-brand-400 to-brand-600',
-    prompt: '生成一个搜索框组件，支持：1. 输入防抖(300ms) 2. 下拉建议列表 3. 清除按钮 4. 键盘导航支持',
+    prompt:
+      '生成一个搜索框组件，支持：1. 输入防抖(300ms) 2. 下拉建议列表 3. 清除按钮 4. 键盘导航支持',
     tags: ['输入', '表单'],
   },
   {
     id: 'card',
     name: '商品卡片',
     desc: '图片、价格、标签一体化卡片',
-    icon: '🛍️',
+    icon: ShoppingBag,
     gradient: 'from-coral-400 to-coral-600',
-    prompt: '生成一个商品卡片组件，包含：商品图片、名称、价格(划线原价)、标签、加入购物车按钮、收藏按钮',
+    prompt:
+      '生成一个商品卡片组件，包含：商品图片、名称、价格(划线原价)、标签、加入购物车按钮、收藏按钮',
     tags: ['展示', '电商'],
   },
   {
     id: 'table',
     name: '数据表格',
     desc: '排序、分页、行选择',
-    icon: '📊',
+    icon: BarChart3,
     gradient: 'from-mint-400 to-mint-600',
     prompt: '生成一个数据表格组件，支持：列排序、分页、行多选、空状态、加载状态，使用 TypeScript',
     tags: ['数据', '表格'],
@@ -48,7 +53,7 @@ const fallbackTemplates: Template[] = [
     id: 'form',
     name: '登录表单',
     desc: '完整表单校验流程',
-    icon: '📝',
+    icon: FileText,
     gradient: 'from-blue-400 to-blue-600',
     prompt: '生成一个登录表单组件，包含：用户名、密码(带显示切换)、验证码、表单实时校验、提交状态',
     tags: ['表单', '校验'],
@@ -57,7 +62,7 @@ const fallbackTemplates: Template[] = [
     id: 'navbar',
     name: '导航栏',
     desc: '响应式顶部导航',
-    icon: '🧭',
+    icon: Compass,
     gradient: 'from-purple-400 to-purple-600',
     prompt: '生成一个响应式导航栏组件，支持：Logo、菜单项(支持下拉)、移动端汉堡菜单、滚动变色效果',
     tags: ['导航', '响应式'],
@@ -66,7 +71,7 @@ const fallbackTemplates: Template[] = [
     id: 'modal',
     name: '弹窗组件',
     desc: '居中/底部弹出',
-    icon: '💬',
+    icon: MessageSquare,
     gradient: 'from-amber-400 to-amber-600',
     prompt: '生成一个弹窗组件，支持：居中弹窗、底部弹出、确认/取消按钮、关闭动画、遮罩点击关闭',
     tags: ['弹窗', '交互'],
@@ -87,16 +92,18 @@ const loadTemplates = async () => {
     if (res.ok) {
       const documents = await res.json()
       if (Array.isArray(documents) && documents.length > 0) {
-        serverTemplates.value = documents.map((doc: { id: string; name: string; chunk_count: number; type: string }) => ({
-          id: doc.id,
-          name: doc.name.replace(/\.[^.]+$/, ''),
-          desc: `${doc.chunk_count || 0} 个分块 · ${doc.type.toUpperCase()}`,
-          icon: '📄',
-          gradient: 'from-emerald-400 to-emerald-600',
-          prompt: `请基于知识库文档"${doc.name}"的内容，回答以下问题。`,
-          tags: ['知识库', doc.type],
-          isServer: true,
-        }))
+        serverTemplates.value = documents.map(
+          (doc: { id: string; name: string; chunk_count: number; type: string }) => ({
+            id: doc.id,
+            name: doc.name.replace(/\.[^.]+$/, ''),
+            desc: `${doc.chunk_count || 0} 个分块 · ${doc.type.toUpperCase()}`,
+            icon: FileText,
+            gradient: 'from-emerald-400 to-emerald-600',
+            prompt: `请基于知识库文档"${doc.name}"的内容，回答以下问题。`,
+            tags: ['知识库', doc.type],
+            isServer: true,
+          }),
+        )
         templates.value = [...serverTemplates.value, ...fallbackTemplates]
         return
       }
@@ -135,8 +142,12 @@ const handleUpload = () => {
       <div class="mb-6 p-5 rounded-2xl bg-gradient-primary text-white">
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="text-lg font-semibold mb-1">🚀 快速开始</h2>
-            <p class="text-sm opacity-90">选择模板或自由描述你的需求，AI 会为你生成高质量组件代码</p>
+            <h2 class="text-lg font-semibold mb-1 flex items-center gap-2">
+              <Rocket class="w-5 h-5" /> 快速开始
+            </h2>
+            <p class="text-sm opacity-90">
+              选择模板或自由描述你的需求，AI 会为你生成高质量组件代码
+            </p>
           </div>
           <div class="flex gap-2">
             <button
@@ -155,11 +166,19 @@ const handleUpload = () => {
         </div>
       </div>
 
-      <div v-if="isLoading && templates.length === 0" class="flex items-center justify-center py-20">
+      <div
+        v-if="isLoading && templates.length === 0"
+        class="flex items-center justify-center py-20"
+      >
         <div class="flex items-center gap-3 text-slate-400">
           <svg class="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/>
-            <path d="M12 2a10 10 0 0110 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25" />
+            <path
+              d="M12 2a10 10 0 0110 10"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+            />
           </svg>
           <span>正在加载模板...</span>
         </div>
@@ -168,7 +187,9 @@ const handleUpload = () => {
       <template v-else>
         <div v-if="serverTemplates.length > 0" class="mb-6">
           <div class="flex items-center gap-2 mb-3">
-            <span class="text-sm font-semibold text-slate-700">📚 知识库模板</span>
+            <span class="text-sm font-semibold text-slate-700 flex items-center gap-1">
+              <BookOpen class="w-4 h-4" /> 知识库模板
+            </span>
             <span class="text-xs text-slate-400">（从服务端加载）</span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -182,7 +203,7 @@ const handleUpload = () => {
                 class="w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center text-xl mb-4"
                 :class="template.gradient"
               >
-                {{ template.icon }}
+                <component :is="template.icon" class="w-6 h-6 text-white" />
               </div>
               <h3 class="text-base font-semibold text-slate-800 mb-1">{{ template.name }}</h3>
               <p class="text-xs text-slate-500 leading-relaxed mb-3">{{ template.desc }}</p>
@@ -191,11 +212,14 @@ const handleUpload = () => {
                   v-for="tag in template.tags"
                   :key="tag"
                   class="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 text-[11px]"
-                >{{ tag }}</span>
+                  >{{ tag }}</span
+                >
               </div>
               <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                 <span class="text-xs text-slate-400">基于知识库</span>
-                <span class="text-emerald-600 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                <span
+                  class="text-emerald-600 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+                >
                   使用 →
                 </span>
               </div>
@@ -205,7 +229,9 @@ const handleUpload = () => {
 
         <div class="mb-6">
           <div class="flex items-center gap-2 mb-3">
-            <span class="text-sm font-semibold text-slate-700">⚡ 内置模板</span>
+            <span class="text-sm font-semibold text-slate-700 flex items-center gap-1">
+              <Zap class="w-4 h-4" /> 内置模板
+            </span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             <div
@@ -218,7 +244,7 @@ const handleUpload = () => {
                 class="w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center text-xl mb-4"
                 :class="template.gradient"
               >
-                {{ template.icon }}
+                <component :is="template.icon" class="w-6 h-6 text-white" />
               </div>
               <h3 class="text-base font-semibold text-slate-800 mb-1">{{ template.name }}</h3>
               <p class="text-xs text-slate-500 leading-relaxed mb-3">{{ template.desc }}</p>
@@ -227,11 +253,14 @@ const handleUpload = () => {
                   v-for="tag in template.tags"
                   :key="tag"
                   class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px]"
-                >{{ tag }}</span>
+                  >{{ tag }}</span
+                >
               </div>
               <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                 <span class="text-xs text-slate-400">点击使用此模板</span>
-                <span class="text-brand-500 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                <span
+                  class="text-brand-500 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+                >
                   使用 →
                 </span>
               </div>
@@ -241,7 +270,9 @@ const handleUpload = () => {
       </template>
 
       <div class="p-5 rounded-xl bg-white border border-slate-200">
-        <h3 class="text-sm font-semibold text-slate-800 mb-3">💡 使用提示</h3>
+        <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1">
+          <Lightbulb class="w-4 h-4" /> 使用提示
+        </h3>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-slate-500">
           <div class="flex gap-2">
             <span class="text-brand-500 font-semibold shrink-0">01</span>

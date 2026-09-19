@@ -25,11 +25,11 @@ interface WeatherResult {
 export const getWeather = (params: WeatherParams): string => {
   // 模拟不同城市的天气数据
   const weatherData: Record<string, WeatherResult> = {
-    '北京': { city: '北京', temperature: 28, condition: '晴', humidity: 45 },
-    '上海': { city: '上海', temperature: 32, condition: '多云', humidity: 72 },
-    '深圳': { city: '深圳', temperature: 34, condition: '阵雨', humidity: 85 },
-    '广州': { city: '广州', temperature: 33, condition: '雷阵雨', humidity: 88 },
-    '杭州': { city: '杭州', temperature: 30, condition: '晴', humidity: 60 },
+    北京: { city: '北京', temperature: 28, condition: '晴', humidity: 45 },
+    上海: { city: '上海', temperature: 32, condition: '多云', humidity: 72 },
+    深圳: { city: '深圳', temperature: 34, condition: '阵雨', humidity: 85 },
+    广州: { city: '广州', temperature: 33, condition: '雷阵雨', humidity: 88 },
+    杭州: { city: '杭州', temperature: 30, condition: '晴', humidity: 60 },
   }
 
   const result = weatherData[params.city]

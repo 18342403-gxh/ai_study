@@ -46,7 +46,7 @@ export function spawnServer(opts: SpawnOptions = {}): ServerProc {
   // ── 构造环境变量 ──────────────────────────────────
   const userDataDir = app.getPath('userData')
   const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
     PORT: String(port),
     // 桌面端 SQLite 放在 Electron userData 目录
     DB_PATH: path.join(userDataDir, 'knowledge.db'),
@@ -64,7 +64,7 @@ export function spawnServer(opts: SpawnOptions = {}): ServerProc {
   const proc = spawn(command, args, {
     cwd: serverDir,
     env,
-    shell: process.platform === 'win32',  // Windows 必须 shell: true
+    shell: process.platform === 'win32', // Windows 必须 shell: true
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 

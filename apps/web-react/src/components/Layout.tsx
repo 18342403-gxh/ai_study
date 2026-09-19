@@ -24,15 +24,11 @@ const Layout: React.FC<LayoutProps> = ({ title, showBack = true, children }) => 
             <LeftOutline />
           </button>
         )}
-        <h1 className="text-sm font-medium text-slate-200 truncate">
-          {title}
-        </h1>
+        <h1 className="text-sm font-medium text-slate-200 truncate">{title}</h1>
       </header>
 
       {/* 内容区域 */}
-      <main className="flex-1 overflow-y-auto pb-14">
-        {children}
-      </main>
+      <main className="flex-1 overflow-y-auto pb-14">{children}</main>
     </div>
   )
 }

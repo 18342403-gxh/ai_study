@@ -19,18 +19,50 @@ import type { HarnessCheckResult } from './types.js'
 
 /** 危险指令模式（prompt injection） */
 const INJECTION_PATTERNS: Array<{ pattern: RegExp; rule: string; reason: string }> = [
-  { pattern: /忽略(之前|上面|前文|前面)(的)?(所有|全部)?指令/gi, rule: 'ignore_prior_instructions', reason: '尝试覆盖系统提示词' },
-  { pattern: /你是[：: ]?.*?prompt\s*(injection|注入)/gi, rule: 'prompt_injection_declaration', reason: '声明自己是注入攻击' },
-  { pattern: /system\s*prompt[：:]?\s*(.*)/gi, rule: 'system_prompt_probe', reason: '试图探测系统提示词内容' },
-  { pattern: /disregard\s+(all\s+)?previous\s+(instructions|prompts)/gi, rule: 'ignore_prior_instructions_en', reason: '英文版注入指令' },
-  { pattern: /jailbreak|dan\s*mode|developer\s*mode/gi, rule: 'jailbreak_attempt', reason: '典型越狱攻击关键词' },
+  {
+    pattern: /忽略(之前|上面|前文|前面)(的)?(所有|全部)?指令/gi,
+    rule: 'ignore_prior_instructions',
+    reason: '尝试覆盖系统提示词',
+  },
+  {
+    pattern: /你是[：: ]?.*?prompt\s*(injection|注入)/gi,
+    rule: 'prompt_injection_declaration',
+    reason: '声明自己是注入攻击',
+  },
+  {
+    pattern: /system\s*prompt[：:]?\s*(.*)/gi,
+    rule: 'system_prompt_probe',
+    reason: '试图探测系统提示词内容',
+  },
+  {
+    pattern: /disregard\s+(all\s+)?previous\s+(instructions|prompts)/gi,
+    rule: 'ignore_prior_instructions_en',
+    reason: '英文版注入指令',
+  },
+  {
+    pattern: /jailbreak|dan\s*mode|developer\s*mode/gi,
+    rule: 'jailbreak_attempt',
+    reason: '典型越狱攻击关键词',
+  },
 ]
 
 /** 敏感内容模式 */
 const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; rule: string; reason: string }> = [
-  { pattern: /如何(制造|制作|合成).{0,10}(炸弹|毒品|炸药|武器)/gi, rule: 'dangerous_recipe', reason: '请求危险物品制作方法' },
-  { pattern: /(黑客|hacker|cracker).{0,10}(攻击|入侵|破解)/gi, rule: 'malicious_intent', reason: '请求恶意攻击相关内容' },
-  { pattern: /(色情|赌博|博彩).{0,5}(网站|平台|APP|软件)/gi, rule: 'illegal_content', reason: '请求违法违规内容' },
+  {
+    pattern: /如何(制造|制作|合成).{0,10}(炸弹|毒品|炸药|武器)/gi,
+    rule: 'dangerous_recipe',
+    reason: '请求危险物品制作方法',
+  },
+  {
+    pattern: /(黑客|hacker|cracker).{0,10}(攻击|入侵|破解)/gi,
+    rule: 'malicious_intent',
+    reason: '请求恶意攻击相关内容',
+  },
+  {
+    pattern: /(色情|赌博|博彩).{0,5}(网站|平台|APP|软件)/gi,
+    rule: 'illegal_content',
+    reason: '请求违法违规内容',
+  },
 ]
 
 /** 长度限制（防止超长 prompt 打爆 token） */
@@ -101,7 +133,10 @@ const LEAK_MARKERS = [
 ]
 
 /** 输出质量检查 & 清洗 */
-export function checkOutputGuardrail(answer: string): { result: HarnessCheckResult; sanitized: string } {
+export function checkOutputGuardrail(answer: string): {
+  result: HarnessCheckResult
+  sanitized: string
+} {
   let sanitized = answer
 
   // 幻觉检测

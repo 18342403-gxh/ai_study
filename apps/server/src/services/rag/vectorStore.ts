@@ -40,7 +40,7 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
 
       const insert = db.prepare(
         `INSERT INTO ${tableName} (id, doc_id, content, chunk_index, embedding)
-         VALUES (?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?)`,
       )
 
       const insertMany = db.transaction(async () => {
@@ -56,13 +56,7 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
         ids.push(id)
 
         const embedding = doc.embedding || (await getEmbedding(doc.content))
-        items.push([
-          id,
-          docId || id,
-          doc.content,
-          i,
-          JSON.stringify(embedding),
-        ])
+        items.push([id, docId || id, doc.content, i, JSON.stringify(embedding)])
       }
 
       await insertMany()
@@ -76,17 +70,21 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
       const db = getDb()
       const queryEmbedding = await getEmbedding(query)
 
-      let rows: Array<{ id: string; doc_id: string; content: string; chunk_index: number; embedding: string }>
+      let rows: Array<{
+        id: string
+        doc_id: string
+        content: string
+        chunk_index: number
+        embedding: string
+      }>
       if (docId) {
-        rows = await db
-          .prepare(
-            `SELECT * FROM ${tableName} WHERE doc_id = ? AND embedding IS NOT NULL`
-          )
-          .all(docId) as typeof rows
+        rows = (await db
+          .prepare(`SELECT * FROM ${tableName} WHERE doc_id = ? AND embedding IS NOT NULL`)
+          .all(docId)) as typeof rows
       } else {
-        rows = await db
+        rows = (await db
           .prepare(`SELECT * FROM ${tableName} WHERE embedding IS NOT NULL`)
-          .all() as typeof rows
+          .all()) as typeof rows
       }
 
       const scored = rows.map((row) => {

@@ -170,10 +170,7 @@ description: "<一句话描述：做什么 + 什么时候触发。英文，200�
 function buildSkillUserPrompt(req: SkillRequest): string {
   const { skillName, requirement, scriptLang, references, extraPrompt } = req
 
-  const sections: string[] = [
-    `## Skill 名称\n${skillName}`,
-    `## 功能需求\n${requirement}`,
-  ]
+  const sections: string[] = [`## Skill 名称\n${skillName}`, `## 功能需求\n${requirement}`]
 
   if (references && references.length > 0) {
     sections.push(`## 参考 Skill 模式\n${references.join('\n\n---\n\n')}`)
@@ -196,10 +193,14 @@ function buildSkillUserPrompt(req: SkillRequest): string {
 \`\`\`
 === FILE: .trae/skills/${skillName}/SKILL.md ===
 <完整的 SKILL.md 内容，含 frontmatter 和详细指令>
-${needsScripts ? `
+${
+  needsScripts
+    ? `
 
 === FILE: .trae/skills/${skillName}/scripts/main.${scriptLang} ===
-<可执行脚本内容>` : ''}
+<可执行脚本内容>`
+    : ''
+}
 \`\`\`
 
 **每个文件用 \`=== FILE: <相对路径> ===\` 分隔标记。只输出文件内容，不要额外解释。**`)
@@ -217,7 +218,7 @@ ${needsScripts ? `
 function parseMultiFileOutput(
   rawContent: string,
   defaultPath: string,
-  defaultLanguage: string
+  defaultLanguage: string,
 ): GeneratedFile[] {
   const filePattern = /=== FILE: (.+?) ===\n([\s\S]*?)(?=\n=== FILE:|$)/g
   const matches = [...rawContent.matchAll(filePattern)]
@@ -287,9 +288,10 @@ export function createCodegenEngine() {
       }
     }
 
-    const finalUserPrompt = req.type === 'component'
-      ? buildComponentUserPrompt({ ...req, references })
-      : buildSkillUserPrompt({ ...req, references })
+    const finalUserPrompt =
+      req.type === 'component'
+        ? buildComponentUserPrompt({ ...req, references })
+        : buildSkillUserPrompt({ ...req, references })
 
     const result = await chain.invoke({
       messages: [
@@ -331,14 +333,18 @@ export function createCodegenEngine() {
 
       if (req.type === 'component') {
         systemPrompt = buildComponentSystemPrompt(req.framework)
-        const references = req.references || (await rag.search(req.requirement, 3).catch(() => [])).map((r) => r.doc.content)
+        const references =
+          req.references ||
+          (await rag.search(req.requirement, 3).catch(() => [])).map((r) => r.doc.content)
         userPrompt = buildComponentUserPrompt({ ...req, references })
         const ext = req.framework === 'vue' ? '.vue' : '.tsx'
         defaultPath = `GeneratedComponent${ext}`
         defaultLanguage = req.framework === 'vue' ? 'vue' : 'typescript'
       } else {
         systemPrompt = buildSkillSystemPrompt()
-        const references = req.references || (await rag.search(req.requirement, 3).catch(() => [])).map((r) => r.doc.content)
+        const references =
+          req.references ||
+          (await rag.search(req.requirement, 3).catch(() => [])).map((r) => r.doc.content)
         userPrompt = buildSkillUserPrompt({ ...req, references })
         defaultPath = `.trae/skills/${req.skillName}/SKILL.md`
         defaultLanguage = 'markdown'

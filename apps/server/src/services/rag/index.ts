@@ -40,7 +40,11 @@ export function createRAGService() {
       return this.ingestDocument(doc)
     },
 
-    async ingestFromFileWithId(filePath: string, originalName: string | undefined, documentId: string): Promise<RAGIngestResult> {
+    async ingestFromFileWithId(
+      filePath: string,
+      originalName: string | undefined,
+      documentId: string,
+    ): Promise<RAGIngestResult> {
       const doc = await loadFromFile(filePath, originalName)
       return this.ingestDocumentWithId(doc, documentId)
     },
@@ -48,7 +52,11 @@ export function createRAGService() {
     /**
      * 从 URL 抓取并灌入（指定 documentId，方便路由层先写 DB 记录）
      */
-    async ingestFromUrlWithId(url: string, name: string | undefined, documentId: string): Promise<RAGIngestResult> {
+    async ingestFromUrlWithId(
+      url: string,
+      name: string | undefined,
+      documentId: string,
+    ): Promise<RAGIngestResult> {
       logger.info('rag.service', 'ingestFromUrlWithId — 入口', { documentId, url, name })
       const doc = await loadFromUrl(url, name)
       return this.ingestDocumentWithId(doc, documentId)
@@ -83,7 +91,11 @@ export function createRAGService() {
         await vectorStore.addDocuments(vectorDocs, documentId)
 
         const costMs = Date.now() - start
-        logger.info('rag.service', 'ingestDocumentWithId — 出口', { documentId, chunkCount: chunks.length, costMs })
+        logger.info('rag.service', 'ingestDocumentWithId — 出口', {
+          documentId,
+          chunkCount: chunks.length,
+          costMs,
+        })
 
         return {
           documentId,
@@ -92,7 +104,11 @@ export function createRAGService() {
         }
       } catch (err) {
         const costMs = Date.now() - start
-        logger.error('rag.service', 'ingestDocumentWithId — 错误', { documentId, costMs, error: (err as Error).message })
+        logger.error('rag.service', 'ingestDocumentWithId — 错误', {
+          documentId,
+          costMs,
+          error: (err as Error).message,
+        })
         throw err
       }
     },
@@ -128,7 +144,11 @@ export function createRAGService() {
         return deleted
       } catch (err) {
         const costMs = Date.now() - start
-        logger.error('rag.service', 'deleteDocument — 错误', { documentId, costMs, error: (err as Error).message })
+        logger.error('rag.service', 'deleteDocument — 错误', {
+          documentId,
+          costMs,
+          error: (err as Error).message,
+        })
         throw err
       }
     },

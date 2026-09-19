@@ -34,7 +34,7 @@ const CACHEABLE_PATHS = [
 function isCacheable(req: Request): boolean {
   if (req.method !== 'GET') return false
   if (req.query._nocache === '1') return false
-  return CACHEABLE_PATHS.some(p => p.test(req.path))
+  return CACHEABLE_PATHS.some((p) => p.test(req.path))
 }
 
 function makeKey(req: Request): string {
@@ -111,7 +111,7 @@ export function cacheMiddleware(req: Request, res: Response, next: NextFunction)
     cache.set(key, {
       body,
       status: res.statusCode,
-      headers: { 'content-type': res.getHeader('content-type') as string || 'application/json' },
+      headers: { 'content-type': (res.getHeader('content-type') as string) || 'application/json' },
       createdAt: now,
       lastAccessed: now,
     })

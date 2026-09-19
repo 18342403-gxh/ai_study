@@ -101,7 +101,10 @@ export function metricsHandler(_req: Request, res: Response) {
       path,
       count: bucket.count,
       errors: bucket.errors,
-      avgMs: bucket.durations.length > 0 ? bucket.durations.reduce((a, b) => a + b, 0) / bucket.durations.length : 0,
+      avgMs:
+        bucket.durations.length > 0
+          ? bucket.durations.reduce((a, b) => a + b, 0) / bucket.durations.length
+          : 0,
       p95Ms: percentile(sorted, 95),
     })
   }
@@ -117,7 +120,8 @@ export function metricsHandler(_req: Request, res: Response) {
       total: totalRequests,
       errors: totalErrors,
       errorRate: totalRequests > 0 ? totalErrors / totalRequests : 0,
-      avgLatencyMs: allDurations.length > 0 ? allDurations.reduce((a, b) => a + b, 0) / allDurations.length : 0,
+      avgLatencyMs:
+        allDurations.length > 0 ? allDurations.reduce((a, b) => a + b, 0) / allDurations.length : 0,
       p50LatencyMs: percentile(sortedAll, 50),
       p95LatencyMs: percentile(sortedAll, 95),
       p99LatencyMs: percentile(sortedAll, 99),

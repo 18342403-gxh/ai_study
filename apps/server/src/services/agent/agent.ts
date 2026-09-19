@@ -51,9 +51,9 @@ export interface AgentConfig {
 /** 获取 Agent 状态 */
 export async function getState(threadId: string): Promise<AgentState> {
   const db = getDb()
-  const row = await db
+  const row = (await db
     .prepare('SELECT state_json FROM agent_states WHERE thread_id = ?')
-    .get(threadId) as { state_json: string } | undefined
+    .get(threadId)) as { state_json: string } | undefined
 
   if (row) return JSON.parse(row.state_json)
 
@@ -72,15 +72,17 @@ export async function getState(threadId: string): Promise<AgentState> {
 async function persistState(state: AgentState): Promise<void> {
   const db = getDb()
   const now = Date.now()
-  await db.prepare(
-    `INSERT INTO agent_states (thread_id, state_json, status, current_node, created_at, updated_at)
+  await db
+    .prepare(
+      `INSERT INTO agent_states (thread_id, state_json, status, current_node, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(thread_id) DO UPDATE SET
        state_json = excluded.state_json,
        status = excluded.status,
        current_node = excluded.current_node,
-       updated_at = excluded.updated_at`
-  ).run(state.threadId, JSON.stringify(state), state.status, state.currentNode, now, now)
+       updated_at = excluded.updated_at`,
+    )
+    .run(state.threadId, JSON.stringify(state), state.status, state.currentNode, now, now)
 }
 
 /** Agent 输入校验 Schema */
@@ -96,7 +98,11 @@ export const agentInputSchema = z.object({
  * Agent 实例接口
  */
 export interface AgentExecutor {
-  streamEvents(threadId: string, userInput: string, initialState?: Partial<AgentState>): AsyncGenerator<AgentStreamEvent>
+  streamEvents(
+    threadId: string,
+    userInput: string,
+    initialState?: Partial<AgentState>,
+  ): AsyncGenerator<AgentStreamEvent>
   run(threadId: string, userInput: string): Promise<AgentState>
   rollback(threadId: string, step: number): Promise<AgentState>
   pause(threadId: string): Promise<AgentState>
@@ -116,7 +122,7 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
   async function* streamEvents(
     threadId: string,
     userInput: string,
-    initialState?: Partial<AgentState>
+    initialState?: Partial<AgentState>,
   ): AsyncGenerator<AgentStreamEvent> {
     const base: AgentState = {
       threadId,
@@ -149,7 +155,8 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
       state.currentNode = 'think'
 
       // ── Harness ①: 输入安全检查（think 前） ──
-      const lastUserMsg = [...state.messages].reverse().find(m => m.role === 'user')?.content || userInput
+      const lastUserMsg =
+        [...state.messages].reverse().find((m) => m.role === 'user')?.content || userInput
       const safetyCheck = checkInputSafety(lastUserMsg)
       yield { event: 'on_harness_check', data: safetyCheck }
       if (safetyCheck.result === 'block') {
@@ -170,7 +177,10 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
       yield { event: 'on_chain_start', name: 'think', data: { iteration: state.iteration } }
 
       const thinkMessages = [
-        { role: 'system' as const, content: `${systemPrompt}\n\n判断：用户是否需要调用工具？如果需要，返回工具名和参数。如果不需要，直接给出回答。` },
+        {
+          role: 'system' as const,
+          content: `${systemPrompt}\n\n判断：用户是否需要调用工具？如果需要，返回工具名和参数。如果不需要，直接给出回答。`,
+        },
         ...state.messages,
       ]
 
@@ -193,12 +203,28 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
           yield { event: 'on_tool_start', name: parsed.name, data: parsed.args || {} }
 
           // ── Harness ②: 工具调用策略检查 ──
-          const policyCheck = checkToolPolicy(parsed.name, (parsed.args || {}) as Record<string, unknown>)
+          const policyCheck = checkToolPolicy(
+            parsed.name,
+            (parsed.args || {}) as Record<string, unknown>,
+          )
           yield { event: 'on_harness_check', data: policyCheck }
           if (policyCheck.result === 'block') {
-            yield { event: 'on_error', data: { message: `Harness 拦截工具调用: ${policyCheck.reason}` } }
-            state.messages.push({ role: 'assistant', content: `⚠️ 工具被拦截：${policyCheck.reason}` })
-            state.messages.push({ role: 'tool', content: JSON.stringify({ tool: parsed.name, blocked: true, reason: policyCheck.reason }) })
+            yield {
+              event: 'on_error',
+              data: { message: `Harness 拦截工具调用: ${policyCheck.reason}` },
+            }
+            state.messages.push({
+              role: 'assistant',
+              content: `⚠️ 工具被拦截：${policyCheck.reason}`,
+            })
+            state.messages.push({
+              role: 'tool',
+              content: JSON.stringify({
+                tool: parsed.name,
+                blocked: true,
+                reason: policyCheck.reason,
+              }),
+            })
             state.currentNode = 'observe'
             await persistState(state)
             continue
@@ -208,7 +234,13 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
 
           yield { event: 'on_tool_end', name: parsed.name, data: results.toolCalls }
 
-          state.toolCalls.push(...(results.toolCalls as Array<{ name: string; args: Record<string, unknown>; result?: unknown }>))
+          state.toolCalls.push(
+            ...(results.toolCalls as Array<{
+              name: string
+              args: Record<string, unknown>
+              result?: unknown
+            }>),
+          )
 
           state.currentNode = 'observe'
           state.messages.push({ role: 'assistant', content: thinkContent })
@@ -219,7 +251,11 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
             })
           }
 
-          yield { event: 'on_chain_end', name: 'observe', data: { toolCalls: results.toolCalls.length } }
+          yield {
+            event: 'on_chain_end',
+            name: 'observe',
+            data: { toolCalls: results.toolCalls.length },
+          }
         } catch (err) {
           yield { event: 'on_error', data: { message: (err as Error).message } }
           state.status = 'error'
@@ -269,7 +305,7 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
         lastState = await getState(threadId)
       }
     }
-    return lastState || await getState(threadId)
+    return lastState || (await getState(threadId))
   }
 
   async function rollback(threadId: string, step: number): Promise<AgentState> {
@@ -289,7 +325,10 @@ export function createAgentExecutor(config: AgentConfig = {}): AgentExecutor {
     return state
   }
 
-  async function resume(threadId: string, userInput: string): Promise<AsyncGenerator<AgentStreamEvent>> {
+  async function resume(
+    threadId: string,
+    userInput: string,
+  ): Promise<AsyncGenerator<AgentStreamEvent>> {
     const state = await getState(threadId)
     state.status = 'running'
     return streamEvents(threadId, userInput, state)

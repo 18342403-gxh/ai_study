@@ -1,6 +1,6 @@
 /**
  * useChat — AI 对话 Composable
- * 
+ *
  * 连接 BFF /api/chat/completions 接口
  * 支持流式 SSE 响应、多会话管理、服务端持久化
  */
@@ -40,17 +40,13 @@ const streamingContent = ref('')
 const initialized = ref(false)
 
 export function useChat() {
-  const activeSession = computed(() =>
-    sessions.value.find((s) => s.id === activeSessionId.value) || null
+  const activeSession = computed(
+    () => sessions.value.find((s) => s.id === activeSessionId.value) || null,
   )
 
-  const currentMessages = computed<ChatMessage[]>(
-    () => activeSession.value?.messages ?? []
-  )
+  const currentMessages = computed<ChatMessage[]>(() => activeSession.value?.messages ?? [])
 
-  const activeSessionTitle = computed(
-    () => activeSession.value?.title ?? '新对话'
-  )
+  const activeSessionTitle = computed(() => activeSession.value?.title ?? '新对话')
 
   const loadOrCreateSession = () => {
     if (initialized.value) return
@@ -191,9 +187,7 @@ export function useChat() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [
-            ...currentMessages.value.map((m) => ({ role: m.role, content: m.content })),
-          ],
+          messages: [...currentMessages.value.map((m) => ({ role: m.role, content: m.content }))],
           stream: true,
         }),
       })

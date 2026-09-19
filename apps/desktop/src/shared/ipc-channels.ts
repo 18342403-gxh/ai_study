@@ -18,4 +18,6 @@ export const SERVER = {
   GET_STATUS: 'server:getStatus',
 } as const
 
-export type IpcChannel = (typeof DESKTOP)[keyof typeof DESKTOP] | (typeof SERVER)[keyof typeof SERVER]
+export type IpcChannel =
+  | (typeof DESKTOP)[keyof typeof DESKTOP]
+  | (typeof SERVER)[keyof typeof SERVER]

@@ -60,22 +60,27 @@ function stripTsFromSFC(sfc: string): string {
   // 也匹配 <script setup lang="ts">...</script>
   const scriptBlockRegex = /(<script\b[^>]*\blang\s*=\s*["']ts["'][^>]*>)([\s\S]*?)(<\/script>)/gi
 
-  return sfc.replace(scriptBlockRegex, (_match, openTag: string, tsCode: string, closeTag: string) => {
-    // 用 TypeScript compiler API 编译 TS → JS
-    const result = ts.transpileModule(tsCode, {
-      compilerOptions: {
-        target: ts.ScriptTarget.ES2020,
-        module: ts.ModuleKind.ESNext,
-        moduleResolution: ts.ModuleResolutionKind.Bundler,
-      },
-      fileName: 'sfc-script.ts',
-    })
-    const jsCode = result.outputText
+  return sfc.replace(
+    scriptBlockRegex,
+    (_match, openTag: string, tsCode: string, closeTag: string) => {
+      // 用 TypeScript compiler API 编译 TS → JS
+      const result = ts.transpileModule(tsCode, {
+        compilerOptions: {
+          target: ts.ScriptTarget.ES2020,
+          module: ts.ModuleKind.ESNext,
+          moduleResolution: ts.ModuleResolutionKind.Bundler,
+        },
+        fileName: 'sfc-script.ts',
+      })
+      const jsCode = result.outputText
 
-    // 把 lang="ts" 从 openTag 里去掉
-    const newOpenTag = openTag.replace(/\blang\s*=\s*["']ts["']/gi, '').replace(/<script\s+/, '<script ')
-    return newOpenTag + jsCode + closeTag
-  })
+      // 把 lang="ts" 从 openTag 里去掉
+      const newOpenTag = openTag
+        .replace(/\blang\s*=\s*["']ts["']/gi, '')
+        .replace(/<script\s+/, '<script ')
+      return newOpenTag + jsCode + closeTag
+    },
+  )
 }
 
 function buildVueHtml(sfcCode: string): string {
@@ -164,8 +169,8 @@ function buildVueHtml(sfcCode: string): string {
 function buildReactHtml(tsxCode: string): string {
   // 先 strip markdown fence（generator 存的 content 可能有 ```tsx ... ``` 包裹）
   let code = tsxCode
-    .replace(/^\s*```(?:tsx|ts|jsx|js)?\s*\n?/i, '')   // 开头 ```tsx
-    .replace(/\n?\s*```\s*$/i, '')                       // 结尾 ```
+    .replace(/^\s*```(?:tsx|ts|jsx|js)?\s*\n?/i, '') // 开头 ```tsx
+    .replace(/\n?\s*```\s*$/i, '') // 结尾 ```
 
   // import 处理策略：
   //  - import React, { useState } from 'react' → const React = window.React; const { useState, useEffect, ... } = React;
@@ -187,15 +192,18 @@ function buildReactHtml(tsxCode: string): string {
       return ''
     })
     // import React, { useState } from 'react' — default + named（删整行，React/ReactDOM 由 prelude 注入）
-    .replace(/^\s*import\s+React\s*(?:,\s*\{([^}]+)\})?\s*from\s*['"]react['"];\s*$/gm, (_m, names) => {
-      if (names) {
-        names.split(',').forEach((n: string) => {
-          const name = n.trim()
-          if (name && name !== 'default') reactNamedImports.push(name)
-        })
-      }
-      return ''
-    })
+    .replace(
+      /^\s*import\s+React\s*(?:,\s*\{([^}]+)\})?\s*from\s*['"]react['"];\s*$/gm,
+      (_m, names) => {
+        if (names) {
+          names.split(',').forEach((n: string) => {
+            const name = n.trim()
+            if (name && name !== 'default') reactNamedImports.push(name)
+          })
+        }
+        return ''
+      },
+    )
     // import ReactDOM from 'react-dom/client' 或 'react-dom' — 删掉（ReactDOM 由 prelude 注入）
     .replace(/^\s*import\s+ReactDOM\s+from\s*['"]react-dom(?:\/client)?['"];\s*$/gm, '')
     // 其他 import ... from '...' — 删掉

@@ -4,6 +4,9 @@ import pluginVue from 'eslint-plugin-vue'
 import vueParser from 'vue-eslint-parser'
 import reactHooks from 'eslint-plugin-react-hooks'
 import prettier from 'eslint-config-prettier'
+import localRules from './eslint-rules/index.cjs'
+
+const rulesPlugin = { rules: localRules.rules }
 
 // Nuxt 3 自动导入的 composables（全局可用）
 const NUXT_GLOBALS = [
@@ -57,6 +60,8 @@ export default tseslint.config(
       '**/coverage/**',
       '**/*.config.*',
       'scripts/**',
+      'eslint-rules/**',
+      '.trae/**',
       'apps/generator/nuxt.config.ts',
     ],
   },
@@ -73,6 +78,7 @@ export default tseslint.config(
 
   // ============ 通用规则 + globals ============
   {
+    plugins: { 'local-rules': rulesPlugin },
     languageOptions: {
       globals: {
         ...makeGlobalObj(NUXT_GLOBALS),
@@ -82,6 +88,9 @@ export default tseslint.config(
       },
     },
     rules: {
+      // 🚫 禁止 emoji 当 UI 图标 — 项目红线
+      'local-rules/no-emoji': 'error',
+
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'no-debugger': 'error',
       'no-empty': 'off',
@@ -93,7 +102,9 @@ export default tseslint.config(
       'max-depth': ['warn', 4],
       'max-params': ['warn', 4],
       // 暂时降为 warn，后续逐步消除 any
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // any 在 JSON.parse、SSE event、动态表单等场景下难以避免，降为 off
+      // 新项目可以先开 warn，逐步收紧到 error
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/consistent-type-imports': 'warn',
     },
@@ -112,6 +123,7 @@ export default tseslint.config(
   // ============ Vue 文件 ============
   {
     files: ['**/*.vue'],
+    plugins: { 'local-rules': rulesPlugin },
     languageOptions: {
       parser: vueParser,
       parserOptions: {
@@ -130,6 +142,8 @@ export default tseslint.config(
       // Vue 里没有 React Hooks
       'react-hooks/rules-of-hooks': 'off',
       'react-hooks/exhaustive-deps': 'off',
+      // Vue template 里的 emoji 也禁止
+      'local-rules/no-emoji': 'error',
     },
   },
 

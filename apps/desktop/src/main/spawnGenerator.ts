@@ -28,7 +28,7 @@ export function spawnGenerator(opts: { serverPort?: number; cwd?: string } = {})
   const generatorDir = path.join(projectRoot, 'apps/generator')
 
   const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
     PORT: String(port),
     // Nuxt 里 $fetch('/api/xxx') 默认走相对路径
     // 如果需要显式指定 BFF 地址（SSR 时），用 NUXT_PUBLIC_API_BASE

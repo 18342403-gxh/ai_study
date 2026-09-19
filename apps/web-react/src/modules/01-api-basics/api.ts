@@ -23,7 +23,7 @@ const API_KEY = import.meta.env.VITE_AI_API_KEY || ''
 export class ApiError extends Error {
   constructor(
     message: string,
-    public status: number
+    public status: number,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -36,14 +36,14 @@ export class ApiError extends Error {
  */
 export const fetchChatCompletion = async (
   request: ChatRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<ChatResponse> => {
   // 📝 面试考点：fetch 只有网络错误才会 reject，HTTP 4xx/5xx 不会
   const response = await fetch(`${API_URL}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${API_KEY}`,
     },
     body: JSON.stringify({
       model: request.model || 'glm-4-flash',

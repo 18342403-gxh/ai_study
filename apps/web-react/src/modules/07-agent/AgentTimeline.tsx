@@ -20,9 +20,19 @@ interface AgentTimelineProps {
 const getStepStyle = (step: AgentStep) => {
   switch (step.type) {
     case 'thinking':
-      return { icon: <SmileOutline />, color: 'text-indigo-400', bg: 'bg-indigo-500/20', label: '思考' }
+      return {
+        icon: <SmileOutline />,
+        color: 'text-indigo-400',
+        bg: 'bg-indigo-500/20',
+        label: '思考',
+      }
     case 'tool_call':
-      return { icon: <SetOutline />, color: 'text-cyan-400', bg: 'bg-cyan-500/20', label: '调用工具' }
+      return {
+        icon: <SetOutline />,
+        color: 'text-cyan-400',
+        bg: 'bg-cyan-500/20',
+        label: '调用工具',
+      }
     case 'tool_result':
       return {
         icon: step.isError ? <CloseCircleFill /> : <CheckCircleFill />,
@@ -31,7 +41,12 @@ const getStepStyle = (step: AgentStep) => {
         label: step.isError ? '执行失败' : '执行结果',
       }
     case 'final_answer':
-      return { icon: <CheckCircleFill />, color: 'text-emerald-400', bg: 'bg-emerald-500/20', label: '最终回答' }
+      return {
+        icon: <CheckCircleFill />,
+        color: 'text-emerald-400',
+        bg: 'bg-emerald-500/20',
+        label: '最终回答',
+      }
     default:
       return { icon: null, color: 'text-slate-400', bg: 'bg-slate-700', label: '' }
   }
@@ -53,7 +68,9 @@ const AgentTimeline: React.FC<AgentTimelineProps> = ({ steps, isStreaming }) => 
           return (
             <div key={step.id} className="relative">
               {/* 节点圆点 */}
-              <div className={`absolute -left-6 top-1 w-[22px] h-[22px] rounded-full ${style.bg} ${style.color} flex items-center justify-center text-xs ${isThinking && isStreaming ? 'animate-pulse' : ''}`}>
+              <div
+                className={`absolute -left-6 top-1 w-[22px] h-[22px] rounded-full ${style.bg} ${style.color} flex items-center justify-center text-xs ${isThinking && isStreaming ? 'animate-pulse' : ''}`}
+              >
                 {style.icon}
               </div>
 
@@ -61,9 +78,7 @@ const AgentTimeline: React.FC<AgentTimelineProps> = ({ steps, isStreaming }) => 
               <div className="glass-card rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-xs font-medium ${style.color}`}>{style.label}</span>
-                  {step.toolName && (
-                    <span className="text-xs text-slate-500">{step.toolName}</span>
-                  )}
+                  {step.toolName && <span className="text-xs text-slate-500">{step.toolName}</span>}
                 </div>
                 <div className="text-sm text-slate-300 whitespace-pre-wrap break-words">
                   {step.type === 'final_answer' && step.content ? (

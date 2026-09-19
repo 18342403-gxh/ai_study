@@ -142,7 +142,9 @@ const initSqlite = () => {
     )
   `)
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON ai_usage_logs(created_at)`)
-  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON ai_usage_logs(feature, created_at)`)
+  sqliteDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON ai_usage_logs(feature, created_at)`,
+  )
 }
 
 // ─────────────────────────────────────────────
@@ -168,7 +170,9 @@ const wrapSqliteAsAsync = (db: Database.Database): AsyncDb => ({
     const stmt = db.prepare(sql)
     return {
       run(...params: unknown[]) {
-        return Promise.resolve(stmt.run(...params) as { lastInsertRowid: bigint | number | null; changes: number })
+        return Promise.resolve(
+          stmt.run(...params) as { lastInsertRowid: bigint | number | null; changes: number },
+        )
       },
       get<T = unknown>(...params: unknown[]) {
         return Promise.resolve(stmt.get(...params) as T | undefined)
@@ -200,11 +204,30 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
     let result = ''
     for (let i = 0; i < sql.length; i++) {
       const c = sql[i]
-      if (escapeNext) { result += c; escapeNext = false; continue }
-      if (c === '\\') { result += c; escapeNext = true; continue }
-      if (c === "'" && !inDouble) { inSingle = !inSingle; result += c; continue }
-      if (c === '"' && !inSingle) { inDouble = !inDouble; result += c; continue }
-      if (c === '?' && !inSingle && !inDouble) { result += `$${++counter}`; continue }
+      if (escapeNext) {
+        result += c
+        escapeNext = false
+        continue
+      }
+      if (c === '\\') {
+        result += c
+        escapeNext = true
+        continue
+      }
+      if (c === "'" && !inDouble) {
+        inSingle = !inSingle
+        result += c
+        continue
+      }
+      if (c === '"' && !inSingle) {
+        inDouble = !inDouble
+        result += c
+        continue
+      }
+      if (c === '?' && !inSingle && !inDouble) {
+        result += `$${++counter}`
+        continue
+      }
       result += c
     }
     return result
@@ -214,14 +237,63 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
   const qualifySchema = (sql: string): string => {
     // SQL 关键字白名单（这些不是表名，不能加 schema）
     const reserved = new Set([
-      'SET', 'ON', 'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'OFFSET', 'VALUES',
-      'AND', 'OR', 'AS', 'IS', 'IN', 'NOT', 'NULL', 'LIKE', 'BETWEEN',
-      'BY', 'ASC', 'DESC', 'HAVING', 'UNION', 'ALL', 'DISTINCT',
-      'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'EXISTS', 'TRUE', 'FALSE',
-      'RETURNING', 'DO', 'CONFLICT', 'EXCLUDED', 'DEFAULT', 'CHECK',
-      'PRIMARY', 'FOREIGN', 'KEY', 'REFERENCES', 'CONSTRAINT', 'UNIQUE',
-      'WITH', 'RECURSIVE', 'LATERAL', 'CROSS', 'NATURAL', 'LEFT', 'RIGHT',
-      'INNER', 'OUTER', 'FULL', 'TABLESAMPLE', 'ONLY', 'USING',
+      'SET',
+      'ON',
+      'WHERE',
+      'GROUP',
+      'ORDER',
+      'LIMIT',
+      'OFFSET',
+      'VALUES',
+      'AND',
+      'OR',
+      'AS',
+      'IS',
+      'IN',
+      'NOT',
+      'NULL',
+      'LIKE',
+      'BETWEEN',
+      'BY',
+      'ASC',
+      'DESC',
+      'HAVING',
+      'UNION',
+      'ALL',
+      'DISTINCT',
+      'CASE',
+      'WHEN',
+      'THEN',
+      'ELSE',
+      'END',
+      'EXISTS',
+      'TRUE',
+      'FALSE',
+      'RETURNING',
+      'DO',
+      'CONFLICT',
+      'EXCLUDED',
+      'DEFAULT',
+      'CHECK',
+      'PRIMARY',
+      'FOREIGN',
+      'KEY',
+      'REFERENCES',
+      'CONSTRAINT',
+      'UNIQUE',
+      'WITH',
+      'RECURSIVE',
+      'LATERAL',
+      'CROSS',
+      'NATURAL',
+      'LEFT',
+      'RIGHT',
+      'INNER',
+      'OUTER',
+      'FULL',
+      'TABLESAMPLE',
+      'ONLY',
+      'USING',
     ])
 
     // Step 1: 标准 keyword + table 匹配
@@ -231,7 +303,7 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
       (m, kw: string, table: string) => {
         if (reserved.has(table.toUpperCase())) return m
         return `${kw} app.${table}`
-      }
+      },
     )
 
     // Step 2: 逗号分隔多表 — FROM app.t1, t2 中的 t2 也要加 schema
@@ -241,7 +313,7 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
       (m, prefix: string, table: string) => {
         if (reserved.has(table.toUpperCase())) return m
         return `${prefix}, app.${table}`
-      }
+      },
     )
 
     return result
@@ -301,10 +373,21 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
               lastInsertRowid = raw[0]?.id ?? null
             }
             const result = { lastInsertRowid, changes }
-            logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0, changes: result.changes })
+            logger.debug('db', `SQL ${op} ${table} OK`, {
+              op,
+              table,
+              costMs: Date.now() - t0,
+              changes: result.changes,
+            })
             return result
           } catch (err) {
-            logger.error('db', `SQL ${op} ${table} FAILED`, { op, table, error: (err as Error).message, costMs: Date.now() - t0, sql: pgSql })
+            logger.error('db', `SQL ${op} ${table} FAILED`, {
+              op,
+              table,
+              error: (err as Error).message,
+              costMs: Date.now() - t0,
+              sql: pgSql,
+            })
             throw err
           }
         },
@@ -315,7 +398,13 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
             logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0 })
             return rows?.[0] as T | undefined
           } catch (err) {
-            logger.error('db', `SQL ${op} ${table} FAILED`, { op, table, error: (err as Error).message, costMs: Date.now() - t0, sql: pgSql })
+            logger.error('db', `SQL ${op} ${table} FAILED`, {
+              op,
+              table,
+              error: (err as Error).message,
+              costMs: Date.now() - t0,
+              sql: pgSql,
+            })
             throw err
           }
         },
@@ -323,10 +412,21 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
           const t0 = Date.now()
           try {
             const rows = await client.unsafe(pgSql, coerceParams(params) as any)
-            logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0, rowCount: rows.length })
+            logger.debug('db', `SQL ${op} ${table} OK`, {
+              op,
+              table,
+              costMs: Date.now() - t0,
+              rowCount: rows.length,
+            })
             return rows as unknown as T[]
           } catch (err) {
-            logger.error('db', `SQL ${op} ${table} FAILED`, { op, table, error: (err as Error).message, costMs: Date.now() - t0, sql: pgSql })
+            logger.error('db', `SQL ${op} ${table} FAILED`, {
+              op,
+              table,
+              error: (err as Error).message,
+              costMs: Date.now() - t0,
+              sql: pgSql,
+            })
             throw err
           }
         },
@@ -339,7 +439,11 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
         logger.debug('db', `SQL EXEC OK`, { costMs: Date.now() - t0 })
         return result
       } catch (err) {
-        logger.error('db', `SQL EXEC FAILED`, { error: (err as Error).message, costMs: Date.now() - t0, sql })
+        logger.error('db', `SQL EXEC FAILED`, {
+          error: (err as Error).message,
+          costMs: Date.now() - t0,
+          sql,
+        })
         throw err
       }
     },
@@ -348,11 +452,14 @@ const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
         if (!client) throw new Error('PG client not available')
         const t0 = Date.now()
         try {
-          const result = await client.begin(async () => fn()) as T
+          const result = (await client.begin(async () => fn())) as T
           logger.debug('db', `TRANSACTION OK`, { costMs: Date.now() - t0 })
           return result
         } catch (err) {
-          logger.error('db', `TRANSACTION FAILED`, { error: (err as Error).message, costMs: Date.now() - t0 })
+          logger.error('db', `TRANSACTION FAILED`, {
+            error: (err as Error).message,
+            costMs: Date.now() - t0,
+          })
           throw err
         }
       }
@@ -380,7 +487,9 @@ const initPostgres = () => {
 
   // 确保 app schema 存在 + ai_usage_logs 表自动创建
   pgClient.unsafe(`CREATE SCHEMA IF NOT EXISTS app`).catch(() => {})
-  pgClient.unsafe(`
+  pgClient
+    .unsafe(
+      `
     CREATE TABLE IF NOT EXISTS app.ai_usage_logs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       feature VARCHAR(32) NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
@@ -395,12 +504,22 @@ const initPostgres = () => {
       metadata JSONB,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
-  `).catch((e: unknown) => {
-    // 忽略建表失败（可能用户已手动建过）
-    logger.debug('db', 'PG ai_usage_logs 建表跳过或已存在', { error: (e as Error).message })
-  })
-  pgClient.unsafe(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON app.ai_usage_logs(created_at DESC)`).catch(() => {})
-  pgClient.unsafe(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON app.ai_usage_logs(feature, created_at DESC)`).catch(() => {})
+  `,
+    )
+    .catch((e: unknown) => {
+      // 忽略建表失败（可能用户已手动建过）
+      logger.debug('db', 'PG ai_usage_logs 建表跳过或已存在', { error: (e as Error).message })
+    })
+  pgClient
+    .unsafe(
+      `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON app.ai_usage_logs(created_at DESC)`,
+    )
+    .catch(() => {})
+  pgClient
+    .unsafe(
+      `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON app.ai_usage_logs(feature, created_at DESC)`,
+    )
+    .catch(() => {})
 }
 
 // ─────────────────────────────────────────────

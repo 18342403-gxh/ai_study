@@ -41,21 +41,16 @@ declare global {
 }
 
 contextBridge.exposeInMainWorld('desktop', {
-  chooseDirectory: () =>
-    ipcRenderer.invoke(DESKTOP.CHOOSE_DIRECTORY),
+  chooseDirectory: () => ipcRenderer.invoke(DESKTOP.CHOOSE_DIRECTORY),
 
   saveFile: (filename: string, content: string) =>
     ipcRenderer.invoke(DESKTOP.SAVE_FILE, filename, content),
 
-  openExternal: (url: string) =>
-    ipcRenderer.invoke(DESKTOP.OPEN_EXTERNAL, url),
+  openExternal: (url: string) => ipcRenderer.invoke(DESKTOP.OPEN_EXTERNAL, url),
 
-  getAppInfo: () =>
-    ipcRenderer.invoke(DESKTOP.GET_APP_INFO),
+  getAppInfo: () => ipcRenderer.invoke(DESKTOP.GET_APP_INFO),
 
-  setApiKey: (key: string) =>
-    ipcRenderer.invoke(SERVER.SET_API_KEY, key),
+  setApiKey: (key: string) => ipcRenderer.invoke(SERVER.SET_API_KEY, key),
 
-  getServerStatus: () =>
-    ipcRenderer.invoke(SERVER.GET_STATUS),
+  getServerStatus: () => ipcRenderer.invoke(SERVER.GET_STATUS),
 })

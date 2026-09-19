@@ -13,7 +13,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react'
-import { UploadOutline } from 'antd-mobile-icons'
+import { Upload } from 'lucide-react'
 
 /** 允许的文件类型 */
 const ACCEPTED_TYPES = ['.txt', '.md', '.json']
@@ -46,49 +46,52 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({ onFileLoaded }) => {
    * 📝 面试考点：FileReader 异步读取文件内容
    * readAsText 将文件内容读为字符串
    */
-  const handleFile = useCallback(async (file: File) => {
-    const validationError = validateFile(file)
-    if (validationError) {
-      setError(validationError)
-      return
-    }
+  const handleFile = useCallback(
+    async (file: File) => {
+      const validationError = validateFile(file)
+      if (validationError) {
+        setError(validationError)
+        return
+      }
 
-    setError('')
-    setIsUploading(true)
-    setUploadProgress(0)
+      setError('')
+      setIsUploading(true)
+      setUploadProgress(0)
 
-    // 模拟上传进度（实际项目中用 XHR 的 progress 事件）
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev) => Math.min(prev + 20, 90))
-    }, 200)
+      // 模拟上传进度（实际项目中用 XHR 的 progress 事件）
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => Math.min(prev + 20, 90))
+      }, 200)
 
-    try {
-      // 📝 面试考点：使用 FileReader 读取文件文本内容
-      const content = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.onerror = () => reject(new Error('文件读取失败'))
-        reader.readAsText(file)
-      })
+      try {
+        // 📝 面试考点：使用 FileReader 读取文件文本内容
+        const content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = () => reject(new Error('文件读取失败'))
+          reader.readAsText(file)
+        })
 
-      clearInterval(progressInterval)
-      setUploadProgress(100)
+        clearInterval(progressInterval)
+        setUploadProgress(100)
 
-      // 通知父组件
-      onFileLoaded(file.name, content)
+        // 通知父组件
+        onFileLoaded(file.name, content)
 
-      // 重置状态
-      setTimeout(() => {
+        // 重置状态
+        setTimeout(() => {
+          setIsUploading(false)
+          setUploadProgress(0)
+        }, 500)
+      } catch (err) {
+        clearInterval(progressInterval)
+        setError(err instanceof Error ? err.message : '文件处理失败')
         setIsUploading(false)
         setUploadProgress(0)
-      }, 500)
-    } catch (err) {
-      clearInterval(progressInterval)
-      setError(err instanceof Error ? err.message : '文件处理失败')
-      setIsUploading(false)
-      setUploadProgress(0)
-    }
-  }, [onFileLoaded])
+      }
+    },
+    [onFileLoaded],
+  )
 
   /**
    * 📝 面试考点：拖拽上传的事件处理
@@ -105,19 +108,25 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({ onFileLoaded }) => {
     setIsDragOver(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
-  }, [handleFile])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsDragOver(false)
+      const file = e.dataTransfer.files[0]
+      if (file) handleFile(file)
+    },
+    [handleFile],
+  )
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) handleFile(file)
-    // 重置 input 以便重复选择同一文件
-    if (inputRef.current) inputRef.current.value = ''
-  }, [handleFile])
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      if (file) handleFile(file)
+      // 重置 input 以便重复选择同一文件
+      if (inputRef.current) inputRef.current.value = ''
+    },
+    [handleFile],
+  )
 
   return (
     <div>
@@ -133,7 +142,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({ onFileLoaded }) => {
             : 'border-slate-600 hover:border-slate-500'
         }`}
       >
-        <UploadOutline className="text-2xl text-slate-400 mx-auto mb-2" />
+        <Upload className="w-10 h-10 text-slate-400 mx-auto mb-2" />
         <p className="text-sm text-slate-400">点击或拖拽文件到这里</p>
         <p className="text-xs text-slate-500 mt-1">支持 TXT、MD、JSON，最大 5MB</p>
       </div>
@@ -164,9 +173,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({ onFileLoaded }) => {
       )}
 
       {/* 错误提示 */}
-      {error && (
-        <p className="mt-2 text-xs text-rose-400">{error}</p>
-      )}
+      {error && <p className="mt-2 text-xs text-rose-400">{error}</p>}
     </div>
   )
 }

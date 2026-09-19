@@ -29,10 +29,12 @@ const executeSchema = z.object({
 })
 
 const runSchema = z.object({
-  messages: z.array(z.object({
-    role: z.enum(['user', 'assistant', 'system', 'tool']),
-    content: z.string(),
-  })),
+  messages: z.array(
+    z.object({
+      role: z.enum(['user', 'assistant', 'system', 'tool']),
+      content: z.string(),
+    }),
+  ),
   userInput: z.string().optional(),
   allowedToolIds: z.array(z.string()).optional(),
   maxIterations: z.coerce.number().int().min(1).max(20).default(5),
@@ -46,9 +48,8 @@ router.get(
   asyncHandler(async (req, res) => {
     logger.info('tools.route', 'GET /list — 入口')
     const allowedIds = req.query.allowedToolIds as string[] | undefined
-    const tools = allowedIds && allowedIds.length > 0
-      ? getToolsByWhitelist(allowedIds)
-      : getAllTools()
+    const tools =
+      allowedIds && allowedIds.length > 0 ? getToolsByWhitelist(allowedIds) : getAllTools()
 
     logger.info('tools.route', 'GET /list — 出口', { count: tools.length })
     res.json({
@@ -59,7 +60,7 @@ router.get(
       })),
       count: tools.length,
     })
-  })
+  }),
 )
 
 /** POST /api/tools/execute — 直接执行单个工具 */
@@ -72,7 +73,7 @@ router.post(
     const result = await executeTool(toolName, args, { sessionId })
     logger.info('tools.route', 'POST /execute — 出口', { toolName })
     res.json({ toolName, result })
-  })
+  }),
 )
 
 /** POST /api/tools/run — 启动 Function Calling 循环（流式事件） */
@@ -95,7 +96,10 @@ router.post(
     })
 
     try {
-      for await (const event of engine.stream(messages as Array<{ role: string; content: string }>, userInput)) {
+      for await (const event of engine.stream(
+        messages as Array<{ role: string; content: string }>,
+        userInput,
+      )) {
         res.write(`data: ${JSON.stringify(event)}\n\n`)
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
@@ -106,7 +110,7 @@ router.post(
       res.write(`data: ${JSON.stringify({ type: 'error', message: (err as Error).message })}\n\n`)
     }
     res.end()
-  })
+  }),
 )
 
 export default router

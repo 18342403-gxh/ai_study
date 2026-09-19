@@ -4,7 +4,9 @@
     <aside class="w-56 bg-sidebar-bg border-r border-sidebar-border flex flex-col flex-shrink-0">
       <!-- Logo + 标题 -->
       <div class="h-14 flex items-center gap-2.5 px-4 border-b border-sidebar-border">
-        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white text-sm font-bold shadow-sm">
+        <div
+          class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white text-sm font-bold shadow-sm"
+        >
           G
         </div>
         <div class="min-w-0">
@@ -15,7 +17,9 @@
 
       <!-- 导航 -->
       <nav class="flex-1 py-2 overflow-y-auto light-scroll">
-        <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">生成</div>
+        <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+          生成
+        </div>
 
         <button
           @click="activeTab = 'component'"
@@ -46,7 +50,9 @@
         <!-- 分隔线 -->
         <div class="my-3 mx-3 h-px bg-slate-200"></div>
 
-        <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">历史</div>
+        <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+          历史
+        </div>
         <button
           @click="activeTab = 'history'"
           :class="[
@@ -58,7 +64,11 @@
         >
           <History class="w-4 h-4" />
           <span>我的生成</span>
-          <span v-if="historyCount > 0" class="ml-auto text-[10px] bg-primary-100 text-primary-600 px-1.5 py-0.5 rounded-full">{{ historyCount }}</span>
+          <span
+            v-if="historyCount > 0"
+            class="ml-auto text-[10px] bg-primary-100 text-primary-600 px-1.5 py-0.5 rounded-full"
+            >{{ historyCount }}</span
+          >
         </button>
       </nav>
 
@@ -97,7 +107,9 @@ async function fetchHistoryCount() {
       const list = await res.json()
       historyCount.value = list.length
     }
-  } catch { /* BFF 没启动就静默忽略 */ }
+  } catch {
+    /* BFF 没启动就静默忽略 */
+  }
 }
 
 onMounted(fetchHistoryCount)

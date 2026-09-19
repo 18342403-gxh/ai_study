@@ -23,12 +23,12 @@ export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 
 export interface LogRecord {
   id: number
-  time: string             // ISO
+  time: string // ISO
   level: LogLevel
-  tag: string              // 模块标签：generator / db / rag / http ...
-  requestId?: string       // 可选，链路追踪
+  tag: string // 模块标签：generator / db / rag / http ...
+  requestId?: string // 可选，链路追踪
   message: string
-  data?: unknown           // 结构化上下文（JSON 可序列化）
+  data?: unknown // 结构化上下文（JSON 可序列化）
 }
 
 const MAX_RECORDS = 2000
@@ -48,7 +48,11 @@ function push(rec: LogRecord) {
   if (ring.length > MAX_RECORDS) ring.shift()
   queueMicrotask(() => {
     for (const fn of subscribers) {
-      try { fn(rec) } catch { /* 忽略订阅者异常 */ }
+      try {
+        fn(rec)
+      } catch {
+        /* 忽略订阅者异常 */
+      }
     }
   })
 }
@@ -59,8 +63,8 @@ function push(rec: LogRecord) {
 
 export function getLogs(filter?: { level?: LogLevel; tag?: string; limit?: number }): LogRecord[] {
   let arr = [...ring]
-  if (filter?.level) arr = arr.filter(r => r.level === filter.level)
-  if (filter?.tag) arr = arr.filter(r => r.tag === filter.tag)
+  if (filter?.level) arr = arr.filter((r) => r.level === filter.level)
+  if (filter?.tag) arr = arr.filter((r) => r.tag === filter.tag)
   if (filter?.limit && filter.limit > 0) arr = arr.slice(-filter.limit)
   return arr
 }
@@ -94,10 +98,10 @@ function currentRequestId(): string | undefined {
 // ──────────────────────────────────────────────────
 
 const COLORS: Record<LogLevel, string> = {
-  DEBUG: '\x1b[36m',  // 青
-  INFO:  '\x1b[32m',  // 绿
-  WARN:  '\x1b[33m',  // 黄
-  ERROR: '\x1b[31m',  // 红
+  DEBUG: '\x1b[36m', // 青
+  INFO: '\x1b[32m', // 绿
+  WARN: '\x1b[33m', // 黄
+  ERROR: '\x1b[31m', // 红
 }
 const RESET = '\x1b[0m'
 
@@ -130,7 +134,7 @@ function log(level: LogLevel, tag: string, message: string, data?: unknown) {
 
 export const logger = {
   debug: (tag: string, message: string, data?: unknown) => log('DEBUG', tag, message, data),
-  info:  (tag: string, message: string, data?: unknown) => log('INFO',  tag, message, data),
-  warn:  (tag: string, message: string, data?: unknown) => log('WARN',  tag, message, data),
+  info: (tag: string, message: string, data?: unknown) => log('INFO', tag, message, data),
+  warn: (tag: string, message: string, data?: unknown) => log('WARN', tag, message, data),
   error: (tag: string, message: string, data?: unknown) => log('ERROR', tag, message, data),
 }

@@ -14,7 +14,13 @@ import { z } from 'zod'
 import { randomUUID } from 'crypto'
 import { createChatChain } from '../chain/chatChain.js'
 import { createRAGService } from '../rag/index.js'
-import { createCodegenEngine, type ArtifactType, type Framework, type CodegenResult, type GeneratedFile } from './codegen.js'
+import {
+  createCodegenEngine,
+  type ArtifactType,
+  type Framework,
+  type CodegenResult,
+  type GeneratedFile,
+} from './codegen.js'
 import { getDb } from '../../db/index.js'
 import { logger } from '../logger.js'
 
@@ -32,13 +38,13 @@ export interface GeneratorState {
   id: string
   artifactType: ArtifactType
   requirement: string
-  skillName?: string          // Skill 模式专属
-  framework?: Framework       // Component 模式专属
+  skillName?: string // Skill 模式专属
+  framework?: Framework // Component 模式专属
   clarifiedRequirement?: string
   references: string[]
   result?: CodegenResult
   previewInfo?: {
-    type: 'iframe' | 'markdown'  // component 用 iframe，skill 用 markdown
+    type: 'iframe' | 'markdown' // component 用 iframe，skill 用 markdown
     url?: string
     files?: GeneratedFile[]
   }
@@ -125,7 +131,8 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
       scriptLang?: 'ts' | 'py'
       initialFeedback?: string
     }): AsyncGenerator<GeneratorStreamEvent> {
-      const { requirement, artifactType, framework, skillName, scriptLang, initialFeedback } = params
+      const { requirement, artifactType, framework, skillName, scriptLang, initialFeedback } =
+        params
 
       if (artifactType === 'skill' && !skillName) {
         yield { event: 'on_error', data: { message: 'Skill 模式必须提供 skillName' } }
@@ -148,16 +155,29 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
         history: [],
       }
 
-      yield { event: 'on_chain_start', node: 'clarify', data: { requirement, artifactType, framework, skillName } }
+      yield {
+        event: 'on_chain_start',
+        node: 'clarify',
+        data: { requirement, artifactType, framework, skillName },
+      }
 
-      logger.info('generator.stream', '开始生成', { artifactType, framework, skillName, stateId: state.id })
+      logger.info('generator.stream', '开始生成', {
+        artifactType,
+        framework,
+        skillName,
+        stateId: state.id,
+      })
       const t0 = Date.now()
 
       try {
         // Node 1: Clarify — 需求细化（按 type 分流 prompt）
         logger.debug('generator.clarify', 'LLM 调用中', { type: artifactType })
         const clarified = await clarify(requirement, artifactType)
-        logger.info('generator.clarify', '需求细化完成', { stateId: state.id, resultLen: clarified.length, costMs: Date.now() - t0 })
+        logger.info('generator.clarify', '需求细化完成', {
+          stateId: state.id,
+          resultLen: clarified.length,
+          costMs: Date.now() - t0,
+        })
         state.clarifiedRequirement = clarified
         state.status = 'retrieving'
         state.history.push({ node: 'clarify', content: clarified, timestamp: Date.now() })
@@ -165,23 +185,44 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
         // Node 2: Retrieve — RAG 检索
         yield { event: 'on_chain_start', node: 'retrieve' }
-        const references = config.enableRAG === false
-          ? []
-          : await retrieve(clarified, artifactType)
-        logger.info('generator.retrieve', 'RAG 检索完成', { stateId: state.id, referenceCount: references.length })
+        const references = config.enableRAG === false ? [] : await retrieve(clarified, artifactType)
+        logger.info('generator.retrieve', 'RAG 检索完成', {
+          stateId: state.id,
+          referenceCount: references.length,
+        })
         state.references = references
         state.status = 'generating'
-        state.history.push({ node: 'retrieve', content: `found ${references.length} references`, timestamp: Date.now() })
-        yield { event: 'on_chain_end', node: 'retrieve', data: { referenceCount: references.length } }
+        state.history.push({
+          node: 'retrieve',
+          content: `found ${references.length} references`,
+          timestamp: Date.now(),
+        })
+        yield {
+          event: 'on_chain_end',
+          node: 'retrieve',
+          data: { referenceCount: references.length },
+        }
 
         // Node 3: Generate — 代码生成（流式）
         yield { event: 'on_chain_start', node: 'generate', data: { iteration: 1, artifactType } }
         logger.info('generator.generate', '开始代码生成', { stateId: state.id, artifactType })
 
         // 构造 codegen 请求（discriminated union 正确分流）
-        const codegenReq = artifactType === 'component'
-          ? { type: 'component' as const, requirement: clarified, framework: framework!, references }
-          : { type: 'skill' as const, requirement: clarified, skillName: skillName!, scriptLang, references }
+        const codegenReq =
+          artifactType === 'component'
+            ? {
+                type: 'component' as const,
+                requirement: clarified,
+                framework: framework!,
+                references,
+              }
+            : {
+                type: 'skill' as const,
+                requirement: clarified,
+                skillName: skillName!,
+                scriptLang,
+                references,
+              }
 
         let fullContent = ''
         let chunkCount = 0
@@ -200,10 +241,19 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
             }
           }
         }
-        logger.info('generator.generate', '代码生成完成', { stateId: state.id, chunkCount, totalChars: fullContent.length, costMs: Date.now() - t0 })
+        logger.info('generator.generate', '代码生成完成', {
+          stateId: state.id,
+          chunkCount,
+          totalChars: fullContent.length,
+          costMs: Date.now() - t0,
+        })
 
         state.status = 'previewing'
-        state.history.push({ node: 'generate', content: fullContent.slice(0, 200), timestamp: Date.now() })
+        state.history.push({
+          node: 'generate',
+          content: fullContent.slice(0, 200),
+          timestamp: Date.now(),
+        })
         yield { event: 'on_chain_end', node: 'generate', data: state.result }
 
         // Node 4: Preview — 按 type 降级
@@ -218,7 +268,11 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
         }
 
         state.status = 'completed'
-        state.history.push({ node: 'preview', content: JSON.stringify(state.previewInfo), timestamp: Date.now() })
+        state.history.push({
+          node: 'preview',
+          content: JSON.stringify(state.previewInfo),
+          timestamp: Date.now(),
+        })
         yield { event: 'on_chain_end', node: 'preview', data: state.previewInfo }
 
         // Node 5: Iterate — 收集反馈（由外部触发 resume）
@@ -235,19 +289,24 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
         // 持久化
         await persistGeneratorState(state)
-        logger.info('generator.stream', '生成完成', { stateId: state.id, totalCostMs: Date.now() - t0, iteration: state.iteration })
+        logger.info('generator.stream', '生成完成', {
+          stateId: state.id,
+          totalCostMs: Date.now() - t0,
+          iteration: state.iteration,
+        })
       } catch (err) {
         state.status = 'error'
-        logger.error('generator.stream', '生成失败', { stateId: state.id, error: (err as Error).message, costMs: Date.now() - t0 })
+        logger.error('generator.stream', '生成失败', {
+          stateId: state.id,
+          error: (err as Error).message,
+          costMs: Date.now() - t0,
+        })
         yield { event: 'on_error', data: { message: (err as Error).message } }
       }
     },
 
     /** 根据反馈迭代重新生成 */
-    async *iterate(
-      stateId: string,
-      feedback: string
-    ): AsyncGenerator<GeneratorStreamEvent> {
+    async *iterate(stateId: string, feedback: string): AsyncGenerator<GeneratorStreamEvent> {
       const state = await getGeneratorState(stateId)
       if (!state) {
         yield { event: 'on_error', data: { message: '状态不存在' } }
@@ -258,13 +317,28 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
       state.status = 'generating'
       state.feedback = feedback
 
-      yield { event: 'on_chain_start', node: 'iterate', data: { iteration: state.iteration, feedback } }
+      yield {
+        event: 'on_chain_start',
+        node: 'iterate',
+        data: { iteration: state.iteration, feedback },
+      }
 
       const combinedRequirement = `${state.clarifiedRequirement || state.requirement}\n\n用户反馈：${feedback}`
 
-      const codegenReq = state.artifactType === 'component'
-        ? { type: 'component' as const, requirement: combinedRequirement, framework: state.framework!, references: state.references }
-        : { type: 'skill' as const, requirement: combinedRequirement, skillName: state.skillName!, references: state.references }
+      const codegenReq =
+        state.artifactType === 'component'
+          ? {
+              type: 'component' as const,
+              requirement: combinedRequirement,
+              framework: state.framework!,
+              references: state.references,
+            }
+          : {
+              type: 'skill' as const,
+              requirement: combinedRequirement,
+              skillName: state.skillName!,
+              references: state.references,
+            }
 
       let fullContent = ''
       for await (const genEvent of codegen.streamGenerate(codegenReq)) {
@@ -296,9 +370,9 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
 async function getGeneratorState(stateId: string): Promise<GeneratorState | null> {
   const db = getDb()
-  const row = await db
+  const row = (await db
     .prepare('SELECT state_json FROM generator_sessions WHERE id = ?')
-    .get(stateId) as { state_json: string } | undefined
+    .get(stateId)) as { state_json: string } | undefined
   return row ? JSON.parse(row.state_json) : null
 }
 
@@ -308,42 +382,46 @@ async function persistGeneratorState(state: GeneratorState): Promise<void> {
   const { artifactType, framework, skillName } = state
 
   // 1. 写入/更新 generator_sessions（session 级元数据 + state_json）
-  await db.prepare(
-    `INSERT INTO generator_sessions
+  await db
+    .prepare(
+      `INSERT INTO generator_sessions
        (id, requirement, artifact_type, framework, skill_name, script_lang, state_json, status, iteration, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        state_json = excluded.state_json,
        status = excluded.status,
        iteration = excluded.iteration,
-       updated_at = excluded.updated_at`
-  ).run(
-    state.id,
-    state.requirement,
-    artifactType,
-    framework || null,
-    skillName || null,
-    null,
-    JSON.stringify(state),
-    state.status,
-    state.iteration,
-    now,
-    now
-  )
+       updated_at = excluded.updated_at`,
+    )
+    .run(
+      state.id,
+      state.requirement,
+      artifactType,
+      framework || null,
+      skillName || null,
+      null,
+      JSON.stringify(state),
+      state.status,
+      state.iteration,
+      now,
+      now,
+    )
 
   // 2. 写入 generator_files（如果生成有产物）
   if (state.result?.files?.length) {
     // 先把当前迭代之前的 files 全部标记为非 current
-    await db.prepare(
-      `UPDATE generator_files SET is_current = false
-       WHERE session_id = ? AND iteration < ?`
-    ).run(state.id, state.iteration)
+    await db
+      .prepare(
+        `UPDATE generator_files SET is_current = false
+       WHERE session_id = ? AND iteration < ?`,
+      )
+      .run(state.id, state.iteration)
 
     // 写入新迭代的 files
     const insertFile = db.prepare(
       `INSERT INTO generator_files
          (id, session_id, iteration, file_path, content, language, is_current, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, true, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, true, ?)`,
     )
     const tx = db.transaction(async () => {
       for (const file of state.result!.files) {
@@ -354,7 +432,7 @@ async function persistGeneratorState(state: GeneratorState): Promise<void> {
           file.path,
           file.content,
           file.language || 'tsx',
-          now
+          now,
         )
       }
     })
@@ -364,24 +442,26 @@ async function persistGeneratorState(state: GeneratorState): Promise<void> {
 
 // ── Zod Schema（路由层用） ────────────────────────────────────
 
-export const generatorInputSchema = z.object({
-  requirement: z.string().min(1),
-  artifactType: z.enum(['component', 'skill']).default('component'),
-  framework: z.enum(['vue', 'react']).optional(),
-  skillName: z.string().optional(),
-  scriptLang: z.enum(['ts', 'py']).optional(),
-  enableRAG: z.boolean().default(true),
-}).refine(
-  (data) => {
-    if (data.artifactType === 'component') return !!data.framework
-    if (data.artifactType === 'skill') return !!data.skillName
-    return true
-  },
-  {
-    message: 'component 模式必须提供 framework，skill 模式必须提供 skillName',
-    path: ['artifactType'],
-  }
-)
+export const generatorInputSchema = z
+  .object({
+    requirement: z.string().min(1),
+    artifactType: z.enum(['component', 'skill']).default('component'),
+    framework: z.enum(['vue', 'react']).optional(),
+    skillName: z.string().optional(),
+    scriptLang: z.enum(['ts', 'py']).optional(),
+    enableRAG: z.boolean().default(true),
+  })
+  .refine(
+    (data) => {
+      if (data.artifactType === 'component') return !!data.framework
+      if (data.artifactType === 'skill') return !!data.skillName
+      return true
+    },
+    {
+      message: 'component 模式必须提供 framework，skill 模式必须提供 skillName',
+      path: ['artifactType'],
+    },
+  )
 
 export const generatorIterateSchema = z.object({
   stateId: z.string().min(1),

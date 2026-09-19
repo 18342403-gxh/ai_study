@@ -19,7 +19,10 @@ const router = Router()
 
 const pauseSchema = z.object({ threadId: z.string().min(1) })
 const resumeSchema = z.object({ threadId: z.string().min(1), input: z.string().min(1) })
-const rollbackSchema = z.object({ threadId: z.string().min(1), step: z.coerce.number().int().min(0) })
+const rollbackSchema = z.object({
+  threadId: z.string().min(1),
+  step: z.coerce.number().int().min(0),
+})
 
 /** POST /api/agent/run — 启动 Agent 流式执行 */
 router.post(
@@ -50,11 +53,14 @@ router.post(
       logger.info('agent.route', 'POST /run — 完成', { threadId: tid })
     } catch (err) {
       if (!res.headersSent) throw err
-      logger.error('agent.route', 'POST /run — 错误', { threadId: tid, error: (err as Error).message })
+      logger.error('agent.route', 'POST /run — 错误', {
+        threadId: tid,
+        error: (err as Error).message,
+      })
       res.write(`data: ${JSON.stringify({ type: 'error', message: (err as Error).message })}\n\n`)
     }
     res.end()
-  })
+  }),
 )
 
 /** POST /api/agent/pause */
@@ -67,7 +73,7 @@ router.post(
     const state = executor.pause(req.body.threadId)
     logger.info('agent.route', 'POST /pause — 出口', { threadId: req.body.threadId })
     res.json({ success: true, state })
-  })
+  }),
 )
 
 /** POST /api/agent/resume */
@@ -89,7 +95,7 @@ router.post(
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
     logger.info('agent.route', 'POST /resume — 完成', { threadId: req.body.threadId })
     res.end()
-  })
+  }),
 )
 
 /** POST /api/agent/rollback */
@@ -97,12 +103,15 @@ router.post(
   '/rollback',
   validate({ body: rollbackSchema }),
   asyncHandler(async (req, res) => {
-    logger.info('agent.route', 'POST /rollback — 入口', { threadId: req.body.threadId, step: req.body.step })
+    logger.info('agent.route', 'POST /rollback — 入口', {
+      threadId: req.body.threadId,
+      step: req.body.step,
+    })
     const executor = createAgentExecutor()
     const state = executor.rollback(req.body.threadId, req.body.step)
     logger.info('agent.route', 'POST /rollback — 出口', { threadId: req.body.threadId })
     res.json({ success: true, state })
-  })
+  }),
 )
 
 /** GET /api/agent/status/:threadId */
@@ -113,7 +122,7 @@ router.get<{ threadId: string }>(
     const state = getState(req.params.threadId)
     logger.info('agent.route', 'GET /status/:threadId — 出口', { threadId: req.params.threadId })
     res.json(state)
-  })
+  }),
 )
 
 export default router

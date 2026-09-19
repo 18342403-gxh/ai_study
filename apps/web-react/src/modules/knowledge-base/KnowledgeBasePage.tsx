@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { LeftOutline, ContentOutline, SearchOutline } from 'antd-mobile-icons'
+import { ChevronLeft, BookOpen, Search, ChevronDown, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import MarkdownRenderer from '../../components/MarkdownRenderer'
@@ -40,7 +40,9 @@ const KnowledgeBasePage: React.FC = () => {
     }
   }, [])
 
-  useEffect(() => { fetchDocuments() }, [fetchDocuments])
+  useEffect(() => {
+    fetchDocuments()
+  }, [fetchDocuments])
 
   // 轮询 processing 状态
   useEffect(() => {
@@ -55,7 +57,9 @@ const KnowledgeBasePage: React.FC = () => {
     setDocuments((prev) => prev.filter((d) => d.id !== docId))
   }, [])
 
-  const handleUploadComplete = useCallback(() => { fetchDocuments() }, [fetchDocuments])
+  const handleUploadComplete = useCallback(() => {
+    fetchDocuments()
+  }, [fetchDocuments])
 
   // 知识问答（SSE 流式）
   const handleQuery = useCallback(async () => {
@@ -99,15 +103,23 @@ const KnowledgeBasePage: React.FC = () => {
 
           try {
             const parsed = JSON.parse(data)
-            if (parsed.type === 'citations') { setCitations(parsed.citations); continue }
-            if (parsed.type === 'error') { setError(parsed.error); continue }
+            if (parsed.type === 'citations') {
+              setCitations(parsed.citations)
+              continue
+            }
+            if (parsed.type === 'error') {
+              setError(parsed.error)
+              continue
+            }
             const content = parsed.choices?.[0]?.delta?.content
             if (content) {
               fullAnswer += content
               setAnswer(fullAnswer)
               answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
             }
-          } catch { /* 非 JSON 跳过 */ }
+          } catch {
+            /* 非 JSON 跳过 */
+          }
         }
       }
     } catch (err) {
@@ -129,13 +141,13 @@ const KnowledgeBasePage: React.FC = () => {
       <header className="shrink-0 px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 mb-3">
           <button type="button" onClick={() => navigate(-1)} className="text-slate-400">
-            <LeftOutline />
+            <ChevronLeft className="w-5 h-5 text-slate-400" />
           </button>
           <div className="flex-1">
             <h1 className="text-base font-semibold gradient-text">知识库</h1>
             <p className="text-xs text-slate-500">企业级文档问答系统</p>
           </div>
-          <ContentOutline className="text-indigo-400 text-lg" />
+          <BookOpen className="w-5 h-5 text-indigo-400" />
         </div>
 
         {/* 统计卡片 */}
@@ -160,9 +172,7 @@ const KnowledgeBasePage: React.FC = () => {
             type="button"
             onClick={() => setActiveTab('docs')}
             className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'docs'
-                ? 'bg-indigo-500/40 text-indigo-200 shadow-sm'
-                : 'text-slate-400'
+              activeTab === 'docs' ? 'bg-indigo-500/40 text-indigo-200 shadow-sm' : 'text-slate-400'
             }`}
           >
             文档管理
@@ -171,9 +181,7 @@ const KnowledgeBasePage: React.FC = () => {
             type="button"
             onClick={() => setActiveTab('chat')}
             className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'chat'
-                ? 'bg-indigo-500/40 text-indigo-200 shadow-sm'
-                : 'text-slate-400'
+              activeTab === 'chat' ? 'bg-indigo-500/40 text-indigo-200 shadow-sm' : 'text-slate-400'
             }`}
           >
             智能问答
@@ -201,7 +209,7 @@ const KnowledgeBasePage: React.FC = () => {
             {/* 搜索/提问区 */}
             <div className="relative mb-4">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                <SearchOutline fontSize={14} />
+                <Search className="w-3.5 h-3.5 text-slate-500" />
               </div>
               <input
                 type="text"
@@ -226,7 +234,7 @@ const KnowledgeBasePage: React.FC = () => {
             {/* 空状态 */}
             {!hasReadyDocs && !answer && (
               <div className="text-center py-12">
-                <ContentOutline className="text-3xl text-slate-600 mx-auto mb-3" />
+                <BookOpen className="w-12 h-12 text-slate-600 mx-auto mb-3" />
                 <p className="text-sm text-slate-400">上传文档后即可开始智能问答</p>
                 <p className="text-xs text-slate-600 mt-1">支持 PDF、TXT、Markdown 格式</p>
               </div>
@@ -272,7 +280,11 @@ const KnowledgeBasePage: React.FC = () => {
                       onClick={() => setIsCitationsExpanded(!isCitationsExpanded)}
                       className="text-xs text-indigo-400 mb-2 flex items-center gap-1"
                     >
-                      <span>{isCitationsExpanded ? '▼' : '▶'}</span>
+                      {isCitationsExpanded ? (
+                        <ChevronDown className="w-3 h-3" />
+                      ) : (
+                        <ChevronRight className="w-3 h-3" />
+                      )}
                       <span>引用来源 ({citations.length})</span>
                     </button>
                     {isCitationsExpanded && (

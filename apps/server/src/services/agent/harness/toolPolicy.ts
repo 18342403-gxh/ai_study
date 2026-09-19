@@ -68,7 +68,7 @@ export function clearToolPolicies(): void {
  */
 export function checkToolPolicy(
   toolName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
 ): HarnessCheckResult {
   const rule = policyMap.get(toolName)
 

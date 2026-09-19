@@ -41,49 +41,49 @@ export const useChat = (): UseChatReturn => {
     controllerRef.current = null
   }, [])
 
-  const send = useCallback(async (messages: Message[]) => {
-    // 取消上一次未完成的请求
-    cancel()
+  const send = useCallback(
+    async (messages: Message[]) => {
+      // 取消上一次未完成的请求
+      cancel()
 
-    setIsLoading(true)
-    setError('')
-    setReply('')
+      setIsLoading(true)
+      setError('')
+      setReply('')
 
-    // 📝 面试考点：每次请求创建新的 AbortController 实例
-    const controller = new AbortController()
-    controllerRef.current = controller
+      // 📝 面试考点：每次请求创建新的 AbortController 实例
+      const controller = new AbortController()
+      controllerRef.current = controller
 
-    // 📝 面试考点：setTimeout + abort() 实现请求超时
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
+      // 📝 面试考点：setTimeout + abort() 实现请求超时
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
-    try {
-      const response = await fetchChatCompletion(
-        { messages },
-        controller.signal
-      )
+      try {
+        const response = await fetchChatCompletion({ messages }, controller.signal)
 
-      clearTimeout(timeoutId)
+        clearTimeout(timeoutId)
 
-      const content = response.choices[0]?.message?.content || ''
-      setReply(content)
-    } catch (err) {
-      clearTimeout(timeoutId)
+        const content = response.choices[0]?.message?.content || ''
+        setReply(content)
+      } catch (err) {
+        clearTimeout(timeoutId)
 
-      // 📝 面试考点：区分 AbortError（超时/取消）和其他错误
-      if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          setError('请求超时或已取消')
+        // 📝 面试考点：区分 AbortError（超时/取消）和其他错误
+        if (err instanceof Error) {
+          if (err.name === 'AbortError') {
+            setError('请求超时或已取消')
+          } else {
+            setError(err.message)
+          }
         } else {
-          setError(err.message)
+          setError('未知错误')
         }
-      } else {
-        setError('未知错误')
+      } finally {
+        setIsLoading(false)
+        controllerRef.current = null
       }
-    } finally {
-      setIsLoading(false)
-      controllerRef.current = null
-    }
-  }, [cancel])
+    },
+    [cancel],
+  )
 
   return { reply, isLoading, error, send, cancel }
 }

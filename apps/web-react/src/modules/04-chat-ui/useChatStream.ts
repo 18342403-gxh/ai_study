@@ -28,58 +28,61 @@ export const useChatStream = (messages: ChatMessage[]): UseChatStreamReturn => {
     setIsStreaming(false)
   }, [])
 
-  const handleSend = useCallback(async (content: string) => {
-    if (!content.trim() || isStreaming) return
+  const handleSend = useCallback(
+    async (content: string) => {
+      if (!content.trim() || isStreaming) return
 
-    // 添加用户消息到 store
-    dispatch(addMessage({ role: 'user', content }))
-    setIsStreaming(true)
+      // 添加用户消息到 store
+      dispatch(addMessage({ role: 'user', content }))
+      setIsStreaming(true)
 
-    const controller = new AbortController()
-    controllerRef.current = controller
+      const controller = new AbortController()
+      controllerRef.current = controller
 
-    try {
-      // 通过统一服务层发起流式请求
-      const response = await chatCompletionStream({
-        messages: [
-          { role: 'system', content: '你是一个友好的 AI 助手，请用中文回答。' },
-          ...messages.map((m) => ({ role: m.role, content: m.content })),
-          { role: 'user', content },
-        ],
-        signal: controller.signal,
-      })
+      try {
+        // 通过统一服务层发起流式请求
+        const response = await chatCompletionStream({
+          messages: [
+            { role: 'system', content: '你是一个友好的 AI 助手，请用中文回答。' },
+            ...messages.map((m) => ({ role: m.role, content: m.content })),
+            { role: 'user', content },
+          ],
+          signal: controller.signal,
+        })
 
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('无法获取响应流')
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error('无法获取响应流')
 
-      const decoder = new TextDecoder()
-      const parse = createSSEParser()
-      let assistantContent = ''
+        const decoder = new TextDecoder()
+        const parse = createSSEParser()
+        let assistantContent = ''
 
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
 
-        const text = decoder.decode(value, { stream: true })
-        const results = parse(text)
+          const text = decoder.decode(value, { stream: true })
+          const results = parse(text)
 
-        for (const result of results) {
-          if (result.done) break
-          if (result.content) {
-            assistantContent += result.content
-            dispatch(updateLastAssistant(assistantContent))
+          for (const result of results) {
+            if (result.done) break
+            if (result.content) {
+              assistantContent += result.content
+              dispatch(updateLastAssistant(assistantContent))
+            }
           }
         }
+      } catch (err) {
+        if (err instanceof Error && err.name !== 'AbortError') {
+          dispatch(updateLastAssistant(`请求出错：${err.message}`))
+        }
+      } finally {
+        setIsStreaming(false)
+        controllerRef.current = null
       }
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        dispatch(updateLastAssistant(`请求出错：${err.message}`))
-      }
-    } finally {
-      setIsStreaming(false)
-      controllerRef.current = null
-    }
-  }, [isStreaming, messages, dispatch])
+    },
+    [isStreaming, messages, dispatch],
+  )
 
   return { isStreaming, handleSend, handleStop }
 }

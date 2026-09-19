@@ -32,9 +32,7 @@ const KbCitationCard: React.FC<KbCitationCardProps> = ({ citation }) => {
           </span>
         </div>
       </div>
-      <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">
-        {citation.content}
-      </p>
+      <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{citation.content}</p>
     </div>
   )
 }

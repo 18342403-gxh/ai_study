@@ -19,7 +19,7 @@ import { toolDefinitions } from './tools/definitions'
 import { executeTools } from './tools/executor'
 import type { ToolCall, ToolResult } from './tools/executor'
 
-const MAX_TOOL_ROUNDS = 5  // 📝 面试考点：防止死循环的最大轮次
+const MAX_TOOL_ROUNDS = 5 // 📝 面试考点：防止死循环的最大轮次
 
 /** 对话中的消息（包含 tool 角色） */
 interface ChatMsg {
@@ -65,121 +65,141 @@ export const useToolChat = (): UseToolChatReturn => {
    * 📝 面试考点：工具调用的核心循环
    * 发送消息 → 检测 tool_calls → 执行工具 → 发回结果 → 再检测 → 直到无 tool_calls
    */
-  const handleSend = useCallback(async (content: string) => {
-    if (!content.trim() || isProcessing) return
+  const handleSend = useCallback(
+    async (content: string) => {
+      if (!content.trim() || isProcessing) return
 
-    setIsProcessing(true)
-    setError('')
-    setSteps([])
+      setIsProcessing(true)
+      setError('')
+      setSteps([])
 
-    const controller = new AbortController()
-    controllerRef.current = controller
+      const controller = new AbortController()
+      controllerRef.current = controller
 
-    // 维护完整的消息历史（包含 tool 消息）
-    const messages: ChatMsg[] = [
-      { role: 'system', content: '你是一个有用的助手，可以使用提供的工具来回答问题。' },
-      { role: 'user', content },
-    ]
+      // 维护完整的消息历史（包含 tool 消息）
+      const messages: ChatMsg[] = [
+        { role: 'system', content: '你是一个有用的助手，可以使用提供的工具来回答问题。' },
+        { role: 'user', content },
+      ]
 
-    try {
-      let roundCount = 0
+      try {
+        let roundCount = 0
 
-      // 📝 面试考点：循环检测 tool_calls，直到 AI 直接回复文字
-      while (roundCount < MAX_TOOL_ROUNDS) {
-        roundCount++
+        // 📝 面试考点：循环检测 tool_calls，直到 AI 直接回复文字
+        while (roundCount < MAX_TOOL_ROUNDS) {
+          roundCount++
 
-        const data = await chatWithTools({
-          messages: messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-            ...(m.tool_calls ? { tool_calls: m.tool_calls.map((tc) => ({ id: tc.id, type: 'function' as const, function: tc.function })) } : {}),
-            ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-            ...(m.name ? { name: m.name } : {}),
-          })),
-          tools: toolDefinitions,
-          signal: controller.signal,
-        })
-        const choice = data.choices?.[0]
-        const assistantMsg = choice?.message
-
-        if (!assistantMsg) {
-          throw new Error('API 响应格式异常')
-        }
-
-        // 📝 面试考点：判断 AI 是否要调用工具
-        const hasToolCalls = assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0
-
-        if (!hasToolCalls) {
-          // AI 直接回复文字 — 流程结束
-          setSteps((prev) => [...prev, {
-            id: `final-${roundCount}`,
-            type: 'final_answer',
-            content: assistantMsg.content || '',
-          }])
-          // 把 assistant 消息加入历史
-          messages.push({ role: 'assistant', content: assistantMsg.content || '' })
-          break
-        }
-
-        // AI 要调用工具 — 执行工具并构造 tool messages
-        messages.push({
-          role: 'assistant',
-          content: assistantMsg.content || '',
-          tool_calls: assistantMsg.tool_calls,
-        })
-
-        // 记录工具调用步骤（展示给 UI）
-        // 将 ToolCallInfo 映射为 executor 期望的 ToolCall 格式
-        const toolCalls: ToolCall[] = (assistantMsg.tool_calls || []).map((tc) => ({
-          id: tc.id,
-          function: tc.function,
-        }))
-        for (const tc of toolCalls) {
-          setSteps((prev) => [...prev, {
-            id: tc.id,
-            type: 'tool_call',
-            toolName: tc.function.name,
-            toolArgs: tc.function.arguments,
-          }])
-        }
-
-        // 📝 面试考点：执行所有工具并构造 tool message 发回
-        const results: ToolResult[] = executeTools(toolCalls)
-
-        for (const result of results) {
-          // 记录工具结果步骤
-          setSteps((prev) => [...prev, {
-            id: `result-${result.toolCallId}`,
-            type: 'tool_result',
-            toolName: result.name,
-            toolResult: result.result,
-            isError: result.isError,
-          }])
-
-          // 构造 tool message 加入消息历史
-          messages.push({
-            role: 'tool',
-            content: result.result,
-            tool_call_id: result.toolCallId,
-            name: result.name,
+          const data = await chatWithTools({
+            messages: messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+              ...(m.tool_calls
+                ? {
+                    tool_calls: m.tool_calls.map((tc) => ({
+                      id: tc.id,
+                      type: 'function' as const,
+                      function: tc.function,
+                    })),
+                  }
+                : {}),
+              ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+              ...(m.name ? { name: m.name } : {}),
+            })),
+            tools: toolDefinitions,
+            signal: controller.signal,
           })
-        }
-        // 继续循环，让 AI 基于工具结果生成回复（或继续调用工具）
-      }
+          const choice = data.choices?.[0]
+          const assistantMsg = choice?.message
 
-      // 超出最大轮次
-      if (roundCount >= MAX_TOOL_ROUNDS) {
-        setError('工具调用轮次超出限制')
+          if (!assistantMsg) {
+            throw new Error('API 响应格式异常')
+          }
+
+          // 📝 面试考点：判断 AI 是否要调用工具
+          const hasToolCalls = assistantMsg.tool_calls && assistantMsg.tool_calls.length > 0
+
+          if (!hasToolCalls) {
+            // AI 直接回复文字 — 流程结束
+            setSteps((prev) => [
+              ...prev,
+              {
+                id: `final-${roundCount}`,
+                type: 'final_answer',
+                content: assistantMsg.content || '',
+              },
+            ])
+            // 把 assistant 消息加入历史
+            messages.push({ role: 'assistant', content: assistantMsg.content || '' })
+            break
+          }
+
+          // AI 要调用工具 — 执行工具并构造 tool messages
+          messages.push({
+            role: 'assistant',
+            content: assistantMsg.content || '',
+            tool_calls: assistantMsg.tool_calls,
+          })
+
+          // 记录工具调用步骤（展示给 UI）
+          // 将 ToolCallInfo 映射为 executor 期望的 ToolCall 格式
+          const toolCalls: ToolCall[] = (assistantMsg.tool_calls || []).map((tc) => ({
+            id: tc.id,
+            function: tc.function,
+          }))
+          for (const tc of toolCalls) {
+            setSteps((prev) => [
+              ...prev,
+              {
+                id: tc.id,
+                type: 'tool_call',
+                toolName: tc.function.name,
+                toolArgs: tc.function.arguments,
+              },
+            ])
+          }
+
+          // 📝 面试考点：执行所有工具并构造 tool message 发回
+          const results: ToolResult[] = executeTools(toolCalls)
+
+          for (const result of results) {
+            // 记录工具结果步骤
+            setSteps((prev) => [
+              ...prev,
+              {
+                id: `result-${result.toolCallId}`,
+                type: 'tool_result',
+                toolName: result.name,
+                toolResult: result.result,
+                isError: result.isError,
+              },
+            ])
+
+            // 构造 tool message 加入消息历史
+            messages.push({
+              role: 'tool',
+              content: result.result,
+              tool_call_id: result.toolCallId,
+              name: result.name,
+            })
+          }
+          // 继续循环，让 AI 基于工具结果生成回复（或继续调用工具）
+        }
+
+        // 超出最大轮次
+        if (roundCount >= MAX_TOOL_ROUNDS) {
+          setError('工具调用轮次超出限制')
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name !== 'AbortError') {
+          setError(err.message)
+        }
+      } finally {
+        setIsProcessing(false)
+        controllerRef.current = null
       }
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        setError(err.message)
-      }
-    } finally {
-      setIsProcessing(false)
-      controllerRef.current = null
-    }
-  }, [isProcessing])
+    },
+    [isProcessing],
+  )
 
   return { steps, isProcessing, error, handleSend, handleReset }
 }

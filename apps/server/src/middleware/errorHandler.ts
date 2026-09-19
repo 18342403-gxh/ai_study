@@ -11,12 +11,7 @@ export interface AppError extends Error {
   code?: string
 }
 
-export const errorHandler = (
-  err: AppError,
-  _req: Request,
-  res: Response,
-  _next: NextFunction
-) => {
+export const errorHandler = (err: AppError, _req: Request, res: Response, _next: NextFunction) => {
   const statusCode = err.statusCode || 500
   const message = err.message || '内部服务器错误'
 
@@ -52,7 +47,7 @@ export const notFoundHandler = (req: Request, res: Response) => {
  * 让 async 路由的 throw 能被 Express 错误中间件捕获
  */
 export const asyncHandler = <P, Q, B>(
-  fn: (req: Request<P, unknown, B>, res: Response, next: NextFunction) => Promise<unknown>
+  fn: (req: Request<P, unknown, B>, res: Response, next: NextFunction) => Promise<unknown>,
 ) => {
   return (req: Request<P, unknown, B>, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next)

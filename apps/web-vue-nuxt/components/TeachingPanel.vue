@@ -33,6 +33,7 @@
  */
 
 import type { ChatMessage } from '@ai-study/shared'
+import { Zap, MessageSquare, Wrench, Search, Bot, ArrowUp, Target, BookOpen, Brain } from 'lucide-vue-next'
 
 const props = defineProps<{
   messages: ChatMessage[]
@@ -42,11 +43,11 @@ const props = defineProps<{
 const activeTab = ref<'streaming' | 'conversation' | 'tools' | 'rag' | 'agent'>('streaming')
 
 const tabs = [
-  { key: 'streaming', label: '流式响应', icon: '⚡', topic: 'm2 流式响应' },
-  { key: 'conversation', label: '多轮对话', icon: '💬', topic: 'm4 Chat UI' },
-  { key: 'tools', label: 'Function Calling', icon: '🔧', topic: 'm5 工具调用' },
-  { key: 'rag', label: 'RAG 检索', icon: '🔍', topic: 'm6 知识库' },
-  { key: 'agent', label: 'Agent 编排', icon: '🤖', topic: 'm7 Agent' },
+  { key: 'streaming', label: '流式响应', icon: Zap, topic: 'm2 流式响应' },
+  { key: 'conversation', label: '多轮对话', icon: MessageSquare, topic: 'm4 Chat UI' },
+  { key: 'tools', label: 'Function Calling', icon: Wrench, topic: 'm5 工具调用' },
+  { key: 'rag', label: 'RAG 检索', icon: Search, topic: 'm6 知识库' },
+  { key: 'agent', label: 'Agent 编排', icon: Bot, topic: 'm7 Agent' },
 ]
 
 const currentTabInfo = computed(() => tabs.find((t) => t.key === activeTab.value)!)
@@ -56,7 +57,7 @@ const lastUserMessage = computed(() => {
   return msgs[msgs.length - 1]?.content || ''
 })
 const codeGenerated = computed(() =>
-  props.messages.some((m) => m.role === 'assistant' && m.content.includes('```'))
+  props.messages.some((m) => m.role === 'assistant' && m.content.includes('```')),
 )
 </script>
 
@@ -68,10 +69,15 @@ const codeGenerated = computed(() =>
         v-for="tab in tabs"
         :key="tab.key"
         class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
-        :class="activeTab === tab.key ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+        :class="
+          activeTab === tab.key
+            ? 'bg-brand-500 text-white'
+            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+        "
         @click="activeTab = tab.key as 'streaming' | 'conversation' | 'tools' | 'rag' | 'agent'"
       >
-        <span class="mr-1">{{ tab.icon }}</span>{{ tab.label }}
+        <component :is="tab.icon" class="w-3.5 h-3.5" />
+        <span class="ml-1">{{ tab.label }}</span>
       </button>
     </div>
 
@@ -101,20 +107,26 @@ const codeGenerated = computed(() =>
       </div>
 
       <div v-else-if="!hasUserMessages" class="p-3 rounded-xl bg-slate-50 border border-slate-200">
-        <p class="text-xs text-slate-500">👆 在左侧输入需求开始生成组件，这里会同步显示技术拆解</p>
+        <p class="text-xs text-slate-500 flex items-center gap-1">
+          <ArrowUp class="w-3 h-3" /> 在左侧输入需求开始生成组件，这里会同步显示技术拆解
+        </p>
       </div>
 
       <!-- 知识点卡片 -->
       <template v-else>
         <!-- 当前需求 -->
         <div class="p-3 rounded-xl bg-blue-50 border border-blue-200">
-          <p class="text-xs font-medium text-blue-700 mb-1">🎯 当前需求</p>
+          <p class="text-xs font-medium text-blue-700 mb-1 flex items-center gap-1">
+            <Target class="w-3 h-3" /> 当前需求
+          </p>
           <p class="text-xs text-blue-600 line-clamp-3">{{ lastUserMessage }}</p>
         </div>
 
         <!-- 技术拆解 -->
         <div class="p-3 rounded-xl bg-white border border-slate-200">
-          <p class="text-xs font-medium text-slate-700 mb-2">📚 技术实现</p>
+          <p class="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1">
+            <BookOpen class="w-3 h-3" /> 技术实现
+          </p>
           <ul class="space-y-1.5 text-xs text-slate-600">
             <li class="flex gap-2">
               <span class="text-brand-500 shrink-0">•</span>
@@ -137,7 +149,7 @@ const codeGenerated = computed(() =>
 
         <!-- 面试题 -->
         <div class="p-3 rounded-xl bg-purple-50 border border-purple-200">
-          <p class="text-xs font-medium text-purple-700 mb-2">🧠 面试考点</p>
+          <p class="text-xs font-medium text-purple-700 mb-2 flex items-center gap-1.5"><Brain class="w-3.5 h-3.5" /> 面试考点</p>
           <div class="space-y-2 text-xs text-purple-600">
             <p class="font-medium">Q1: SSE 流式输出如何实现打字机效果？</p>
             <p class="pl-3 text-purple-500">

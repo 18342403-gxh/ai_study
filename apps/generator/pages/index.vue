@@ -359,7 +359,8 @@ const startNewChat = () => {
               : '描述 Skill 要做什么，比如「批量把 console.log 替换成项目的 logger」' }}
           </div>
           <div class="mt-6 flex gap-2">
-            <div v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代码重构', '批量格式化', '文档生成'])" :key="tag"
+            <div
+v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代码重构', '批量格式化', '文档生成'])" :key="tag"
               class="px-3 py-1.5 rounded-full text-xs bg-white text-slate-600 border border-slate-200 hover:border-primary-500 hover:text-primary-600 cursor-pointer transition-colors"
               @click="input = tag">
               {{ tag }}

@@ -46,7 +46,7 @@ const formatResult = (jsonStr: string): string => {
 }
 
 const ToolCallCard: React.FC<ToolCallCardProps> = ({ step }) => {
-  const toolLabel = step.toolName ? (TOOL_NAME_MAP[step.toolName] || step.toolName) : ''
+  const toolLabel = step.toolName ? TOOL_NAME_MAP[step.toolName] || step.toolName : ''
 
   // 工具调用步骤
   if (step.type === 'tool_call') {
@@ -69,13 +69,16 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ step }) => {
   if (step.type === 'tool_result') {
     const isError = step.isError
     return (
-      <div className={`glass-card rounded-lg p-3 flex items-start gap-2 ${
-        isError ? 'border-rose-500/30' : 'border-emerald-500/30'
-      }`}>
-        {isError
-          ? <CloseCircleFill className="text-rose-400 mt-0.5 shrink-0" />
-          : <CheckCircleFill className="text-emerald-400 mt-0.5 shrink-0" />
-        }
+      <div
+        className={`glass-card rounded-lg p-3 flex items-start gap-2 ${
+          isError ? 'border-rose-500/30' : 'border-emerald-500/30'
+        }`}
+      >
+        {isError ? (
+          <CloseCircleFill className="text-rose-400 mt-0.5 shrink-0" />
+        ) : (
+          <CheckCircleFill className="text-emerald-400 mt-0.5 shrink-0" />
+        )}
         <div className="min-w-0">
           <div className="text-xs text-slate-400">{toolLabel} 结果：</div>
           <div className={`text-sm mt-1 ${isError ? 'text-rose-300' : 'text-slate-200'}`}>
@@ -90,9 +93,7 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ step }) => {
   if (step.type === 'final_answer') {
     return (
       <div className="glass-card rounded-lg p-3">
-        <div className="text-sm text-slate-200 whitespace-pre-wrap">
-          {step.content}
-        </div>
+        <div className="text-sm text-slate-200 whitespace-pre-wrap">{step.content}</div>
       </div>
     )
   }

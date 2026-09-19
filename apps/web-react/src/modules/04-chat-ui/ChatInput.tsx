@@ -12,7 +12,7 @@
  */
 
 import { useRef, useCallback } from 'react'
-import { SendOutline } from 'antd-mobile-icons'
+import { Send } from 'lucide-react'
 
 interface ChatInputProps {
   value: string
@@ -27,25 +27,31 @@ const ChatInput: React.FC<ChatInputProps> = ({ value, isDisabled, onChange, onSe
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // 📝 面试考点：根据 scrollHeight 动态调整 textarea 高度
-  const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onChange(e.target.value)
-    const el = e.target
-    // 重置高度后取 scrollHeight，实现自适应
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`
-  }, [onChange])
+  const handleInput = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      onChange(e.target.value)
+      const el = e.target
+      // 重置高度后取 scrollHeight，实现自适应
+      el.style.height = 'auto'
+      el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`
+    },
+    [onChange],
+  )
 
   // 📝 面试考点：isComposing 判断 — 中文输入法组合状态下不触发发送
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault()
-      onSend()
-      // 发送后重置高度
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault()
+        onSend()
+        // 发送后重置高度
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto'
+        }
       }
-    }
-  }, [onSend])
+    },
+    [onSend],
+  )
 
   return (
     <div className="flex items-end gap-2 p-3 glass-nav border-t border-slate-700/50">
@@ -65,7 +71,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ value, isDisabled, onChange, onSe
         disabled={isDisabled || !value.trim()}
         className="min-w-[44px] min-h-[44px] flex items-center justify-center btn-glow rounded-xl text-white disabled:opacity-30"
       >
-        <SendOutline fontSize={18} />
+        <Send className="w-[18px] h-[18px]" />
       </button>
     </div>
   )

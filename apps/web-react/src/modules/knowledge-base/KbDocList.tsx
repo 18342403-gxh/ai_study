@@ -43,7 +43,10 @@ const KbDocList: React.FC<KbDocListProps> = ({ documents, onDelete }) => {
       {documents.map((doc) => {
         const style = STATUS_STYLES[doc.status]
         return (
-          <div key={doc.id} className="glass-card rounded-xl px-3 py-3 flex items-center gap-3 group">
+          <div
+            key={doc.id}
+            className="glass-card rounded-xl px-3 py-3 flex items-center gap-3 group"
+          >
             {/* 文件图标 */}
             <div className="w-9 h-9 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
               <FileOutline className="text-indigo-400" />

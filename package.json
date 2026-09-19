@@ -21,7 +21,18 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint \"{apps,packages}/**/*.{ts,tsx,vue}\"",
     "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,vue,md,json}\"",
-    "check:readme": "node scripts/check-readme-needs-update.mjs"
+    "check:readme": "node scripts/check-readme-needs-update.mjs",
+    "prepare": "husky",
+    "lint-staged": "lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,vue,js,mjs}": [
+      "eslint --fix --max-warnings 9999",
+      "prettier --write"
+    ],
+    "*.{md,json,css,html}": [
+      "prettier --write"
+    ]
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -32,6 +43,8 @@
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-vue": "^10.11.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
     "prettier": "3.3.3",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.70.0",

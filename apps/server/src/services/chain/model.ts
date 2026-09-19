@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../logger.js'
+﻿import { logger } from '../logger.js'
 import { costTracker } from '../costTracker.js'
 
 /**
@@ -46,27 +46,37 @@ export const createChatModel = (config: ModelConfig = {}) => {
   return {
     /** 模型调用（非流式） */
     async invoke(input: Array<{ role: string; content: string }> | string): Promise<string> {
-      const messages = typeof input === 'string'
-        ? [{ role: 'user', content: input }]
-        : input
+      const messages = typeof input === 'string' ? [{ role: 'user', content: input }] : input
       const t0 = Date.now()
 
-      logger.info('llm.invoke', '调用开始', { model: modelName, messageCount: messages.length, maxTokens: config.maxTokens })
+      logger.info('llm.invoke', '调用开始', {
+        model: modelName,
+        messageCount: messages.length,
+        maxTokens: config.maxTokens,
+      })
 
       try {
         const response = await fetch(`${apiUrl}/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model: modelName, messages, temperature, stream: false }),
         })
 
         if (!response.ok) {
           const errText = await response.text()
-          logger.error('llm.invoke', '调用失败', { model: modelName, status: response.status, error: errText.slice(0, 200), costMs: Date.now() - t0 })
+          logger.error('llm.invoke', '调用失败', {
+            model: modelName,
+            status: response.status,
+            error: errText.slice(0, 200),
+            costMs: Date.now() - t0,
+          })
           throw new Error(`AI 请求失败 (${response.status}): ${errText}`)
         }
 
-        const data = (await response.json()) as { choices: Array<{ message: { content: string } }>; usage?: any }
+        const data = (await response.json()) as {
+          choices: Array<{ message: { content: string } }>
+          usage?: any
+        }
         const cost = Date.now() - t0
         logger.info('llm.invoke', '调用完成', { model: modelName, costMs: cost, usage: data.usage })
 
@@ -87,7 +97,11 @@ export const createChatModel = (config: ModelConfig = {}) => {
         return data.choices[0]?.message?.content || ''
       } catch (err) {
         if ((err as Error).message.startsWith('AI 请求失败')) throw err
-        logger.error('llm.invoke', '网络异常', { model: modelName, error: (err as Error).message, costMs: Date.now() - t0 })
+        logger.error('llm.invoke', '网络异常', {
+          model: modelName,
+          error: (err as Error).message,
+          costMs: Date.now() - t0,
+        })
         throw err
       }
     },
@@ -95,11 +109,9 @@ export const createChatModel = (config: ModelConfig = {}) => {
     /** 模型调用（流式） */
     async *stream(
       input: Array<{ role: string; content: string }> | string,
-      options?: { signal?: AbortSignal }
+      options?: { signal?: AbortSignal },
     ): AsyncGenerator<string> {
-      const messages = typeof input === 'string'
-        ? [{ role: 'user', content: input }]
-        : input
+      const messages = typeof input === 'string' ? [{ role: 'user', content: input }] : input
       const t0 = Date.now()
 
       logger.info('llm.stream', '调用开始', { model: modelName, messageCount: messages.length })
@@ -108,14 +120,19 @@ export const createChatModel = (config: ModelConfig = {}) => {
       try {
         const response = await fetch(`${apiUrl}/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model: modelName, messages, temperature, stream: true }),
           signal: options?.signal,
         })
 
         if (!response.ok) {
           const errText = await response.text()
-          logger.error('llm.stream', '调用失败', { model: modelName, status: response.status, error: errText.slice(0, 200), costMs: Date.now() - t0 })
+          logger.error('llm.stream', '调用失败', {
+            model: modelName,
+            status: response.status,
+            error: errText.slice(0, 200),
+            costMs: Date.now() - t0,
+          })
           throw new Error(`AI 请求失败 (${response.status}): ${errText}`)
         }
 
@@ -128,7 +145,7 @@ export const createChatModel = (config: ModelConfig = {}) => {
         const decoder = new TextDecoder()
         let buffer = ''
         let finishReason = ''
-        let streamUsage: any = null  // SSE 最后一个 chunk 可能带 usage
+        let streamUsage: any = null // SSE 最后一个 chunk 可能带 usage
 
         while (true) {
           const { value, done } = await reader.read()
@@ -141,7 +158,10 @@ export const createChatModel = (config: ModelConfig = {}) => {
           for (const line of lines) {
             const trimmed = line.trim()
             if (!trimmed || !trimmed.startsWith('data: ')) continue
-            if (trimmed === 'data: [DONE]') { finishReason = 'done'; break }
+            if (trimmed === 'data: [DONE]') {
+              finishReason = 'done'
+              break
+            }
 
             try {
               const json = JSON.parse(trimmed.slice(6))
@@ -152,12 +172,19 @@ export const createChatModel = (config: ModelConfig = {}) => {
                 chunkCount++
                 yield delta
               }
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
         }
 
         const cost = Date.now() - t0
-        logger.info('llm.stream', '调用完成', { model: modelName, chunkCount, costMs: cost, finishReason })
+        logger.info('llm.stream', '调用完成', {
+          model: modelName,
+          chunkCount,
+          costMs: cost,
+          finishReason,
+        })
 
         // ── 成本追踪（stream 的 usage 在最后一个 chunk 里）──
         if (streamUsage) {
@@ -172,7 +199,12 @@ export const createChatModel = (config: ModelConfig = {}) => {
           })
         }
       } catch (err) {
-        logger.error('llm.stream', '调用异常', { model: modelName, chunkCount, error: (err as Error).message, costMs: Date.now() - t0 })
+        logger.error('llm.stream', '调用异常', {
+          model: modelName,
+          chunkCount,
+          error: (err as Error).message,
+          costMs: Date.now() - t0,
+        })
         throw err
       }
     },

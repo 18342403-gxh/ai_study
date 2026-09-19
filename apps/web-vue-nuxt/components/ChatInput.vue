@@ -66,12 +66,27 @@ const handleKeydown = (e: KeyboardEvent) => {
         :disabled="!canSend"
         @click="handleSend"
       >
-        <svg v-if="!disabled" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <svg
+          v-if="!disabled"
+          class="w-5 h-5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+        >
           <path d="M22 2L11 13" />
           <path d="M22 2l-7 20-4-9-9-4 20-7z" />
         </svg>
         <svg v-else class="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="32" />
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-dasharray="32"
+          />
         </svg>
       </button>
     </div>
@@ -80,8 +95,13 @@ const handleKeydown = (e: KeyboardEvent) => {
         v-for="chip in ['搜索框', '数据表格', '卡片列表', '表单页面', '导航菜单']"
         :key="chip"
         class="shrink-0 chip bg-brand-50 text-brand-600 active:bg-brand-100"
-        @click="text = chip + '组件'; textareaRef?.focus()"
-      >{{ chip }}</button>
+        @click="
+          text = chip + '组件'
+          textareaRef?.focus()
+        "
+      >
+        {{ chip }}
+      </button>
     </div>
   </div>
 </template>

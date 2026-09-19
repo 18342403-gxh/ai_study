@@ -13,7 +13,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react'
-import { LeftOutline, AddOutline, DeleteOutline } from 'antd-mobile-icons'
+import { ChevronLeft, Plus, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { useAppDispatch, useAppSelector } from '../../store'
@@ -74,7 +74,7 @@ const ChatPage: React.FC = () => {
           onClick={() => navigate(-1)}
           className="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 text-slate-400"
         >
-          <LeftOutline />
+          <ChevronLeft className="w-5 h-5" />
         </button>
         <button
           type="button"
@@ -89,14 +89,14 @@ const ChatPage: React.FC = () => {
             onClick={handleNewSession}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400"
           >
-            <AddOutline />
+            <Plus className="w-5 h-5" />
           </button>
           <button
             type="button"
             onClick={() => dispatch(clearCurrentMessages())}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400"
           >
-            <DeleteOutline />
+            <Trash2 className="w-5 h-5" />
           </button>
         </div>
       </header>

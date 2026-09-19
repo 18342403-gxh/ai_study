@@ -60,7 +60,7 @@ export class AIError extends Error {
   constructor(
     message: string,
     public status: number,
-    public code?: string
+    public code?: string,
   ) {
     super(message)
     this.name = 'AIError'
@@ -78,7 +78,7 @@ const DEFAULT_MODEL = 'glm-4-flash'
 /** 统一构造请求头 */
 const buildHeaders = (): HeadersInit => ({
   'Content-Type': 'application/json',
-  'Authorization': `Bearer ${API_KEY}`,
+  Authorization: `Bearer ${API_KEY}`,
 })
 
 /** 统一错误处理 */

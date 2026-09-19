@@ -73,26 +73,44 @@ router.post(
     const documentId = randomUUID()
 
     logger.info('rag.route', 'POST /documents 开始', {
-      name: file.originalname, size: file.size, documentId,
+      name: file.originalname,
+      size: file.size,
+      documentId,
     })
 
     // 先写入 documents 表（chunk 外键依赖）
     const docInsertSql = makeDocInsertSql([])
     // PG 需要 mime_type + storage_path，SQLite 不需要
     const insertParams = IS_PG
-      ? [documentId, file.originalname, file.size || 0, 'processing', 0, now, now, path.extname(file.originalname), file.path]
+      ? [
+          documentId,
+          file.originalname,
+          file.size || 0,
+          'processing',
+          0,
+          now,
+          now,
+          path.extname(file.originalname),
+          file.path,
+        ]
       : [documentId, file.originalname, file.size || 0, 'processing', 0, now, now]
     await db.prepare(docInsertSql).run(...insertParams)
 
     // 灌入向量（chunk 引用 documentId）
     const t0 = Date.now()
     const doc = await ragService.ingestFromFileWithId(file.path, file.originalname, documentId)
-    logger.info('rag.route', '向量灌入完成', { documentId, chunkCount: doc.chunkCount, costMs: Date.now() - t0 })
+    logger.info('rag.route', '向量灌入完成', {
+      documentId,
+      chunkCount: doc.chunkCount,
+      costMs: Date.now() - t0,
+    })
 
     // 更新文档状态和分块数
-    await db.prepare(
-      `UPDATE documents SET status = 'ready', chunk_count = ?, updated_at = ? WHERE id = ?`
-    ).run(doc.chunkCount, Date.now(), documentId)
+    await db
+      .prepare(
+        `UPDATE documents SET status = 'ready', chunk_count = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(doc.chunkCount, Date.now(), documentId)
 
     logger.info('rag.route', 'POST /documents 完成', { documentId, chunkCount: doc.chunkCount })
 
@@ -101,7 +119,7 @@ router.post(
       name: file.originalname,
       chunkCount: doc.chunkCount,
     })
-  })
+  }),
 )
 
 /** POST /api/rag/documents/url — URL 导入 */
@@ -145,11 +163,24 @@ router.post(
       const contentSize = doc.chunks.reduce((s, c) => s + (c.content.length || 0), 0)
 
       // 更新文档状态和分块数
-      await db.prepare(
-        `UPDATE documents SET status = 'ready', chunk_count = ?, size = ?, name = COALESCE(?, name), updated_at = ? WHERE id = ?`
-      ).run(doc.chunkCount, contentSize, doc.chunks[0]?.metadata?.title as string | undefined || providedName, Date.now(), documentId)
+      await db
+        .prepare(
+          `UPDATE documents SET status = 'ready', chunk_count = ?, size = ?, name = COALESCE(?, name), updated_at = ? WHERE id = ?`,
+        )
+        .run(
+          doc.chunkCount,
+          contentSize,
+          (doc.chunks[0]?.metadata?.title as string | undefined) || providedName,
+          Date.now(),
+          documentId,
+        )
 
-      logger.info('rag.route', 'POST /documents/url 完成', { documentId, chunkCount: doc.chunkCount, costMs, url })
+      logger.info('rag.route', 'POST /documents/url 完成', {
+        documentId,
+        chunkCount: doc.chunkCount,
+        costMs,
+        url,
+      })
 
       res.status(201).json({
         id: documentId,
@@ -161,12 +192,12 @@ router.post(
       // 失败也要更新状态
       const errorMsg = (err as Error).message
       logger.error('rag.route', 'POST /documents/url 失败', { documentId, url, error: errorMsg })
-      await db.prepare(
-        `UPDATE documents SET status = 'failed', updated_at = ? WHERE id = ?`
-      ).run(Date.now(), documentId)
+      await db
+        .prepare(`UPDATE documents SET status = 'failed', updated_at = ? WHERE id = ?`)
+        .run(Date.now(), documentId)
       throw createError(`URL 导入失败: ${errorMsg}`, 400, 'URL_IMPORT_FAILED')
     }
-  })
+  }),
 )
 
 /** GET /api/rag/documents */
@@ -176,7 +207,7 @@ router.get(
     const db = getDb()
     const docs = await db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
     res.json(docs)
-  })
+  }),
 )
 
 /** POST /api/rag/query */
@@ -219,13 +250,11 @@ ${results.map((r, i) => `[${i + 1}] ${r.doc.content}`).join('\n\n')}`
             score: Math.round(r.score * 1000) / 1000,
             metadata: r.doc.metadata,
           })),
-        })}\n\n`
+        })}\n\n`,
       )
 
       try {
-        for await (const delta of chain.stream(
-          { messages, stream: true }
-        )) {
+        for await (const delta of chain.stream({ messages, stream: true })) {
           res.write(`data: ${JSON.stringify({ type: 'delta', content: delta })}\n\n`)
         }
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
@@ -233,13 +262,13 @@ ${results.map((r, i) => `[${i + 1}] ${r.doc.content}`).join('\n\n')}`
       } catch (err) {
         logger.error('rag.route', 'POST /query 失败', { error: (err as Error).message })
         if (!res.headersSent) throw err
-        res.write(
-          `data: ${JSON.stringify({ type: 'error', message: (err as Error).message })}\n\n`
-        )
+        res.write(`data: ${JSON.stringify({ type: 'error', message: (err as Error).message })}\n\n`)
       }
       res.end()
     } else {
-      const answer = await chain.invoke({ messages: messages as Array<{ role: 'system' | 'user' | 'assistant'; content: string }> })
+      const answer = await chain.invoke({
+        messages: messages as Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+      })
       logger.info('rag.route', 'POST /query 完成（invoke）')
       res.json({
         answer: answer.content,
@@ -250,7 +279,7 @@ ${results.map((r, i) => `[${i + 1}] ${r.doc.content}`).join('\n\n')}`
         })),
       })
     }
-  })
+  }),
 )
 
 /** DELETE /api/rag/documents/:id */
@@ -271,7 +300,7 @@ router.delete(
 
     logger.info('rag.route', 'DELETE /documents/:id 完成', { documentId: id })
     res.status(204).end()
-  })
+  }),
 )
 
 export default router

@@ -32,7 +32,9 @@ router.post(
   '/completions',
   validate({ body: chatCompletionsSchema }),
   asyncHandler(async (req, res) => {
-    const { messages, model, stream, temperature } = req.body as z.infer<typeof chatCompletionsSchema>
+    const { messages, model, stream, temperature } = req.body as z.infer<
+      typeof chatCompletionsSchema
+    >
     logger.info('chat.route', 'POST /completions — 入口', { stream, msgCount: messages.length })
 
     const chain = createChatChain({ model, temperature })
@@ -62,7 +64,7 @@ router.post(
       })
       logger.info('chat.route', 'POST /completions — 出口 (invoke)')
     }
-  })
+  }),
 )
 
 export default router

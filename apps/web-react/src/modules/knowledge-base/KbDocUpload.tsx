@@ -17,55 +17,73 @@ const KbDocUpload: React.FC<KbDocUploadProps> = ({ apiBase, onComplete }) => {
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const handleUpload = useCallback(async (file: File) => {
-    setError('')
-    setIsUploading(true)
-    setUploadProgress(0)
-
-    const progressTimer = setInterval(() => {
-      setUploadProgress((prev) => Math.min(prev + 12, 85))
-    }, 250)
-
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const res = await fetch(`${apiBase}/documents/upload`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      clearInterval(progressTimer)
-
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || '上传失败')
-      }
-
-      setUploadProgress(100)
-      onComplete()
-      setTimeout(() => { setIsUploading(false); setUploadProgress(0) }, 600)
-    } catch (err) {
-      clearInterval(progressTimer)
-      setError(err instanceof Error ? err.message : '上传失败')
-      setIsUploading(false)
+  const handleUpload = useCallback(
+    async (file: File) => {
+      setError('')
+      setIsUploading(true)
       setUploadProgress(0)
-    }
-  }, [apiBase, onComplete])
 
-  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true) }, [])
-  const handleDragLeave = useCallback(() => { setIsDragOver(false) }, [])
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setIsDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) handleUpload(file)
-  }, [handleUpload])
+      const progressTimer = setInterval(() => {
+        setUploadProgress((prev) => Math.min(prev + 12, 85))
+      }, 250)
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) handleUpload(file)
-    if (inputRef.current) inputRef.current.value = ''
-  }, [handleUpload])
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const res = await fetch(`${apiBase}/documents/upload`, {
+          method: 'POST',
+          body: formData,
+        })
+
+        clearInterval(progressTimer)
+
+        if (!res.ok) {
+          const errData = await res.json()
+          throw new Error(errData.error || '上传失败')
+        }
+
+        setUploadProgress(100)
+        onComplete()
+        setTimeout(() => {
+          setIsUploading(false)
+          setUploadProgress(0)
+        }, 600)
+      } catch (err) {
+        clearInterval(progressTimer)
+        setError(err instanceof Error ? err.message : '上传失败')
+        setIsUploading(false)
+        setUploadProgress(0)
+      }
+    },
+    [apiBase, onComplete],
+  )
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }, [])
+  const handleDragLeave = useCallback(() => {
+    setIsDragOver(false)
+  }, [])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsDragOver(false)
+      const file = e.dataTransfer.files[0]
+      if (file) handleUpload(file)
+    },
+    [handleUpload],
+  )
+
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      if (file) handleUpload(file)
+      if (inputRef.current) inputRef.current.value = ''
+    },
+    [handleUpload],
+  )
 
   return (
     <div>
@@ -88,11 +106,19 @@ const KbDocUpload: React.FC<KbDocUploadProps> = ({ apiBase, onComplete }) => {
             <AddCircleOutline className="text-xl text-indigo-400" />
           </div>
           <p className="text-sm text-slate-300 font-medium">上传文档到知识库</p>
-          <p className="text-xs text-slate-500 mt-1">拖拽文件或点击选择 · PDF / TXT / MD / JSON · 最大 10MB</p>
+          <p className="text-xs text-slate-500 mt-1">
+            拖拽文件或点击选择 · PDF / TXT / MD / JSON · 最大 10MB
+          </p>
         </div>
       </div>
 
-      <input ref={inputRef} type="file" accept=".txt,.md,.json,.pdf" onChange={handleInputChange} className="hidden" />
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".txt,.md,.json,.pdf"
+        onChange={handleInputChange}
+        className="hidden"
+      />
 
       {/* 上传进度 */}
       {isUploading && (

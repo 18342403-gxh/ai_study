@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
+import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -49,21 +49,21 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ModulePlaceholder.vue'),
     meta: { title: '模块7：AI Agent (Vue)', moduleId: 'm7' },
   },
-];
+]
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes,
   scrollBehavior() {
-    return { top: 0 };
+    return { top: 0 }
   },
-});
+})
 
 router.beforeEach((to, _from, next) => {
   if (to.meta?.title) {
-    document.title = to.meta.title as string;
+    document.title = to.meta.title as string
   }
-  next();
-});
+  next()
+})
 
-export default router;
+export default router

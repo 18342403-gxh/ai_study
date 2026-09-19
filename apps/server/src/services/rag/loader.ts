@@ -45,7 +45,7 @@ async function loadPlain(filePath: string): Promise<string> {
 export async function loadFromFile(
   filePath: string,
   originalName?: string,
-  options: LoadOptions = {}
+  options: LoadOptions = {},
 ): Promise<LoadedDocument> {
   const name = originalName || path.basename(filePath)
   const type = detectType(name)
@@ -80,7 +80,11 @@ export async function loadFromFile(
 /**
  * 从字符串加载（用于测试或直接灌入文本）
  */
-export function loadFromString(text: string, name = 'inline.txt', options: LoadOptions = {}): LoadedDocument {
+export function loadFromString(
+  text: string,
+  name = 'inline.txt',
+  options: LoadOptions = {},
+): LoadedDocument {
   return {
     id: randomUUID(),
     name,
@@ -105,7 +109,7 @@ const MAX_URL_BYTES = 2 * 1024 * 1024 // 2MB，避免巨大页面
 export async function loadFromUrl(
   url: string,
   name?: string,
-  options: LoadOptions = {}
+  options: LoadOptions = {},
 ): Promise<LoadedDocument> {
   // 1. fetch 页面（带超时 + size limit）
   const controller = new AbortController()
@@ -163,10 +167,8 @@ export async function loadFromUrl(
     throw new Error('页面内容为空，无法提取有效文本')
   }
 
-  const resolvedName = name
-    || title
-    || new URL(url).hostname + new URL(url).pathname
-    || url.slice(0, 80)
+  const resolvedName =
+    name || title || new URL(url).hostname + new URL(url).pathname || url.slice(0, 80)
 
   return {
     id: randomUUID(),
@@ -200,8 +202,18 @@ function stripHtmlToText(html: string): string {
 
   // 1. 移除噪音块（DOTALL 模式 — [\s\S] 匹配跨行）
   const NOISE_TAGS = [
-    'script', 'style', 'noscript', 'iframe', 'svg', 'canvas',
-    'template', 'nav', 'footer', 'header', 'aside', 'form',
+    'script',
+    'style',
+    'noscript',
+    'iframe',
+    'svg',
+    'canvas',
+    'template',
+    'nav',
+    'footer',
+    'header',
+    'aside',
+    'form',
   ]
   for (const tag of NOISE_TAGS) {
     s = s.replace(new RegExp(`<${tag}[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'), '\n')

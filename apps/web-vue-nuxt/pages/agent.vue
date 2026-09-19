@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Brain, Wrench, Eye, Lightbulb, Check, X, Play, Pause, RotateCcw, Shield, Bot } from 'lucide-vue-next'
+
 const {
   state,
   status,
@@ -19,12 +21,18 @@ const threadId = ref('')
 
 const statusClass = computed(() => {
   switch (status.value) {
-    case 'idle': return 'bg-slate-100 text-slate-600'
-    case 'running': return 'bg-blue-100 text-blue-600'
-    case 'paused': return 'bg-amber-100 text-amber-600'
-    case 'completed': return 'bg-emerald-100 text-emerald-600'
-    case 'failed': return 'bg-red-100 text-red-600'
-    default: return 'bg-slate-100 text-slate-600'
+    case 'idle':
+      return 'bg-slate-100 text-slate-600'
+    case 'running':
+      return 'bg-blue-100 text-blue-600'
+    case 'paused':
+      return 'bg-amber-100 text-amber-600'
+    case 'completed':
+      return 'bg-emerald-100 text-emerald-600'
+    case 'failed':
+      return 'bg-red-100 text-red-600'
+    default:
+      return 'bg-slate-100 text-slate-600'
   }
 })
 
@@ -53,16 +61,16 @@ const handleReset = () => {
   reset()
 }
 
-const phaseIcon = (phase: string): string => {
-  const icons: Record<string, string> = {
-    think: '🤔',
-    call_tools: '🔧',
-    observe: '👀',
-    answer: '💡',
-    completed: '✅',
-    failed: '❌',
+const phaseIcon = (phase: string) => {
+  const icons: Record<string, any> = {
+    think: Brain,
+    call_tools: Wrench,
+    observe: Eye,
+    answer: Lightbulb,
+    completed: Check,
+    failed: X,
   }
-  return icons[phase] || '•'
+  return icons[phase] || null
 }
 
 const formatTime = (ts: number): string => {
@@ -86,7 +94,7 @@ const formatTime = (ts: number): string => {
         <div class="lg:col-span-1 space-y-4">
           <div class="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 class="text-sm font-semibold text-slate-800 mb-3">运行控制</h3>
-            
+
             <div class="mb-3">
               <label class="text-xs text-slate-500 block mb-1">会话 ID（可选）</label>
               <input
@@ -112,7 +120,8 @@ const formatTime = (ts: number): string => {
               :disabled="!input.trim() || isRunning"
               @click="handleRun"
             >
-              {{ isRunning ? '运行中...' : '▶️ 运行 Agent' }}
+              {{ isRunning ? '运行中...' : '运行 Agent' }}
+              <Play class="w-3.5 h-3.5 inline-block -mt-0.5 ml-1" />
             </button>
 
             <div class="flex gap-2">
@@ -120,16 +129,25 @@ const formatTime = (ts: number): string => {
                 v-if="state?.status === 'running'"
                 class="flex-1 px-3 py-2 bg-amber-50 text-amber-600 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors"
                 @click="state && pauseAgent(state.threadId)"
-              >⏸️ 暂停</button>
+              >
+                暂停
+                <Pause class="w-3.5 h-3.5 inline-block -mt-0.5 ml-1" />
+              </button>
               <button
                 v-if="state?.status === 'paused'"
                 class="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
                 @click="state && resumeAgent(state.threadId, input)"
-              >▶️ 恢复</button>
+              >
+                恢复
+                <Play class="w-3.5 h-3.5 inline-block -mt-0.5 ml-1" />
+              </button>
               <button
                 class="flex-1 px-3 py-2 bg-slate-50 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-100 transition-colors"
                 @click="handleReset"
-              >🔄 重置</button>
+              >
+                重置
+                <RotateCcw class="w-3.5 h-3.5 inline-block -mt-0.5 ml-1" />
+              </button>
             </div>
           </div>
 
@@ -144,7 +162,8 @@ const formatTime = (ts: number): string => {
                 :key="idx"
                 class="flex items-center gap-2 text-xs"
               >
-                <span class="text-lg">{{ phaseIcon(phase.phase) }}</span>
+                <component :is="phaseIcon(phase.phase)" v-if="phaseIcon(phase.phase)" class="w-4 h-4 text-slate-500 shrink-0" />
+                <span v-else class="text-slate-400 shrink-0">•</span>
                 <div class="flex-1 min-w-0">
                   <span class="font-medium text-slate-700">{{ phase.phase }}</span>
                   <p v-if="phase.message" class="text-slate-500 truncate">{{ phase.message }}</p>
@@ -169,8 +188,13 @@ const formatTime = (ts: number): string => {
                   <span class="font-medium text-slate-700">{{ call.name }}</span>
                   <span
                     class="px-1.5 py-0.5 rounded text-[10px]"
-                    :class="call.status === 'completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'"
-                  >{{ call.status }}</span>
+                    :class="
+                      call.status === 'completed'
+                        ? 'bg-emerald-100 text-emerald-600'
+                        : 'bg-blue-100 text-blue-600'
+                    "
+                    >{{ call.status }}</span
+                  >
                 </div>
                 <p class="text-slate-500 truncate">Args: {{ JSON.stringify(call.args) }}</p>
               </div>
@@ -180,8 +204,10 @@ const formatTime = (ts: number): string => {
           <!-- Harness 安全检查面板 -->
           <div class="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-              🛡️ 安全检查 Harness
-              <span v-if="harnessChecks.length" class="text-xs font-normal text-slate-400">({{ harnessChecks.length }})</span>
+              <Shield class="w-4 h-4 text-amber-600" /> 安全检查 Harness
+              <span v-if="harnessChecks.length" class="text-xs font-normal text-slate-400"
+                >({{ harnessChecks.length }})</span
+              >
             </h3>
             <div v-if="harnessChecks.length === 0" class="text-xs text-slate-400 text-center py-4">
               运行 Agent 后显示检查结果
@@ -206,10 +232,14 @@ const formatTime = (ts: number): string => {
                       'bg-amber-200 text-amber-700': check.result === 'warn',
                       'bg-red-200 text-red-700': check.result === 'block',
                     }"
-                  >{{ check.result }}</span>
+                    >{{ check.result }}</span
+                  >
                 </div>
                 <p v-if="check.reason" class="text-slate-500 text-[11px]">{{ check.reason }}</p>
-                <p v-if="check.rule && check.rule !== 'all_checks_passed'" class="text-slate-400 text-[10px] mt-0.5">
+                <p
+                  v-if="check.rule && check.rule !== 'all_checks_passed'"
+                  class="text-slate-400 text-[10px] mt-0.5"
+                >
                   rule: {{ check.rule }}
                 </p>
               </div>
@@ -228,25 +258,33 @@ const formatTime = (ts: number): string => {
             ></textarea>
           </div>
 
-          <div v-if="error" class="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
-            ❌ {{ error }}
+          <div
+            v-if="error"
+            class="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600"
+          >
+            <X class="w-4 h-4 inline-block -mt-0.5 mr-1" /> {{ error }}
           </div>
 
           <div class="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 class="text-sm font-semibold text-slate-800 mb-3">Agent 回答</h3>
             <div v-if="!finalAnswer && !isRunning" class="text-sm text-slate-400 text-center py-8">
-              <div class="text-4xl mb-3">🤖</div>
+              <Bot class="w-12 h-12 mx-auto mb-3 text-slate-300" />
               <p>运行 Agent 后，回答将在这里显示</p>
             </div>
             <div v-else class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
               {{ finalAnswer }}
-              <span v-if="isRunning" class="inline-block w-0.5 h-4 bg-brand-500 animate-pulse ml-0.5"></span>
+              <span
+                v-if="isRunning"
+                class="inline-block w-0.5 h-4 bg-brand-500 animate-pulse ml-0.5"
+              ></span>
             </div>
           </div>
 
           <div v-if="state" class="bg-white rounded-2xl border border-slate-200 p-5">
             <h3 class="text-sm font-semibold text-slate-800 mb-3">状态详情</h3>
-            <pre class="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg overflow-auto">{{ JSON.stringify(state, null, 2) }}</pre>
+            <pre class="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg overflow-auto">{{
+              JSON.stringify(state, null, 2)
+            }}</pre>
           </div>
         </div>
       </div>

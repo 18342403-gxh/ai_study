@@ -1,7 +1,7 @@
 export const API_BASE_URL =
-  (typeof window !== 'undefined' && window.location?.hostname)
+  typeof window !== 'undefined' && window.location?.hostname
     ? `${window.location.protocol}//${window.location.hostname}:3001`
-    : 'http://127.0.0.1:3001';
+    : 'http://127.0.0.1:3001'
 
 export const API_ENDPOINTS = {
   HEALTH: '/api/health',
@@ -38,7 +38,7 @@ export const API_ENDPOINTS = {
   KB: '/api/kb',
   KB_QUERY: '/api/kb/query',
   KB_DOCUMENTS: '/api/kb/documents',
-} as const;
+} as const
 
 export const HTTP_STATUS = {
   OK: 200,
@@ -47,14 +47,14 @@ export const HTTP_STATUS = {
   UNAUTHORIZED: 401,
   NOT_FOUND: 404,
   INTERNAL_SERVER_ERROR: 500,
-} as const;
+} as const
 
 export function buildUrl(endpoint: string, params?: Record<string, string>): string {
-  let url = endpoint;
+  let url = endpoint
   if (params) {
     for (const [key, value] of Object.entries(params)) {
-      url = url.replace(`:${key}`, encodeURIComponent(value));
+      url = url.replace(`:${key}`, encodeURIComponent(value))
     }
   }
-  return url;
+  return url
 }

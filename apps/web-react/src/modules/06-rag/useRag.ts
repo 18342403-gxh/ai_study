@@ -62,7 +62,7 @@ const calculateRelevance = (query: string, chunk: string): number => {
 const retrieveRelevantChunks = (
   query: string,
   documents: RagDocument[],
-  topK: number = 3
+  topK: number = 3,
 ): { chunk: DocumentChunk; source: string; score: number }[] => {
   const scored: { chunk: DocumentChunk; source: string; score: number }[] = []
 
@@ -88,9 +88,7 @@ const retrieveRelevantChunks = (
   }
 
   // 按相关度降序，取 Top-K
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
+  return scored.sort((a, b) => b.score - a.score).slice(0, topK)
 }
 
 export const useRag = (): UseRagReturn => {
@@ -98,54 +96,58 @@ export const useRag = (): UseRagReturn => {
   const [answer, setAnswer] = useState<RagAnswer | null>(null)
   const [error, setError] = useState('')
 
-  const handleAsk = useCallback(async (query: string, documents: RagDocument[]) => {
-    if (!query.trim() || isProcessing) return
+  const handleAsk = useCallback(
+    async (query: string, documents: RagDocument[]) => {
+      if (!query.trim() || isProcessing) return
 
-    setIsProcessing(true)
-    setError('')
-    setAnswer(null)
+      setIsProcessing(true)
+      setError('')
+      setAnswer(null)
 
-    try {
-      // 检索相关文档块
-      const relevant = retrieveRelevantChunks(query, documents)
+      try {
+        // 检索相关文档块
+        const relevant = retrieveRelevantChunks(query, documents)
 
-      // 📝 面试考点：将检索到的文档块拼入 System Prompt（"穷人版 RAG"）
-      const contextText = relevant.length > 0
-        ? relevant.map((r, i) => `[${i + 1}] ${r.chunk.content}`).join('\n\n')
-        : '（未找到相关文档内容）'
+        // 📝 面试考点：将检索到的文档块拼入 System Prompt（"穷人版 RAG"）
+        const contextText =
+          relevant.length > 0
+            ? relevant.map((r, i) => `[${i + 1}] ${r.chunk.content}`).join('\n\n')
+            : '（未找到相关文档内容）'
 
-      const systemPrompt = `你是一个知识库问答助手。请根据以下参考文档来回答用户的问题。
+        const systemPrompt = `你是一个知识库问答助手。请根据以下参考文档来回答用户的问题。
 如果参考文档中包含答案，请基于文档内容回答并在末尾标注引用编号如[1][2]。
 如果文档中没有相关信息，请诚实告知用户。
 
 参考文档：
 ${contextText}`
 
-      const response = await chatCompletion({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: query },
-        ],
-      })
+        const response = await chatCompletion({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: query },
+          ],
+        })
 
-      const answerContent = response.choices[0]?.message?.content || '未能生成回答'
+        const answerContent = response.choices[0]?.message?.content || '未能生成回答'
 
-      // 构造引用信息
-      const citations: Citation[] = relevant.map((r, i) => ({
-        chunkId: r.chunk.id,
-        content: r.chunk.content,
-        source: r.source,
-        score: r.score,
-        chunkIndex: i + 1,
-      }))
+        // 构造引用信息
+        const citations: Citation[] = relevant.map((r, i) => ({
+          chunkId: r.chunk.id,
+          content: r.chunk.content,
+          source: r.source,
+          score: r.score,
+          chunkIndex: i + 1,
+        }))
 
-      setAnswer({ answer: answerContent, citations })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '问答失败')
-    } finally {
-      setIsProcessing(false)
-    }
-  }, [isProcessing])
+        setAnswer({ answer: answerContent, citations })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '问答失败')
+      } finally {
+        setIsProcessing(false)
+      }
+    },
+    [isProcessing],
+  )
 
   return { isProcessing, answer, error, handleAsk }
 }

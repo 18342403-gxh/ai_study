@@ -44,9 +44,7 @@ const JsonRenderer: React.FC<JsonRendererProps> = ({ content }) => {
 
   // 解析失败时降级为纯文本展示
   if (!data) {
-    return (
-      <div className="text-sm text-gray-800 whitespace-pre-wrap">{content}</div>
-    )
+    return <div className="text-sm text-gray-800 whitespace-pre-wrap">{content}</div>
   }
 
   return (

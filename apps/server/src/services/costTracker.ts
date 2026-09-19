@@ -60,26 +60,30 @@ costTracker.on('usage', async (info: UsageInfo) => {
     const db = getDb()
     const id = randomUUID()
     const createdAt = Date.now() // SQLite 用 INTEGER timestamp
-    await db.prepare(`
+    await db
+      .prepare(
+        `
       INSERT INTO ai_usage_logs (
         id, feature, model, provider,
         prompt_tokens, completion_tokens, total_tokens,
         cost_ms, user_id, session_id, metadata, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      info.feature,
-      info.model,
-      info.provider || 'zhipu',
-      info.promptTokens,
-      info.completionTokens,
-      info.totalTokens,
-      info.costMs || 0,
-      info.userId || null,
-      info.sessionId || null,
-      info.metadata ? JSON.stringify(info.metadata) : null,
-      createdAt,
-    )
+    `,
+      )
+      .run(
+        id,
+        info.feature,
+        info.model,
+        info.provider || 'zhipu',
+        info.promptTokens,
+        info.completionTokens,
+        info.totalTokens,
+        info.costMs || 0,
+        info.userId || null,
+        info.sessionId || null,
+        info.metadata ? JSON.stringify(info.metadata) : null,
+        createdAt,
+      )
 
     // ── 预算检查（每次用完都检查一次当日累计） ──────────
     checkDailyBudget(info)
@@ -114,15 +118,19 @@ async function checkDailyBudget(info: UsageInfo): Promise<void> {
     startOfDay.setHours(0, 0, 0, 0)
     const dayStart = startOfDay.getTime()
 
-    const row = await db.prepare(
-      `SELECT COALESCE(SUM(total_tokens), 0) as total FROM ai_usage_logs WHERE created_at >= ?`,
-    ).get<{ total: number }>(dayStart)
+    const row = await db
+      .prepare(
+        `SELECT COALESCE(SUM(total_tokens), 0) as total FROM ai_usage_logs WHERE created_at >= ?`,
+      )
+      .get<{ total: number }>(dayStart)
 
     const dailyTotal = Number(row?.total || 0)
     if (dailyTotal >= dailyBudget) {
       const pct = Math.min(100, Math.round((dailyTotal / dailyBudget) * 100))
       logger.error('cost-tracker', `⚠️  日 Token 预算已达 ${pct}%`, {
-        dailyTotal, dailyBudget, pct,
+        dailyTotal,
+        dailyBudget,
+        pct,
       })
       costTracker.emit('budget_warning', {
         dailyTotalTokens: dailyTotal,
@@ -133,7 +141,9 @@ async function checkDailyBudget(info: UsageInfo): Promise<void> {
     } else if (dailyTotal >= dailyBudget * 0.8) {
       const pct = Math.round((dailyTotal / dailyBudget) * 100)
       logger.warn('cost-tracker', `日 Token 预算已用 ${pct}%（接近阈值）`, {
-        dailyTotal, dailyBudget, pct,
+        dailyTotal,
+        dailyBudget,
+        pct,
       })
     }
   } catch (err) {
@@ -159,11 +169,11 @@ export async function getDailyStats(days = 7): Promise<DailyAggregate[]> {
 
   // SQLite: created_at = INTEGER ms timestamp
   // PG:     created_at = TIMESTAMPTZ
-  const dateExpr = driver === 'sqlite'
-    ? `DATE(created_at / 1000, 'unixepoch')`
-    : `DATE(created_at)`
+  const dateExpr = driver === 'sqlite' ? `DATE(created_at / 1000, 'unixepoch')` : `DATE(created_at)`
 
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(
+      `
     SELECT
       ${dateExpr} as date,
       SUM(total_tokens) as total_tokens,
@@ -177,11 +187,10 @@ export async function getDailyStats(days = 7): Promise<DailyAggregate[]> {
     GROUP BY ${dateExpr}
     ORDER BY date DESC
     LIMIT ?
-  `).all<Record<string, unknown>>(
-    Date.now() - days * 86_400_000,
-    days,
-  )
-  return rows.map(r => ({
+  `,
+    )
+    .all<Record<string, unknown>>(Date.now() - days * 86_400_000, days)
+  return rows.map((r) => ({
     date: String(r.date),
     totalTokens: Number(r.total_tokens || 0),
     chatTokens: Number(r.chat_tokens || 0),
@@ -203,7 +212,9 @@ export interface BreakdownItem {
 
 export async function getBreakdown(days = 1): Promise<BreakdownItem[]> {
   const db = getDb()
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(
+      `
     SELECT feature, model,
       SUM(total_tokens) as total_tokens,
       SUM(prompt_tokens) as prompt_tokens,
@@ -213,8 +224,10 @@ export async function getBreakdown(days = 1): Promise<BreakdownItem[]> {
     WHERE created_at >= ?
     GROUP BY feature, model
     ORDER BY total_tokens DESC
-  `).all<Record<string, unknown>>(Date.now() - days * 86_400_000)
-  return rows.map(r => ({
+  `,
+    )
+    .all<Record<string, unknown>>(Date.now() - days * 86_400_000)
+  return rows.map((r) => ({
     feature: r.feature as AiFeature,
     model: String(r.model),
     totalTokens: Number(r.total_tokens || 0),
@@ -235,10 +248,14 @@ export async function getTodayTotal(): Promise<{
   startOfDay.setHours(0, 0, 0, 0)
   const dayStart = startOfDay.getTime()
 
-  const row = await db.prepare(`
+  const row = await db
+    .prepare(
+      `
     SELECT COALESCE(SUM(total_tokens), 0) as total, COUNT(*) as calls
     FROM ai_usage_logs WHERE created_at >= ?
-  `).get<{ total: number; calls: number }>(dayStart)
+  `,
+    )
+    .get<{ total: number; calls: number }>(dayStart)
 
   const budgetStr = process.env.DAILY_TOKEN_BUDGET
   const budget = budgetStr ? parseInt(budgetStr, 10) : null

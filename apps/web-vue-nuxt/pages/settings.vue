@@ -1,5 +1,6 @@
 <script setup lang="ts">
-const { clearCurrentSession, sessions, activeSessionId, deleteSession, loadOrCreateSession } = useChat()
+const { clearCurrentSession, sessions, activeSessionId, deleteSession, loadOrCreateSession } =
+  useChat()
 
 const config = useRuntimeConfig()
 
@@ -75,16 +76,16 @@ const aboutItems = [
 
           <div class="px-6 py-5 space-y-5">
             <div>
-              <label class="text-sm font-medium text-slate-700 block mb-2">
-                BFF 服务地址
-              </label>
+              <label class="text-sm font-medium text-slate-700 block mb-2"> BFF 服务地址 </label>
               <input
                 v-model="apiEndpoint"
                 type="text"
                 class="w-full text-sm bg-slate-50 rounded-lg px-4 py-2.5 outline-none border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition"
                 placeholder="http://localhost:3001"
               />
-              <p class="text-xs text-slate-400 mt-1.5">后端 BFF 代理地址，前端通过此地址转发 AI 请求</p>
+              <p class="text-xs text-slate-400 mt-1.5">
+                后端 BFF 代理地址，前端通过此地址转发 AI 请求
+              </p>
             </div>
 
             <div>
@@ -108,11 +109,15 @@ const aboutItems = [
                   v-for="m in ['glm-4-flash', 'glm-4-plus', 'glm-4']"
                   :key="m"
                   class="px-4 py-2 rounded-lg text-sm font-medium transition-all border"
-                  :class="model === m
-                    ? 'bg-brand-500 text-white border-brand-500 shadow-sm'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-600'"
+                  :class="
+                    model === m
+                      ? 'bg-brand-500 text-white border-brand-500 shadow-sm'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-600'
+                  "
                   @click="model = m"
-                >{{ m }}</button>
+                >
+                  {{ m }}
+                </button>
               </div>
             </div>
           </div>

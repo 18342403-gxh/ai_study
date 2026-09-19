@@ -17,8 +17,23 @@ interface Bucket {
 const buckets = new Map<string, Bucket>()
 
 /** 不同路由的限流配置 */
-const SSE_PATHS = [/^\/api\/chat\/completions$/, /^\/api\/agent\/run$/, /^\/api\/generator\/run$/, /^\/api\/rag\/query$/, /^\/api\/kb\/query$/]
-const WHITELIST_PATHS = [/^\/api\/health$/, /^\/api\/metrics$/, /^\/api\/logs(\/.*)?$/, /^\/api\/logs-view$/, /^\/api\/cache(\/.*)?$/, /^\/api\/circuits$/, /^\/api\/cache\/reset$/, /^\/api\/circuits\/reset$/]
+const SSE_PATHS = [
+  /^\/api\/chat\/completions$/,
+  /^\/api\/agent\/run$/,
+  /^\/api\/generator\/run$/,
+  /^\/api\/rag\/query$/,
+  /^\/api\/kb\/query$/,
+]
+const WHITELIST_PATHS = [
+  /^\/api\/health$/,
+  /^\/api\/metrics$/,
+  /^\/api\/logs(\/.*)?$/,
+  /^\/api\/logs-view$/,
+  /^\/api\/cache(\/.*)?$/,
+  /^\/api\/circuits$/,
+  /^\/api\/cache\/reset$/,
+  /^\/api\/circuits\/reset$/,
+]
 
 const NORMAL_WINDOW_MS = 60_000
 const NORMAL_MAX = 60
@@ -33,17 +48,17 @@ function getClientIp(req: Request): string {
 }
 
 function isSsePath(path: string): boolean {
-  return SSE_PATHS.some(p => p.test(path))
+  return SSE_PATHS.some((p) => p.test(path))
 }
 
 function isWhitelisted(path: string): boolean {
-  return WHITELIST_PATHS.some(p => p.test(path))
+  return WHITELIST_PATHS.some((p) => p.test(path))
 }
 
 function cleanup(): void {
   const now = Date.now()
   for (const [ip, bucket] of buckets) {
-    bucket.timestamps = bucket.timestamps.filter(t => now - t < NORMAL_WINDOW_MS)
+    bucket.timestamps = bucket.timestamps.filter((t) => now - t < NORMAL_WINDOW_MS)
     if (bucket.timestamps.length === 0) buckets.delete(ip)
   }
 }
@@ -68,7 +83,7 @@ export function rateLimit(req: Request, res: Response, next: NextFunction) {
     buckets.set(ip, bucket)
   }
 
-  bucket.timestamps = bucket.timestamps.filter(t => now - t < windowMs)
+  bucket.timestamps = bucket.timestamps.filter((t) => now - t < windowMs)
 
   if (bucket.timestamps.length >= max) {
     const retryAfter = Math.ceil((bucket.timestamps[0] + windowMs - now) / 1000)

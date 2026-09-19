@@ -1,6 +1,6 @@
 /**
  * useRag — RAG 文档管理 Composable
- * 
+ *
  * 连接 BFF /api/rag 系列接口
  * 支持文档上传、列表、删除、RAG 查询
  */
@@ -111,7 +111,7 @@ export function useRag() {
     query: string,
     documentIds?: string[],
     topK: number = 4,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
   ) => {
     streamingAnswer.value = ''
     streamingSources.value = []
@@ -203,7 +203,7 @@ export function useRag() {
   const queryRag = async (
     query: string,
     documentIds?: string[],
-    topK: number = 4
+    topK: number = 4,
   ): Promise<RagQueryResult | null> => {
     error.value = null
     streamingAnswer.value = ''

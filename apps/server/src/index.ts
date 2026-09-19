@@ -51,11 +51,11 @@ app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 
 // 生产级中间件（顺序重要）
-app.use(rateLimit)          // ① 限流：IP 维度令牌桶，SSE 单独配额
-app.use(metricsMiddleware)  // ② 监控：收集请求计数 / 延迟 / 错误率
-app.use(cacheMiddleware)     // ③ 缓存：LRU 内存缓存，GET 幂等接口 60s TTL
-app.use(circuitBreaker)     // ④ 熔断：AI 上游 3 次失败后开路 30s
-app.use(requestLogger)      // ⑤ 日志：带 requestId 的结构化日志
+app.use(rateLimit) // ① 限流：IP 维度令牌桶，SSE 单独配额
+app.use(metricsMiddleware) // ② 监控：收集请求计数 / 延迟 / 错误率
+app.use(cacheMiddleware) // ③ 缓存：LRU 内存缓存，GET 幂等接口 60s TTL
+app.use(circuitBreaker) // ④ 熔断：AI 上游 3 次失败后开路 30s
+app.use(requestLogger) // ⑤ 日志：带 requestId 的结构化日志
 
 initDatabase()
 
@@ -103,8 +103,15 @@ const server = app.listen(PORT, () => {
   // 线上仓库/分享给别人方便调试 — 设 AUTO_OPEN_DEBUG_PAGES=1 默认开
   if (process.env.AUTO_OPEN_DEBUG_PAGES === '1') {
     const url = `${base}/api/logs-view`
-    const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`
-    exec(cmd, () => { /* 忽略打开失败（WSL/无桌面环境） */ })
+    const cmd =
+      process.platform === 'win32'
+        ? `start "" "${url}"`
+        : process.platform === 'darwin'
+          ? `open "${url}"`
+          : `xdg-open "${url}"`
+    exec(cmd, () => {
+      /* 忽略打开失败（WSL/无桌面环境） */
+    })
   }
 })
 

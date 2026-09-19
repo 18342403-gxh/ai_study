@@ -4,8 +4,8 @@
  * 使用重叠窗口策略保证上下文完整性
  */
 
-const MAX_CHUNK_SIZE = 800   // 每块最大字符数
-const OVERLAP_SIZE = 100     // 重叠窗口大小
+const MAX_CHUNK_SIZE = 800 // 每块最大字符数
+const OVERLAP_SIZE = 100 // 重叠窗口大小
 
 interface Chunk {
   content: string

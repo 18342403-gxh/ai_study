@@ -26,7 +26,8 @@ const EXAMPLE_TASKS = [
 
 const AgentPage: React.FC = () => {
   const [input, setInput] = useState('')
-  const { steps, status, error, streamingContent, handleStart, handleStop, handleReset } = useAgent()
+  const { steps, status, error, streamingContent, handleStart, handleStop, handleReset } =
+    useAgent()
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const isRunning = status === 'running'
@@ -122,19 +123,21 @@ const AgentPage: React.FC = () => {
         {/* Agent 状态指示器 */}
         {status !== 'idle' && (
           <div className="mb-3 flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
-              isRunning ? 'bg-indigo-400 animate-pulse' :
-              isCompleted ? 'bg-emerald-400' :
-              'bg-rose-400'
-            }`} />
-            <span className={`text-xs ${
-              isRunning ? 'text-indigo-400' :
-              isCompleted ? 'text-emerald-400' :
-              'text-rose-400'
-            }`}>
-              {isRunning ? '执行中' :
-               isCompleted ? '已完成' :
-               '已中断'}
+            <div
+              className={`w-2 h-2 rounded-full ${
+                isRunning
+                  ? 'bg-indigo-400 animate-pulse'
+                  : isCompleted
+                    ? 'bg-emerald-400'
+                    : 'bg-rose-400'
+              }`}
+            />
+            <span
+              className={`text-xs ${
+                isRunning ? 'text-indigo-400' : isCompleted ? 'text-emerald-400' : 'text-rose-400'
+              }`}
+            >
+              {isRunning ? '执行中' : isCompleted ? '已完成' : '已中断'}
             </span>
             <span className="text-xs text-slate-500 ml-auto">{steps.length} 步</span>
           </div>

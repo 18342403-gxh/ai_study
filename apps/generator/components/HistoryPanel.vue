@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Check, X, RefreshCw, Trash2, Download, Bot, Puzzle, Loader2, FileText, AlertTriangle } from 'lucide-vue-next'
+import {
+  Check,
+  X,
+  RefreshCw,
+  Trash2,
+  Download,
+  Bot,
+  Puzzle,
+  Loader2,
+  FileText,
+  AlertTriangle,
+} from 'lucide-vue-next'
 
 const config = useRuntimeConfig()
 const bffUrl = config.public.bffUrl as string
@@ -50,8 +61,9 @@ async function toggleDetail(id: string) {
   try {
     const res = await fetch(`${bffUrl}/api/generator/sessions/${id}`)
     if (res.ok) detail.value = await res.json()
-  } catch { /* ignore */ }
-  finally {
+  } catch {
+    /* ignore */
+  } finally {
     detailLoading.value = false
   }
 }
@@ -61,13 +73,23 @@ async function deleteSession(id: string) {
   try {
     await fetch(`${bffUrl}/api/generator/sessions/${id}`, { method: 'DELETE' })
     sessions.value = sessions.value.filter((s) => s.id !== id)
-    if (expandedId.value === id) { expandedId.value = null; detail.value = null }
-  } catch { /* ignore */ }
+    if (expandedId.value === id) {
+      expandedId.value = null
+      detail.value = null
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 function formatTime(ts: number) {
   const d = new Date(ts)
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function downloadFile(f: { path?: string; file_path?: string; content: string }) {
@@ -83,13 +105,16 @@ function downloadFile(f: { path?: string; file_path?: string; content: string })
 
 function statusColor(s: string) {
   switch (s) {
-    case 'completed': return 'bg-emerald-100 text-emerald-700'
-    case 'error': return 'bg-red-100 text-red-700'
+    case 'completed':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'error':
+      return 'bg-red-100 text-red-700'
     case 'clarifying':
     case 'retrieving':
     case 'generating':
       return 'bg-primary-100 text-primary-700'
-    default: return 'bg-slate-100 text-slate-600'
+    default:
+      return 'bg-slate-100 text-slate-600'
   }
 }
 
@@ -101,9 +126,14 @@ defineExpose({ refresh: fetchList })
   <div class="h-full flex flex-col bg-slate-50">
     <!-- 顶部栏 -->
     <div class="h-12 flex items-center px-5 border-b border-slate-200 bg-white flex-shrink-0">
-      <span class="text-slate-700 font-medium flex items-center gap-1.5"><FileText class="w-4 h-4" /> 我的生成</span>
+      <span class="text-slate-700 font-medium flex items-center gap-1.5"
+        ><FileText class="w-4 h-4" /> 我的生成</span
+      >
       <span class="ml-2 text-xs text-slate-400">共 {{ sessions.length }} 条</span>
-      <button @click="fetchList" class="ml-auto text-xs text-slate-500 hover:text-primary-600 transition-colors flex items-center gap-1">
+      <button
+        @click="fetchList"
+        class="ml-auto text-xs text-slate-500 hover:text-primary-600 transition-colors flex items-center gap-1"
+      >
         <RefreshCw class="w-3.5 h-3.5" /> 刷新
       </button>
     </div>
@@ -111,14 +141,20 @@ defineExpose({ refresh: fetchList })
     <!-- 内容区 -->
     <div class="flex-1 overflow-y-auto light-scroll">
       <!-- 加载 -->
-      <div v-if="loading" class="h-full flex items-center justify-center text-slate-400 text-sm">加载中...</div>
+      <div v-if="loading" class="h-full flex items-center justify-center text-slate-400 text-sm">
+        加载中...
+      </div>
 
       <!-- 错误 -->
       <div v-else-if="errorMsg" class="h-full flex items-center justify-center">
         <div class="text-center">
-          <div class="text-red-400 mb-2 flex justify-center"><AlertTriangle class="w-10 h-10" /></div>
+          <div class="text-red-400 mb-2 flex justify-center">
+            <AlertTriangle class="w-10 h-10" />
+          </div>
           <div class="text-slate-500 text-sm">{{ errorMsg }}</div>
-          <button @click="fetchList" class="mt-3 text-xs text-primary-600 hover:underline">重试</button>
+          <button @click="fetchList" class="mt-3 text-xs text-primary-600 hover:underline">
+            重试
+          </button>
         </div>
       </div>
 
@@ -137,30 +173,49 @@ defineExpose({ refresh: fetchList })
           :key="s.id"
           :class="[
             'bg-white rounded-lg border transition-all cursor-pointer overflow-hidden',
-            expandedId === s.id ? 'border-primary-300 shadow-sm' : 'border-slate-200 hover:border-slate-300',
+            expandedId === s.id
+              ? 'border-primary-300 shadow-sm'
+              : 'border-slate-200 hover:border-slate-300',
           ]"
           @click="toggleDetail(s.id)"
         >
           <!-- 列表行 -->
           <div class="flex items-center gap-3 px-4 py-3">
-            <div class="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-primary-600">
+            <div
+              class="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-primary-600"
+            >
               <Bot v-if="s.artifact_type === 'skill'" class="w-5 h-5" />
               <Puzzle v-else class="w-5 h-5" />
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="text-xs px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1" :class="statusColor(s.status)">
+                <span
+                  class="text-xs px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1"
+                  :class="statusColor(s.status)"
+                >
                   <Check v-if="s.status === 'completed'" class="w-3 h-3" />
                   <X v-else-if="s.status === 'error'" class="w-3 h-3" />
                   <Loader2 v-else-if="s.status === 'generating'" class="w-3 h-3 animate-spin" />
-                  <span>{{ s.status === 'completed' ? '完成' : s.status === 'error' ? '失败' : s.status === 'generating' ? '生成中' : s.status }}</span>
+                  <span>{{
+                    s.status === 'completed'
+                      ? '完成'
+                      : s.status === 'error'
+                        ? '失败'
+                        : s.status === 'generating'
+                          ? '生成中'
+                          : s.status
+                  }}</span>
                 </span>
                 <span class="text-xs text-slate-400">v{{ s.iteration || 1 }}</span>
-                <span v-if="s.framework" class="text-xs text-slate-400">{{ s.framework.toUpperCase() }}</span>
+                <span v-if="s.framework" class="text-xs text-slate-400">{{
+                  s.framework.toUpperCase()
+                }}</span>
                 <span v-if="s.skill_name" class="text-xs text-slate-400">{{ s.skill_name }}</span>
               </div>
               <div class="text-sm text-slate-700 truncate mt-0.5">{{ s.requirement }}</div>
-              <div class="text-[11px] text-slate-400 mt-0.5">{{ formatTime(s.updated_at) }} · {{ s.file_count || 0 }} 个文件</div>
+              <div class="text-[11px] text-slate-400 mt-0.5">
+                {{ formatTime(s.updated_at) }} · {{ s.file_count || 0 }} 个文件
+              </div>
             </div>
             <button
               @click.stop="deleteSession(s.id)"
@@ -177,13 +232,17 @@ defineExpose({ refresh: fetchList })
             <div v-else-if="detail" class="p-4 space-y-3">
               <!-- 文件版本 -->
               <div v-if="detail.files?.length" class="space-y-2">
-                <div class="text-xs text-slate-500 font-medium">文件（{{ detail.files.length }} 个版本）</div>
+                <div class="text-xs text-slate-500 font-medium">
+                  文件（{{ detail.files.length }} 个版本）
+                </div>
                 <div
                   v-for="f in detail.files"
                   :key="f.id"
                   class="bg-white border border-slate-200 rounded-lg overflow-hidden"
                 >
-                  <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-xs">
+                  <div
+                    class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-xs"
+                  >
                     <span class="font-mono text-slate-700">{{ f.file_path }}</span>
                     <span class="text-slate-400">· v{{ f.iteration }}</span>
                     <span v-if="f.is_current" class="text-emerald-600 font-medium">current</span>
@@ -195,7 +254,9 @@ defineExpose({ refresh: fetchList })
                       <Download class="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <pre class="p-3 text-xs text-slate-700 overflow-x-auto light-scroll max-h-64">{{ f.content }}</pre>
+                  <pre class="p-3 text-xs text-slate-700 overflow-x-auto light-scroll max-h-64">{{
+                    f.content
+                  }}</pre>
                 </div>
               </div>
               <div v-else class="text-xs text-slate-400 italic">无文件产出</div>

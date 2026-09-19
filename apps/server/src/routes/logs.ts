@@ -7,7 +7,13 @@
  */
 
 import { Router } from 'express'
-import { getLogs, subscribeLogs, logger, type LogLevel, type LogRecord } from '../services/logger.js'
+import {
+  getLogs,
+  subscribeLogs,
+  logger,
+  type LogLevel,
+  type LogRecord,
+} from '../services/logger.js'
 
 const router = Router()
 
@@ -22,7 +28,7 @@ router.get('/', (req, res) => {
 /** GET /api/logs/tags */
 router.get('/tags', (_req, res) => {
   const all = getLogs({ limit: 5000 })
-  const tags = Array.from(new Set(all.map(r => r.tag))).sort()
+  const tags = Array.from(new Set(all.map((r) => r.tag))).sort()
   res.json(tags)
 })
 

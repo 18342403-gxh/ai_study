@@ -55,9 +55,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ language, children }) => {
       </div>
       {/* 代码内容 */}
       <pre className="p-3 overflow-x-auto text-xs leading-relaxed">
-        <code className={`language-${language} text-slate-200`}>
-          {children}
-        </code>
+        <code className={`language-${language} text-slate-200`}>{children}</code>
       </pre>
     </div>
   )

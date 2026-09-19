@@ -19,14 +19,56 @@ interface ModuleItem {
 }
 
 const modules: ModuleItem[] = [
-  { id: 1, icon: <GlobalOutline />, title: 'AI API 基础调用', description: '理解大模型 API 调用全流程', route: '/m1' },
-  { id: 2, icon: <PlayOutline />, title: '流式响应', description: 'SSE 协议与实时数据渲染', route: '/m2' },
-  { id: 3, icon: <FireFill />, title: 'Prompt 工程', description: '构建高质量对话提示词', route: '/m3' },
-  { id: 4, icon: <MessageOutline />, title: '聊天界面', description: '移动端 Chat UI 开发', route: '/m4' },
-  { id: 5, icon: <SetOutline />, title: 'Function Calling', description: '工具调用与执行编排', route: '/m5' },
-  { id: 6, icon: <ContentOutline />, title: 'RAG 集成', description: '知识库检索增强生成', route: '/m6' },
+  {
+    id: 1,
+    icon: <GlobalOutline />,
+    title: 'AI API 基础调用',
+    description: '理解大模型 API 调用全流程',
+    route: '/m1',
+  },
+  {
+    id: 2,
+    icon: <PlayOutline />,
+    title: '流式响应',
+    description: 'SSE 协议与实时数据渲染',
+    route: '/m2',
+  },
+  {
+    id: 3,
+    icon: <FireFill />,
+    title: 'Prompt 工程',
+    description: '构建高质量对话提示词',
+    route: '/m3',
+  },
+  {
+    id: 4,
+    icon: <MessageOutline />,
+    title: '聊天界面',
+    description: '移动端 Chat UI 开发',
+    route: '/m4',
+  },
+  {
+    id: 5,
+    icon: <SetOutline />,
+    title: 'Function Calling',
+    description: '工具调用与执行编排',
+    route: '/m5',
+  },
+  {
+    id: 6,
+    icon: <ContentOutline />,
+    title: 'RAG 集成',
+    description: '知识库检索增强生成',
+    route: '/m6',
+  },
   { id: 7, icon: <SmileOutline />, title: 'AI Agent', description: '智能体交互设计', route: '/m7' },
-  { id: 8, icon: <FileOutline />, title: '知识库', description: '企业级文档问答系统', route: '/kb' },
+  {
+    id: 8,
+    icon: <FileOutline />,
+    title: '知识库',
+    description: '企业级文档问答系统',
+    route: '/kb',
+  },
 ]
 
 const Home: React.FC = () => {

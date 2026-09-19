@@ -22,9 +22,10 @@ const PromptLab: React.FC = () => {
   const [input, setInput] = useState('')
 
   const currentPreset = presets.find((p) => p.id === selectedPresetId)
-  const activePrompt = showEditor ? customPrompt : (currentPreset?.systemPrompt || '')
+  const activePrompt = showEditor ? customPrompt : currentPreset?.systemPrompt || ''
 
-  const { messages, isStreaming, error, tokenCount, send, stop, clear, setSystemPrompt } = useConversation(activePrompt)
+  const { messages, isStreaming, error, tokenCount, send, stop, clear, setSystemPrompt } =
+    useConversation(activePrompt)
 
   useEffect(() => {
     if (!showEditor && currentPreset) {
@@ -116,7 +117,8 @@ const PromptLab: React.FC = () => {
         {/* Token 计数 */}
         <div className="mb-3 flex items-center gap-3">
           <span className="text-xs text-slate-500">
-            Token 估算：<span className="font-medium text-slate-300">{tokenCount}</span> / {MAX_TOKENS_DISPLAY}
+            Token 估算：<span className="font-medium text-slate-300">{tokenCount}</span> /{' '}
+            {MAX_TOKENS_DISPLAY}
           </span>
           <button type="button" onClick={clear} className="text-xs text-rose-400 ml-auto">
             清空对话
@@ -129,12 +131,17 @@ const PromptLab: React.FC = () => {
             <p className="text-xs text-slate-500 text-center py-4">发送消息开始对话...</p>
           ) : (
             visibleMessages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-indigo-500/80 text-white'
-                    : 'bg-slate-700/60 text-slate-200'
-                }`}>
+              <div
+                key={idx}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${
+                    msg.role === 'user'
+                      ? 'bg-indigo-500/80 text-white'
+                      : 'bg-slate-700/60 text-slate-200'
+                  }`}
+                >
                   {msg.role === 'assistant' && isJsonMode ? (
                     <JsonRenderer content={msg.content} />
                   ) : (
@@ -171,7 +178,10 @@ const PromptLab: React.FC = () => {
             className="tech-input flex-1 h-11 px-3 rounded-xl text-sm"
           />
           {isStreaming ? (
-            <button onClick={stop} className="h-11 px-4 border border-rose-500/50 text-rose-400 rounded-xl text-sm">
+            <button
+              onClick={stop}
+              className="h-11 px-4 border border-rose-500/50 text-rose-400 rounded-xl text-sm"
+            >
               停止
             </button>
           ) : (
