@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { Check, X, RefreshCw, Trash2, Download, Bot, Puzzle, Loader2, FileText, AlertTriangle } from 'lucide-vue-next'
 
 const config = useRuntimeConfig()
 const bffUrl = config.public.bffUrl as string
@@ -100,10 +101,10 @@ defineExpose({ refresh: fetchList })
   <div class="h-full flex flex-col bg-slate-50">
     <!-- 顶部栏 -->
     <div class="h-12 flex items-center px-5 border-b border-slate-200 bg-white flex-shrink-0">
-      <span class="text-slate-700 font-medium">📜 我的生成</span>
+      <span class="text-slate-700 font-medium flex items-center gap-1.5"><FileText class="w-4 h-4" /> 我的生成</span>
       <span class="ml-2 text-xs text-slate-400">共 {{ sessions.length }} 条</span>
-      <button @click="fetchList" class="ml-auto text-xs text-slate-500 hover:text-primary-600 transition-colors">
-        🔄 刷新
+      <button @click="fetchList" class="ml-auto text-xs text-slate-500 hover:text-primary-600 transition-colors flex items-center gap-1">
+        <RefreshCw class="w-3.5 h-3.5" /> 刷新
       </button>
     </div>
 
@@ -115,7 +116,7 @@ defineExpose({ refresh: fetchList })
       <!-- 错误 -->
       <div v-else-if="errorMsg" class="h-full flex items-center justify-center">
         <div class="text-center">
-          <div class="text-red-400 text-4xl mb-2">😵</div>
+          <div class="text-red-400 mb-2 flex justify-center"><AlertTriangle class="w-10 h-10" /></div>
           <div class="text-slate-500 text-sm">{{ errorMsg }}</div>
           <button @click="fetchList" class="mt-3 text-xs text-primary-600 hover:underline">重试</button>
         </div>
@@ -124,7 +125,7 @@ defineExpose({ refresh: fetchList })
       <!-- 空状态 -->
       <div v-else-if="sessions.length === 0" class="h-full flex items-center justify-center">
         <div class="text-center">
-          <div class="text-5xl mb-3">📭</div>
+          <div class="mb-3 flex justify-center"><FileText class="w-14 h-14 text-slate-300" /></div>
           <div class="text-slate-500 text-sm">还没有生成记录，去生成一个吧～</div>
         </div>
       </div>
@@ -142,13 +143,17 @@ defineExpose({ refresh: fetchList })
         >
           <!-- 列表行 -->
           <div class="flex items-center gap-3 px-4 py-3">
-            <div class="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-base">
-              {{ s.artifact_type === 'component' ? '🧩' : '🤖' }}
+            <div class="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-primary-600">
+              <Bot v-if="s.artifact_type === 'skill'" class="w-5 h-5" />
+              <Puzzle v-else class="w-5 h-5" />
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="text-xs px-1.5 py-0.5 rounded font-medium" :class="statusColor(s.status)">
-                  {{ s.status === 'completed' ? '✅ 完成' : s.status === 'error' ? '❌ 失败' : s.status === 'generating' ? '⚙️ 生成中' : s.status }}
+                <span class="text-xs px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1" :class="statusColor(s.status)">
+                  <Check v-if="s.status === 'completed'" class="w-3 h-3" />
+                  <X v-else-if="s.status === 'error'" class="w-3 h-3" />
+                  <Loader2 v-else-if="s.status === 'generating'" class="w-3 h-3 animate-spin" />
+                  <span>{{ s.status === 'completed' ? '完成' : s.status === 'error' ? '失败' : s.status === 'generating' ? '生成中' : s.status }}</span>
                 </span>
                 <span class="text-xs text-slate-400">v{{ s.iteration || 1 }}</span>
                 <span v-if="s.framework" class="text-xs text-slate-400">{{ s.framework.toUpperCase() }}</span>
@@ -162,7 +167,7 @@ defineExpose({ refresh: fetchList })
               class="text-slate-300 hover:text-red-500 transition-colors p-1"
               title="删除"
             >
-              🗑️
+              <Trash2 class="w-4 h-4" />
             </button>
           </div>
 
@@ -185,8 +190,9 @@ defineExpose({ refresh: fetchList })
                     <button
                       @click.stop="() => downloadFile(f)"
                       class="ml-auto text-slate-400 hover:text-primary-600 transition-colors"
+                      title="下载"
                     >
-                      ⬇️
+                      <Download class="w-3.5 h-3.5" />
                     </button>
                   </div>
                   <pre class="p-3 text-xs text-slate-700 overflow-x-auto light-scroll max-h-64">{{ f.content }}</pre>

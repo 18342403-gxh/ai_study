@@ -26,7 +26,7 @@
               : 'text-slate-600 hover:bg-slate-100',
           ]"
         >
-          <span class="text-base">🧩</span>
+          <Puzzle class="w-4 h-4" />
           <span>组件生成</span>
         </button>
 
@@ -39,7 +39,7 @@
               : 'text-slate-600 hover:bg-slate-100',
           ]"
         >
-          <span class="text-base">🤖</span>
+          <Bot class="w-4 h-4" />
           <span>Skill 生成</span>
         </button>
 
@@ -56,7 +56,7 @@
               : 'text-slate-600 hover:bg-slate-100',
           ]"
         >
-          <span class="text-base">📜</span>
+          <History class="w-4 h-4" />
           <span>我的生成</span>
           <span v-if="historyCount > 0" class="ml-auto text-[10px] bg-primary-100 text-primary-600 px-1.5 py-0.5 rounded-full">{{ historyCount }}</span>
         </button>
@@ -78,6 +78,7 @@
 
 <script setup lang="ts">
 import { ref, provide, watch, onMounted } from 'vue'
+import { Bot, Puzzle, History } from 'lucide-vue-next'
 
 // 共享的 activeTab — layout 管理，provide 给 page 使用
 type ArtifactType = 'component' | 'skill' | 'history'

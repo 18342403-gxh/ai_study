@@ -371,6 +371,8 @@ ASCII 图，标注每个服务和协议：
 6. **成本不追踪** — 有 LLM 调用就注 costTracker
 7. **Embedding 没降级** — 一定要加 hashVector fallback
 8. **console.log 残留** — Phase 2 gate 就卡这个，Phase 3 回来再卡一次
+9. **🚫 emoji 当 UI 图标** — 前端必须用组件库图标（lucide-vue-next / @iconify / element-plus icons 等）。emoji 只能用在纯文本消息里（如 chat 对话的 error 提示），不能出现在按钮、导航、状态徽章等 UI 组件上
+10. **ESLint 配旧格式** — ESLint v9+ 必须用 `eslint.config.mjs`（flat config），不能用 `.eslintrc.*`。需要配置 Vue parser + TS parser 嵌套 + Nuxt/Vue 全局自动导入
 
 ---
 

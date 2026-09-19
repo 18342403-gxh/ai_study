@@ -1,4 +1,4 @@
-﻿import { logger } from '../logger.js'
+﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../logger.js'
 import { costTracker } from '../costTracker.js'
 
 /**
@@ -74,7 +74,7 @@ export const createChatModel = (config: ModelConfig = {}) => {
         if (data.usage) {
           const u = data.usage
           costTracker.track({
-            feature,
+            feature: 'chat',
             model: modelName,
             provider,
             promptTokens: u.prompt_tokens ?? 0,
@@ -162,7 +162,7 @@ export const createChatModel = (config: ModelConfig = {}) => {
         // ── 成本追踪（stream 的 usage 在最后一个 chunk 里）──
         if (streamUsage) {
           costTracker.track({
-            feature,
+            feature: 'chat',
             model: modelName,
             provider,
             promptTokens: streamUsage.prompt_tokens ?? 0,

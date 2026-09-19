@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, inject } from 'vue'
+import {
+  Check, X, RefreshCw, Sparkles, Bot, Puzzle, Package, FileCode, Eye,
+  Lightbulb, Paperclip, Loader2, Circle,
+} from 'lucide-vue-next'
 
 // ── 模式切换：从 layout inject 进来 ──
 type ArtifactType = 'component' | 'skill' | 'history'
@@ -103,7 +107,7 @@ const runGenerator = async () => {
     if (!res.ok || !res.body) {
       errorMsg.value = `HTTP ${res.status} 启动失败`
       isGenerating.value = false
-      chatHistory.value.push({ role: 'ai', content: `❌ ${errorMsg.value}` })
+      chatHistory.value.push({ role: 'ai', content: `生成失败：${errorMsg.value}` })
       scrollToBottom()
       return
     }
@@ -134,14 +138,14 @@ const runGenerator = async () => {
     }
   } catch (e) {
     errorMsg.value = (e as Error).message
-    chatHistory.value.push({ role: 'ai', content: `❌ ${errorMsg.value}` })
+    chatHistory.value.push({ role: 'ai', content: `生成失败：${errorMsg.value}` })
   } finally {
     isGenerating.value = false
     input.value = ''   // 提交后清输入
 
     chatHistory.value.push({
       role: 'ai',
-      content: errorMsg.value ? `生成失败：${errorMsg.value}` : '✅ 生成完成，以下是产出文件：',
+      content: errorMsg.value ? `生成失败：${errorMsg.value}` : '生成完成，以下是产出文件：',
       files: currentFiles.value.length ? currentFiles.value : undefined,
       phases: phases.value,
       previewInfo: lastPreviewInfo.value || undefined,
@@ -227,7 +231,7 @@ const runIterate = async () => {
     if (!res.ok || !res.body) {
       errorMsg.value = `HTTP ${res.status}`
       isGenerating.value = false
-      chatHistory.value.push({ role: 'ai', content: `❌ ${errorMsg.value}` })
+      chatHistory.value.push({ role: 'ai', content: `修改失败：${errorMsg.value}` })
       scrollToBottom()
       return
     }
@@ -261,7 +265,7 @@ const runIterate = async () => {
 
     chatHistory.value.push({
       role: 'ai',
-      content: errorMsg.value ? `修改失败：${errorMsg.value}` : '✅ 已根据反馈更新：',
+      content: errorMsg.value ? `修改失败：${errorMsg.value}` : '已根据反馈更新：',
       files: currentFiles.value.length ? currentFiles.value : undefined,
       phases: phases.value,
       previewInfo: lastPreviewInfo.value || undefined,
@@ -320,7 +324,11 @@ const startNewChat = () => {
       <div class="h-11 flex items-center px-4 border-b border-slate-200 bg-white flex-shrink-0">
         <div class="flex items-center gap-2 text-xs text-slate-500">
           <span class="w-2 h-2 rounded-full bg-primary-500"></span>
-          <span>{{ isComponent ? '🧩 组件生成器' : '🤖 Skill 生成器' }}</span>
+          <span class="inline-flex items-center gap-1">
+            <Puzzle v-if="isComponent" class="w-3.5 h-3.5" />
+            <Bot v-else class="w-3.5 h-3.5" />
+            {{ isComponent ? '组件生成器' : 'Skill 生成器' }}
+          </span>
           <span v-if="isGenerating" class="text-primary-500 animate-pulse">· 生成中</span>
         </div>
         <div class="ml-auto flex items-center gap-2">
@@ -338,7 +346,10 @@ const startNewChat = () => {
       <div ref="scrollRef" class="flex-1 overflow-y-auto light-scroll px-6 py-5">
         <!-- 空状态 -->
         <div v-if="chatHistory.length === 0 && !isGenerating" class="h-full flex flex-col items-center justify-center text-center">
-          <div class="text-5xl mb-4">{{ isComponent ? '🧩' : '🤖' }}</div>
+          <div class="mb-4 flex justify-center">
+            <Puzzle v-if="isComponent" class="w-16 h-16 text-primary-500" />
+            <Bot v-else class="w-16 h-16 text-primary-500" />
+          </div>
           <div class="text-slate-700 font-medium text-lg mb-1">
             AI {{ isComponent ? '组件' : 'Skill' }} 生成器
           </div>
@@ -387,9 +398,10 @@ const startNewChat = () => {
               <div v-if="msg.phases?.length" class="mb-2 pl-2">
                 <div class="space-y-1">
                   <div v-for="p in msg.phases" :key="p.node" class="flex items-center gap-2 text-xs">
-                    <span v-if="p.status === 'running'" class="pulse-glow text-primary-500">⏳</span>
-                    <span v-else-if="p.status === 'done'" class="text-emerald-500">✅</span>
-                    <span v-else-if="p.status === 'error'" class="text-red-500">❌</span>
+                    <Loader2 v-if="p.status === 'running'" class="w-3.5 h-3.5 pulse-glow text-primary-500 animate-spin" />
+                    <Check v-else-if="p.status === 'done'" class="w-3.5 h-3.5 text-emerald-500" />
+                    <X v-else-if="p.status === 'error'" class="w-3.5 h-3.5 text-red-500" />
+                    <Circle v-else class="w-3.5 h-3.5 text-slate-300" />
                     <span :class="p.status === 'running' ? 'text-primary-600 font-medium' : 'text-slate-500'">
                       {{ nodeLabel(p.node) }}
                     </span>
@@ -400,12 +412,12 @@ const startNewChat = () => {
               <!-- 文件预览 + iframe 预览 Tab →-->
               <div v-if="msg.files?.length" class="space-y-2 mt-2">
                 <div class="flex items-center gap-2 text-xs text-slate-500">
-                  <span>📎 {{ msg.files.length }} 个文件</span>
+                  <span class="inline-flex items-center gap-1"><Paperclip class="w-3.5 h-3.5" /> {{ msg.files.length }} 个文件</span>
                   <button
                     @click="downloadAllFiles(msg.files)"
-                    class="px-2.5 py-1 rounded border border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 transition-colors bg-white"
+                    class="px-2.5 py-1 rounded border border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 transition-colors bg-white inline-flex items-center gap-1"
                   >
-                    📦 全部下载
+                    <Package class="w-3.5 h-3.5" /> 全部下载
                   </button>
 
                   <!-- iframe 预览 Tab 切换（仅 component 模式） -->
@@ -419,16 +431,19 @@ const startNewChat = () => {
                             ? 'bg-slate-200 text-slate-700 font-medium'
                             : 'text-slate-400 hover:text-slate-600',
                         ]"
-                      >📄 代码</button>
+                      >
+                        <FileCode class="w-3.5 h-3.5" /> 代码
+                      </button>
                       <button
                         @click="setPreviewTab(idx, 'preview')"
                         :class="[
-                          'px-2.5 py-1 rounded text-xs transition-colors',
+                          'px-2.5 py-1 rounded text-xs transition-colors inline-flex items-center gap-1',
                           getPreviewTab(idx) === 'preview'
                             ? 'bg-primary-100 text-primary-700 font-medium'
                             : 'text-slate-400 hover:text-slate-600',
                         ]"
-                      >👁️ 预览</button>
+                      >
+                        <Eye class="w-3.5 h-3.5" /> 预览
                     </div>
                   </template>
                 </div>
@@ -544,8 +559,8 @@ const startNewChat = () => {
           </template>
 
           <!-- 迭代模式提示（替代"清空"按钮位置） -->
-          <div v-if="canIterate" class="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-50 text-primary-600 text-[11px] font-medium">
-            💡 迭代模式
+          <div v-if="canIterate" class="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-50 text-primary-600 text-[11px] font-medium inline-flex items-center gap-1">
+            <Lightbulb class="w-3.5 h-3.5" /> 迭代模式
           </div>
           <button
             v-else-if="input"
@@ -585,10 +600,10 @@ const startNewChat = () => {
                 生成中
               </span>
               <span v-else-if="canIterate" class="inline-flex items-center gap-1.5">
-                🔄 发送修改
+                <RefreshCw class="w-4 h-4" /> 发送修改
               </span>
               <span v-else class="inline-flex items-center gap-1.5">
-                ✨ 生成 {{ isComponent ? '组件' : 'Skill' }}
+                <Sparkles class="w-4 h-4" /> 生成 {{ isComponent ? '组件' : 'Skill' }}
               </span>
             </button>
           </div>
