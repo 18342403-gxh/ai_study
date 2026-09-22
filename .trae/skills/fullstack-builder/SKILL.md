@@ -11,14 +11,14 @@ A **deterministic state machine** with 6 phases, each with mandatory gates. The 
 
 `state.js init` 创建的状态文件自带以下默认值。这不是硬限制 — 每个都可以用 `state.js set` 覆盖。
 
-| 层 | 默认值 | 理由 |
-|----|--------|------|
-| **Layout** | `monorepo-noshared` | 两个 app（server + web），不需要共享包。pnpm workspaces 零配置 |
-| **Backend** | `express` | Node.js 生态，AI SDK（LangChain/Dify/Mastra）都是 TS first |
-| **Frontend** | `vite+vue` | SPA 开发效率高，Pinia 状态管理 |
-| **Database** | `sqlite` | 零 infra，本地开发秒启动；部署时可切 PG |
-| **Vector Store** | `sqlite-cosine` | 零 infra，app 内计算 cosine，<100K 文档完全够用 |
-| **Package** | `pnpm` | 磁盘高效 + Monorepo workspaces 原生支持 |
+| 层               | 默认值              | 理由                                                           |
+| ---------------- | ------------------- | -------------------------------------------------------------- |
+| **Layout**       | `monorepo-noshared` | 两个 app（server + web），不需要共享包。pnpm workspaces 零配置 |
+| **Backend**      | `express`           | Node.js 生态，AI SDK（LangChain/Dify/Mastra）都是 TS first     |
+| **Frontend**     | `vite+vue`          | SPA 开发效率高，Pinia 状态管理                                 |
+| **Database**     | `sqlite`            | 零 infra，本地开发秒启动；部署时可切 PG                        |
+| **Vector Store** | `sqlite-cosine`     | 零 infra，app 内计算 cosine，<100K 文档完全够用                |
+| **Package**      | `pnpm`              | 磁盘高效 + Monorepo workspaces 原生支持                        |
 
 **Node.js 是第一公民**。本 Skill 产出的所有 Prompt、代码模板、脚手架都以 TypeScript + Node.js 为主方向。Python Go Rust 等后端可选，但不是默认路径。
 
@@ -72,13 +72,12 @@ A **deterministic state machine** with 6 phases, each with mandatory gates. The 
     "vectorStore": "sqlite-cosine",
     "layout": "single-package"
   },
-  "phaseHistory": [
-    { "phase": 1, "enteredAt": "...", "gatesPassed": 0, "notes": "..." }
-  ]
+  "phaseHistory": [{ "phase": 1, "enteredAt": "...", "gatesPassed": 0, "notes": "..." }]
 }
 ```
 
 **规则**：
+
 - 任何时候被中断（session 断了、用户切话题），回来后先读这个文件，`currentPhase` 就是你该继续的地方
 - Gate key 格式：`phase{N}.{gateSlug}`（比如 `phase2.typecheck`）
 - Gate 只有 `true` / `false` / 不存在（=false）三种状态
@@ -140,6 +139,7 @@ A **deterministic state machine** with 6 phases, each with mandatory gates. The 
 
 **1.1 Product Brief（对话形式收集）**
 向用户问 3 个问题，然后把回答整理成 2 段话：
+
 - "这个产品给谁用？解决什么具体痛点？"
 - "AI 在哪里？核心 AI 能力是什么（chat / RAG / agent / code gen / 多模态）？"
 - "MVP 不做什么？（边界声明，防止 scope creep）"
@@ -156,16 +156,17 @@ A **deterministic state machine** with 6 phases, each with mandatory gates. The 
 **1.3 Tech Stack Selection（填进状态文件）**
 对每一层，给 2-3 个候选方案 + 1 句 justification（必须引用 profile 里的某个值，不能说"最新"）：
 
-| 层 | 候选方案 | 选择依据 |
-|----|---------|---------|
-| Backend | Express / Fastify / Hono / FastAPI / Gin | 团队熟悉度 + deployment 约束 |
-| Frontend | Vite+Vue / Nuxt / Vite+React / Next / RN+Expo / Tauri / Electron | frontendScope + SEO 需求 |
-| Database | SQLite / PostgreSQL / MongoDB / DynamoDB | size + deployment |
-| Vector Store | SQLite-cosine / pgvector / Pinecone / Qdrant | 文档规模预估 + 零 infra |
-| Layout | single-package / monorepo-noshared / monorepo-shared | 有几个 app |
+| 层           | 候选方案                                                         | 选择依据                     |
+| ------------ | ---------------------------------------------------------------- | ---------------------------- |
+| Backend      | Express / Fastify / Hono / FastAPI / Gin                         | 团队熟悉度 + deployment 约束 |
+| Frontend     | Vite+Vue / Nuxt / Vite+React / Next / RN+Expo / Tauri / Electron | frontendScope + SEO 需求     |
+| Database     | SQLite / PostgreSQL / MongoDB / DynamoDB                         | size + deployment            |
+| Vector Store | SQLite-cosine / pgvector / Pinecone / Qdrant                     | 文档规模预估 + 零 infra      |
+| Layout       | single-package / monorepo-noshared / monorepo-shared             | 有几个 app                   |
 
 **1.4 Architecture Diagram**
 ASCII 图，标注每个服务和协议：
+
 ```
 [Frontend :3003] ──HTTP──▶ [BFF :3001] ──SQL──▶ [(DB)]
                                 │
@@ -178,13 +179,13 @@ ASCII 图，标注每个服务和协议：
 
 ### Gate Check（必须全部 pass 才能进 Phase 2）
 
-| Gate | Slug | 检查动作 |
-|------|------|---------|
-| Product Brief 写好了 | `phase1.productBrief` | 打开文档，有 2 段清晰描述 |
-| Project Profile 填满 | `phase1.profile` | 状态文件里 5 个维度都有值 |
-| 每个 tech choice 有 justification | `phase1.techChoices` | 状态文件 `techStack` 里每项都有一句"因为 profile.X 选了 Y 所以..." |
-| 架构图画了 | `phase1.archDiagram` | 有 ASCII 图 |
-| 数据模型列了 | `phase1.dataModel` | 有所有表的列清单 |
+| Gate                              | Slug                  | 检查动作                                                           |
+| --------------------------------- | --------------------- | ------------------------------------------------------------------ |
+| Product Brief 写好了              | `phase1.productBrief` | 打开文档，有 2 段清晰描述                                          |
+| Project Profile 填满              | `phase1.profile`      | 状态文件里 5 个维度都有值                                          |
+| 每个 tech choice 有 justification | `phase1.techChoices`  | 状态文件 `techStack` 里每项都有一句"因为 profile.X 选了 Y 所以..." |
+| 架构图画了                        | `phase1.archDiagram`  | 有 ASCII 图                                                        |
+| 数据模型列了                      | `phase1.dataModel`    | 有所有表的列清单                                                   |
 
 **Gate 失败处理**：向用户指出缺什么，补完再检查。
 
@@ -208,13 +209,14 @@ ASCII 图，标注每个服务和协议：
 
 ### Gate Check
 
-| Gate | Slug | 检查动作 |
-|------|------|---------|
-| Server 能启动 + /health 返回 200 | `phase2.health` | **执行** `curl http://localhost:PORT/health`（或 PowerShell `Invoke-WebRequest`），贴出响应 |
-| DB 表自动创建 | `phase2.db` | **执行** `curl /health`，db 字段 = `"ok"` |
-| Type 检查零错误 | `phase2.typecheck` | **执行** TypeScript: `npx tsc --noEmit` / Python: `mypy` / Go: `go vet`，贴出输出 |
-| 零 console.log / print | `phase2.noconsole` | **执行** Grep: `rg "console\.(log|warn|error)" src/` (TS) / `rg "^\s*print\(" src/` (Python)，应该零匹配 |
-| .env.example 存在 | `phase2.envExample` | 文件存在，包含所有必需变量 |
+| Gate                             | Slug                | 检查动作                                                                                    |
+| -------------------------------- | ------------------- | ------------------------------------------------------------------------------------------- | ---- | ---------------------------------------------------------------- |
+| Server 能启动 + /health 返回 200 | `phase2.health`     | **执行** `curl http://localhost:PORT/health`（或 PowerShell `Invoke-WebRequest`），贴出响应 |
+| DB 表自动创建                    | `phase2.db`         | **执行** `curl /health`，db 字段 = `"ok"`                                                   |
+| Type 检查零错误                  | `phase2.typecheck`  | **执行** TypeScript: `npx tsc --noEmit` / Python: `mypy` / Go: `go vet`，贴出输出           |
+| **ESLint 零 error**              | `phase2.lint`       | **执行** `npx eslint --quiet .`（只报 error，warning 不拦），必须零 error                   |
+| 零 console.log / print           | `phase2.noconsole`  | **执行** Grep: `rg "console\.(log                                                           | warn | error)" src/`(TS) /`rg "^\s\*print\(" src/` (Python)，应该零匹配 |
+| .env.example 存在                | `phase2.envExample` | 文件存在，包含所有必需变量                                                                  |
 
 ---
 
@@ -264,20 +266,20 @@ ASCII 图，标注每个服务和协议：
 
 ### Per-Module Gate
 
-| Gate | 检查动作 |
-|------|---------|
-| E2E 通 | curl 端点 + 打开前端页面，走完整流程 |
-| 错误路径通 | 发 bad request（缺字段、越界值）→ 返回 4xx 不崩 |
-| Cost Tracker 有记录 | 执行 API 后 `SELECT * FROM ai_usage_logs WHERE feature = ?` 有新行 |
-| Prompt Checklist 过（有 LLM 调用时） | 8 项全勾（references/ai-patterns.md#4f） |
-| 已 commit | git log 有新 commit |
+| Gate                                 | 检查动作                                                           |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| E2E 通                               | curl 端点 + 打开前端页面，走完整流程                               |
+| 错误路径通                           | 发 bad request（缺字段、越界值）→ 返回 4xx 不崩                    |
+| Cost Tracker 有记录                  | 执行 API 后 `SELECT * FROM ai_usage_logs WHERE feature = ?` 有新行 |
+| Prompt Checklist 过（有 LLM 调用时） | 8 项全勾（references/ai-patterns.md#4f）                           |
+| 已 commit                            | git log 有新 commit                                                |
 
 ### Phase 3 Exit Gate
 
-| Gate | Slug | 检查动作 |
-|------|------|---------|
-| 所有计划模块已完成 | `phase3.allModules` | 状态文件里记录了每个模块的完成时间 |
-| Type 检查仍然零错误 | `phase3.typecheck` | 同 Phase 2 的 typecheck gate，**跑一遍确保没引入回归** |
+| Gate                | Slug                | 检查动作                                               |
+| ------------------- | ------------------- | ------------------------------------------------------ |
+| 所有计划模块已完成  | `phase3.allModules` | 状态文件里记录了每个模块的完成时间                     |
+| Type 检查仍然零错误 | `phase3.typecheck`  | 同 Phase 2 的 typecheck gate，**跑一遍确保没引入回归** |
 
 ---
 
@@ -297,11 +299,11 @@ ASCII 图，标注每个服务和协议：
 
 ### Gate Check
 
-| Gate | Slug | 检查动作 |
-|------|------|---------|
-| 禁用 API key 仍能启动 | `phase4.degrade` | 设 `ENABLE_MOCK_EMBEDDING=1` + 无效 LLM key → `curl /health` 仍返回 200，db 和 embedding 字段 `"degraded"` |
-| Usage 查询有数据 | `phase4.usageQuery` | 执行一次 LLM 调用后，`curl /api/usage/today` 返回非零 total_tokens |
-| 预算阈值在 .env.example | `phase4.budgetEnv` | `.env.example` 里有 `DAILY_BUDGET_USD=` 或类似变量 |
+| Gate                    | Slug                | 检查动作                                                                                                   |
+| ----------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 禁用 API key 仍能启动   | `phase4.degrade`    | 设 `ENABLE_MOCK_EMBEDDING=1` + 无效 LLM key → `curl /health` 仍返回 200，db 和 embedding 字段 `"degraded"` |
+| Usage 查询有数据        | `phase4.usageQuery` | 执行一次 LLM 调用后，`curl /api/usage/today` 返回非零 total_tokens                                         |
+| 预算阈值在 .env.example | `phase4.budgetEnv`  | `.env.example` 里有 `DAILY_BUDGET_USD=` 或类似变量                                                         |
 
 ---
 
@@ -319,11 +321,11 @@ ASCII 图，标注每个服务和协议：
 
 ### Gate Check
 
-| Gate | Slug | 检查动作 |
-|------|------|---------|
-| 首屏不空 | `phase5.firstScreen` | 截图或打开页面，有内容有引导 |
-| 无效配置不崩 | `phase5.badConfig` | 删 .env 或填错 key → app 显示 "please configure" 页面 |
-| Fresh clone 能跑 | `phase5.freshClone` | `rm -rf node_modules && npm install && npm run dev` 能在 10 分钟内启动 |
+| Gate             | Slug                 | 检查动作                                                               |
+| ---------------- | -------------------- | ---------------------------------------------------------------------- |
+| 首屏不空         | `phase5.firstScreen` | 截图或打开页面，有内容有引导                                           |
+| 无效配置不崩     | `phase5.badConfig`   | 删 .env 或填错 key → app 显示 "please configure" 页面                  |
+| Fresh clone 能跑 | `phase5.freshClone`  | `rm -rf node_modules && npm install && npm run dev` 能在 10 分钟内启动 |
 
 ---
 
@@ -340,10 +342,10 @@ ASCII 图，标注每个服务和协议：
 
 ### Gate Check
 
-| Gate | Slug | 检查动作 |
-|------|------|---------|
+| Gate                     | Slug               | 检查动作                               |
+| ------------------------ | ------------------ | -------------------------------------- |
 | 新开发者 10 分钟内跑起来 | `phase6.fastStart` | （假装你是新开发者）按文档做一遍，计时 |
-| 每个 "为什么" 有答案 | `phase6.rationale` | 随机挑 3 个技术决策，文档里能找到理由 |
+| 每个 "为什么" 有答案     | `phase6.rationale` | 随机挑 3 个技术决策，文档里能找到理由  |
 
 ---
 
@@ -373,6 +375,7 @@ ASCII 图，标注每个服务和协议：
 8. **console.log 残留** — Phase 2 gate 就卡这个，Phase 3 回来再卡一次
 9. **🚫 emoji 当 UI 图标** — 前端必须用组件库图标（lucide-vue-next / @iconify / element-plus icons 等）。emoji 只能用在纯文本消息里（如 chat 对话的 error 提示），不能出现在按钮、导航、状态徽章等 UI 组件上
 10. **ESLint 配旧格式** — ESLint v9+ 必须用 `eslint.config.mjs`（flat config），不能用 `.eslintrc.*`。需要配置 Vue parser + TS parser 嵌套 + Nuxt/Vue 全局自动导入
+11. **🚫 允许 lint/typecheck error 提交** — 前端（ESLint 0 errors, vue-tsc --noEmit 0 errors）和后端（tsc --noEmit 0 errors）必须零 error。warning 可以有，但 error 必须在 commit 前清零。Phase 2 gate 强制校验，pre-commit hook（husky + lint-staged）自动拦截
 
 ---
 
@@ -380,13 +383,14 @@ ASCII 图，标注每个服务和协议：
 
 ### Scripts（零依赖 Node.js，开箱即用）
 
-| Script | 作用 | 常用命令 |
-|--------|------|---------|
-| `scripts/state.js` | 状态管理 | `init` / `show` / `pass <slug>` / `check <slug>` / `set <key> <val>` / `goto <1-6>` / `reset` |
-| `scripts/gate-check.js` | 自动验证 gate | `run`（当前 phase）/ `phase <1-6>` / `single <slug>` / `list` |
-| `scripts/scaffold.js` | 生成项目骨架 | `run` / `dry-run` / `list` |
+| Script                  | 作用          | 常用命令                                                                                      |
+| ----------------------- | ------------- | --------------------------------------------------------------------------------------------- |
+| `scripts/state.js`      | 状态管理      | `init` / `show` / `pass <slug>` / `check <slug>` / `set <key> <val>` / `goto <1-6>` / `reset` |
+| `scripts/gate-check.js` | 自动验证 gate | `run`（当前 phase）/ `phase <1-6>` / `single <slug>` / `list`                                 |
+| `scripts/scaffold.js`   | 生成项目骨架  | `run` / `dry-run` / `list`                                                                    |
 
 **典型工作流**：
+
 ```bash
 node scripts/state.js init my-app              # 启动
 node scripts/state.js set projectProfile.size startup-mvp
@@ -401,43 +405,47 @@ node scripts/state.js show                     # 随时看进度
 
 ### Code Patterns（可复制到任何项目）
 
-| File | What's In It |
-|------|-------------|
-| `references/backend-patterns.md` | Express + Zod routes, DB facade, cost tracker, logger, middleware, health check |
-| `references/ai-patterns.md` | Embedding hash fallback, cosine similarity, SSE stream, **Prompt Design Specification** (rules + anti-patterns + 8-item checklist), RAG pipeline |
-| `references/db-patterns.md` | ai_usage_logs + RAG tables (SQLite + PG), 9 compatibility rules, multi-driver INSERT |
+| File                             | What's In It                                                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `references/backend-patterns.md` | Express + Zod routes, DB facade, cost tracker, logger, middleware, health check                                                                  |
+| `references/ai-patterns.md`      | Embedding hash fallback, cosine similarity, SSE stream, **Prompt Design Specification** (rules + anti-patterns + 8-item checklist), RAG pipeline |
+| `references/db-patterns.md`      | ai_usage_logs + RAG tables (SQLite + PG), 9 compatibility rules, multi-driver INSERT                                                             |
 
 ---
 
 ## Decision Reference（选型速查）
 
 ### LLM Provider
-| Need | Pick |
-|------|------|
-| Quick prototype, China | Zhipu AI (glm-4-flash) |
-| US market | OpenAI (gpt-4o-mini for cheap, gpt-4o for quality) |
-| Fully offline / private | Ollama + llama3 |
-| Budget-conscious | DeepSeek (deepseek-chat) |
+
+| Need                    | Pick                                               |
+| ----------------------- | -------------------------------------------------- |
+| Quick prototype, China  | Zhipu AI (glm-4-flash)                             |
+| US market               | OpenAI (gpt-4o-mini for cheap, gpt-4o for quality) |
+| Fully offline / private | Ollama + llama3                                    |
+| Budget-conscious        | DeepSeek (deepseek-chat)                           |
 
 ### Vector Store
-| Scale | Pick |
-|-------|------|
+
+| Scale                   | Pick                               |
+| ----------------------- | ---------------------------------- |
 | < 100K docs, zero infra | SQLite + cosine similarity, DuckDB |
-| 100K — 10M | PostgreSQL + pgvector |
-| > 10M or hybrid search | Pinecone, Qdrant, Weaviate |
+| 100K — 10M              | PostgreSQL + pgvector              |
+| > 10M or hybrid search  | Pinecone, Qdrant, Weaviate         |
 
 ### Frontend
-| Need | Pick |
-|------|------|
-| SSR + SEO | Nuxt 3 (Vue) or Next.js (React) |
-| SPA / dashboard | Vite + Vue + Pinia, Vite + React + Zustand |
-| Mobile | React Native + Expo, Flutter |
-| Desktop | Electron (Node) or Tauri (Rust, smaller binary) |
+
+| Need            | Pick                                            |
+| --------------- | ----------------------------------------------- |
+| SSR + SEO       | Nuxt 3 (Vue) or Next.js (React)                 |
+| SPA / dashboard | Vite + Vue + Pinia, Vite + React + Zustand      |
+| Mobile          | React Native + Expo, Flutter                    |
+| Desktop         | Electron (Node) or Tauri (Rust, smaller binary) |
 
 ### DB
-| Need | Pick |
-|------|------|
-| Local-first, embedded | SQLite |
-| Standard web app | PostgreSQL |
-| Serverless | DynamoDB, PlanetScale, Upstash |
-| Document-shaped data | MongoDB (only if genuinely document-shaped) |
+
+| Need                  | Pick                                        |
+| --------------------- | ------------------------------------------- |
+| Local-first, embedded | SQLite                                      |
+| Standard web app      | PostgreSQL                                  |
+| Serverless            | DynamoDB, PlanetScale, Upstash              |
+| Document-shaped data  | MongoDB (only if genuinely document-shaped) |

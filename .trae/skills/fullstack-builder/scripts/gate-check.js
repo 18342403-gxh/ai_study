@@ -138,6 +138,20 @@ async function checkEnvExample() {
   return { pass: false, details: '未找到 .env.example / .env.sample' }
 }
 
+// Phase 2 gate — ESLint 零 error
+async function checkLint() {
+  try {
+    const pkgPath = join(CWD, 'package.json')
+    if (!existsSync(pkgPath)) return { pass: true, details: '未检测到 package.json，跳过 lint' }
+    const out = execSync('npx eslint --max-warnings 9999 --quiet . 2>&1', { timeout: 60000 }).toString()
+    if (out.trim() === '') return { pass: true, details: 'ESLint → 零 error' }
+    return { pass: false, details: `ESLint:\n${out.split('\n').slice(0, 10).join('\n')}` }
+  } catch (e) {
+    const msg = (e.stdout?.toString() || e.message || '').trim()
+    return { pass: false, details: `ESLint error:\n${msg.split('\n').slice(0, 10).join('\n') || e.message}` }
+  }
+}
+
 // Phase 3+ 的通用 typecheck
 async function checkTypecheckRegression() { return checkTypecheck() }
 
@@ -260,6 +274,7 @@ const GATE_CHECKERS = {
   'phase2.health':         checkHealth,
   'phase2.db':             checkDb,
   'phase2.typecheck':      checkTypecheck,
+  'phase2.lint':           checkLint,
   'phase2.noconsole':      checkNoConsole,
   'phase2.envExample':     checkEnvExample,
   'phase3.allModules':     () => stateKey('techStack'), // 简化：只要 techStack 有值就算

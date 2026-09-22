@@ -1,18 +1,33 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, inject } from 'vue'
 import {
-  Check, X, RefreshCw, Sparkles, Bot, Puzzle, Package, FileCode, Eye,
-  Lightbulb, Paperclip, Loader2, Circle,
+  Check,
+  X,
+  RefreshCw,
+  Sparkles,
+  Bot,
+  Puzzle,
+  Package,
+  FileCode,
+  Eye,
+  Lightbulb,
+  Paperclip,
+  Loader2,
+  Circle,
 } from 'lucide-vue-next'
+import techCatLogo from '@brand/tech_cat.png'
+import HistoryPanel from '../components/HistoryPanel.vue'
+import KnowledgePanel from '../components/KnowledgePanel.vue'
 
 // ── 模式切换：从 layout inject 进来 ──
-type ArtifactType = 'component' | 'skill' | 'history'
+type ArtifactType = 'component' | 'skill' | 'history' | 'kb'
 const activeTab = inject<{ value: ArtifactType }>('activeTab', ref<ArtifactType>('component'))
 const isComponent = computed(() => activeTab.value === 'component')
 const isHistory = computed(() => activeTab.value === 'history')
+const isKb = computed(() => activeTab.value === 'kb')
 
 // ── 表单字段 ──
-const input = ref('')                      // 统一输入框（首次 + 迭代共用）
+const input = ref('') // 统一输入框（首次 + 迭代共用）
 const framework = ref<'vue' | 'react'>('vue')
 const skillName = ref('')
 const scriptLang = ref<'ts' | 'py' | ''>('')
@@ -20,21 +35,27 @@ const scriptLang = ref<'ts' | 'py' | ''>('')
 // ── 生成状态 ──
 type FileItem = { path: string; content: string; language?: string }
 const isGenerating = ref(false)
-const phases = ref<Array<{ node: string; status: 'pending' | 'running' | 'done' | 'error'; message?: string }>>([])
+const phases = ref<
+  Array<{ node: string; status: 'pending' | 'running' | 'done' | 'error'; message?: string }>
+>([])
 const currentFiles = ref<FileItem[]>([])
 const activeFileIdx = ref(0)
 const errorMsg = ref('')
 const stateId = ref('')
-const lastPreviewInfo = ref<{ type: 'iframe' | 'markdown'; url?: string; files?: any[] } | null>(null)
-const chatHistory = ref<Array<{
-  role: 'user' | 'ai'
-  content: string
-  files?: FileItem[]
-  phases?: typeof phases.value
-  previewInfo?: { type: 'iframe' | 'markdown'; url?: string; files?: any[] }
-}>>([])
+const lastPreviewInfo = ref<{ type: 'iframe' | 'markdown'; url?: string; files?: any[] } | null>(
+  null,
+)
+const chatHistory = ref<
+  Array<{
+    role: 'user' | 'ai'
+    content: string
+    files?: FileItem[]
+    phases?: typeof phases.value
+    previewInfo?: { type: 'iframe' | 'markdown'; url?: string; files?: any[] }
+  }>
+>([])
 const scrollRef = ref<HTMLElement | null>(null)
-const previewTabMap = ref<Record<number, 'code' | 'preview'>>({})  // 每个 AI 消息的 Tab 状态
+const previewTabMap = ref<Record<number, 'code' | 'preview'>>({}) // 每个 AI 消息的 Tab 状态
 
 function getPreviewTab(idx: number): 'code' | 'preview' {
   return previewTabMap.value[idx] || 'code'
@@ -133,7 +154,9 @@ const runGenerator = async () => {
         try {
           const event = JSON.parse(json)
           handleEvent(event)
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
   } catch (e) {
@@ -141,7 +164,7 @@ const runGenerator = async () => {
     chatHistory.value.push({ role: 'ai', content: `生成失败：${errorMsg.value}` })
   } finally {
     isGenerating.value = false
-    input.value = ''   // 提交后清输入
+    input.value = '' // 提交后清输入
 
     chatHistory.value.push({
       role: 'ai',
@@ -182,6 +205,14 @@ const handleEvent = (event: any) => {
     }
     if (node === 'preview' && (data as any)?.files && !currentFiles.value.length) {
       currentFiles.value = (data as any).files
+    }
+    // retrieve 完成 — 在 phase 里记录参考的文档名
+    if (node === 'retrieve' && p) {
+      const names = (data as any)?.referenceNames as string[] | undefined
+      p.message =
+        names && names.length > 0
+          ? `参考了 ${names.length} 条知识库内容：${names.join('、')}`
+          : '知识库无匹配，从零生成'
     }
   }
 
@@ -254,14 +285,16 @@ const runIterate = async () => {
           if (event?.result?.files) currentFiles.value = event.result.files
           if (event?.type === 'error') errorMsg.value = event.message
           if (event?.result?.stateId) stateId.value = event.result.stateId
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
   } catch (e) {
     errorMsg.value = (e as Error).message
   } finally {
     isGenerating.value = false
-    input.value = ''   // 提交后清输入
+    input.value = '' // 提交后清输入
 
     chatHistory.value.push({
       role: 'ai',
@@ -290,13 +323,14 @@ const downloadAllFiles = (files: Array<{ path: string; content: string }>) => {
   files.forEach((f) => downloadFile(f))
 }
 
-const nodeLabel = (n: string) => ({
-  clarify: '需求细化',
-  retrieve: '检索参考',
-  generate: '生成代码',
-  preview: '预览检查',
-  iterate: '迭代优化',
-}[n] || n)
+const nodeLabel = (n: string) =>
+  ({
+    clarify: '需求细化',
+    retrieve: '检索参考',
+    generate: '生成代码',
+    preview: '预览检查',
+    iterate: '迭代优化',
+  })[n] || n
 
 const startNewChat = () => {
   chatHistory.value = []
@@ -311,8 +345,13 @@ const startNewChat = () => {
 </script>
 
 <template>
+  <!-- ═══════════════ 知识库面板 ═══════════════ -->
+  <div v-if="isKb" class="h-full flex flex-col bg-white">
+    <KnowledgePanel />
+  </div>
+
   <!-- ═══════════════ History 面板 ═══════════════ -->
-  <div v-if="isHistory" class="h-full flex flex-col bg-white">
+  <div v-else-if="isHistory" class="h-full flex flex-col bg-white">
     <HistoryPanel />
   </div>
 
@@ -345,24 +384,32 @@ const startNewChat = () => {
       <!-- 对话历史滚动区 -->
       <div ref="scrollRef" class="flex-1 overflow-y-auto light-scroll px-6 py-5">
         <!-- 空状态 -->
-        <div v-if="chatHistory.length === 0 && !isGenerating" class="h-full flex flex-col items-center justify-center text-center">
+        <div
+          v-if="chatHistory.length === 0 && !isGenerating"
+          class="h-full flex flex-col items-center justify-center text-center"
+        >
           <div class="mb-4 flex justify-center">
-            <Puzzle v-if="isComponent" class="w-16 h-16 text-primary-500" />
-            <Bot v-else class="w-16 h-16 text-primary-500" />
+            <img :src="techCatLogo" alt="Logo" class="h-32 w-auto" />
           </div>
           <div class="text-slate-700 font-medium text-lg mb-1">
             AI {{ isComponent ? '组件' : 'Skill' }} 生成器
           </div>
           <div class="text-slate-500 text-sm max-w-md">
-            {{ isComponent
-              ? '描述你想要的组件，比如「带搜索和分页的商品列表卡片」'
-              : '描述 Skill 要做什么，比如「批量把 console.log 替换成项目的 logger」' }}
+            {{
+              isComponent
+                ? '描述你想要的组件，比如「带搜索和分页的商品列表卡片」'
+                : '描述 Skill 要做什么，比如「批量把 console.log 替换成项目的 logger」'
+            }}
           </div>
           <div class="mt-6 flex gap-2">
             <div
-v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代码重构', '批量格式化', '文档生成'])" :key="tag"
+              v-for="tag in isComponent
+                ? ['数据表格', '弹窗组件', '表单']
+                : ['代码重构', '批量格式化', '文档生成']"
+              :key="tag"
               class="px-3 py-1.5 rounded-full text-xs bg-white text-slate-600 border border-slate-200 hover:border-primary-500 hover:text-primary-600 cursor-pointer transition-colors"
-              @click="input = tag">
+              @click="input = tag"
+            >
               {{ tag }}
             </div>
           </div>
@@ -370,7 +417,12 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
 
         <!-- 对话消息 -->
         <div v-else class="max-w-3xl mx-auto space-y-5">
-          <div v-for="(msg, idx) in chatHistory" :key="idx" class="flex gap-3" :class="msg.role === 'user' ? 'flex-row-reverse' : ''">
+          <div
+            v-for="(msg, idx) in chatHistory"
+            :key="idx"
+            class="flex gap-3"
+            :class="msg.role === 'user' ? 'flex-row-reverse' : ''"
+          >
             <!-- 头像 -->
             <div
               :class="[
@@ -398,12 +450,23 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
               <!-- 进度时间线 -->
               <div v-if="msg.phases?.length" class="mb-2 pl-2">
                 <div class="space-y-1">
-                  <div v-for="p in msg.phases" :key="p.node" class="flex items-center gap-2 text-xs">
-                    <Loader2 v-if="p.status === 'running'" class="w-3.5 h-3.5 pulse-glow text-primary-500 animate-spin" />
+                  <div
+                    v-for="p in msg.phases"
+                    :key="p.node"
+                    class="flex items-center gap-2 text-xs"
+                  >
+                    <Loader2
+                      v-if="p.status === 'running'"
+                      class="w-3.5 h-3.5 pulse-glow text-primary-500 animate-spin"
+                    />
                     <Check v-else-if="p.status === 'done'" class="w-3.5 h-3.5 text-emerald-500" />
                     <X v-else-if="p.status === 'error'" class="w-3.5 h-3.5 text-red-500" />
                     <Circle v-else class="w-3.5 h-3.5 text-slate-300" />
-                    <span :class="p.status === 'running' ? 'text-primary-600 font-medium' : 'text-slate-500'">
+                    <span
+                      :class="
+                        p.status === 'running' ? 'text-primary-600 font-medium' : 'text-slate-500'
+                      "
+                    >
                       {{ nodeLabel(p.node) }}
                     </span>
                   </div>
@@ -413,7 +476,9 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
               <!-- 文件预览 + iframe 预览 Tab →-->
               <div v-if="msg.files?.length" class="space-y-2 mt-2">
                 <div class="flex items-center gap-2 text-xs text-slate-500">
-                  <span class="inline-flex items-center gap-1"><Paperclip class="w-3.5 h-3.5" /> {{ msg.files.length }} 个文件</span>
+                  <span class="inline-flex items-center gap-1"
+                    ><Paperclip class="w-3.5 h-3.5" /> {{ msg.files.length }} 个文件</span
+                  >
                   <button
                     @click="downloadAllFiles(msg.files)"
                     class="px-2.5 py-1 rounded border border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 transition-colors bg-white inline-flex items-center gap-1"
@@ -445,6 +510,7 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
                         ]"
                       >
                         <Eye class="w-3.5 h-3.5" /> 预览
+                      </button>
                     </div>
                   </template>
                 </div>
@@ -467,11 +533,17 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
                 <!-- 代码 Tab（默认） -->
                 <template v-if="!msg.previewInfo || getPreviewTab(idx) === 'code'">
                   <!-- Tab 栏（仅多文件时显示） -->
-                  <div v-if="msg.files.length > 1" class="flex gap-0.5 px-1 py-1 border-b border-slate-200">
+                  <div
+                    v-if="msg.files.length > 1"
+                    class="flex gap-0.5 px-1 py-1 border-b border-slate-200"
+                  >
                     <button
                       v-for="(f, fidx) in msg.files"
                       :key="fidx"
-                      @click="activeFileIdx = fidx; currentFiles = msg.files!"
+                      @click="
+                        activeFileIdx = fidx
+                        currentFiles = msg.files!
+                      "
                       :class="[
                         'px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors',
                         activeFileIdx === fidx
@@ -484,20 +556,43 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
                   </div>
 
                   <!-- 代码区域 -->
-                  <pre class="code-block text-slate-800 bg-slate-50 p-3 rounded-lg overflow-x-auto light-scroll">{{ msg.files[activeFileIdx]?.content }}</pre>
+                  <pre
+                    class="code-block text-slate-800 bg-slate-50 p-3 rounded-lg overflow-x-auto light-scroll"
+                    >{{ msg.files[activeFileIdx]?.content }}</pre
+                  >
                 </template>
               </div>
             </div>
           </div>
 
           <!-- 正在生成中 -->
-          <div v-if="isGenerating && chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'user'" class="flex gap-3">
-            <div class="w-8 h-8 rounded-lg bg-slate-200 flex items-center justify-center text-sm text-slate-600">AI</div>
+          <div
+            v-if="
+              isGenerating &&
+              chatHistory.length > 0 &&
+              chatHistory[chatHistory.length - 1].role === 'user'
+            "
+            class="flex gap-3"
+          >
+            <div
+              class="w-8 h-8 rounded-lg bg-slate-200 flex items-center justify-center text-sm text-slate-600"
+            >
+              AI
+            </div>
             <div class="bubble-ai px-4 py-2.5 text-sm">
               <span class="inline-flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-bounce" style="animation-delay: 0ms"></span>
-                <span class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-bounce" style="animation-delay: 150ms"></span>
-                <span class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-bounce" style="animation-delay: 300ms"></span>
+                <span
+                  class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-bounce"
+                  style="animation-delay: 0ms"
+                ></span>
+                <span
+                  class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-bounce"
+                  style="animation-delay: 150ms"
+                ></span>
+                <span
+                  class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-bounce"
+                  style="animation-delay: 300ms"
+                ></span>
                 <span class="ml-2 text-slate-500">AI 正在思考...</span>
               </span>
             </div>
@@ -543,7 +638,11 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
               <span class="text-slate-500 font-medium">脚本：</span>
               <div class="flex gap-1">
                 <button
-                  v-for="lang in [{ v: '', label: '无' }, { v: 'ts', label: 'TS' }, { v: 'py', label: 'PY' }]"
+                  v-for="lang in [
+                    { v: '', label: '无' },
+                    { v: 'ts', label: 'TS' },
+                    { v: 'py', label: 'PY' },
+                  ]"
                   :key="lang.v"
                   @click="scriptLang = lang.v as any"
                   :class="[
@@ -560,7 +659,10 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
           </template>
 
           <!-- 迭代模式提示（替代"清空"按钮位置） -->
-          <div v-if="canIterate" class="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-50 text-primary-600 text-[11px] font-medium inline-flex items-center gap-1">
+          <div
+            v-if="canIterate"
+            class="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-50 text-primary-600 text-[11px] font-medium inline-flex items-center gap-1"
+          >
             <Lightbulb class="w-3.5 h-3.5" /> 迭代模式
           </div>
           <button
@@ -576,11 +678,13 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
         <div class="relative">
           <textarea
             v-model="input"
-            :placeholder="canIterate
-              ? '描述你想要的修改，如：按钮要居中、加 loading 状态、改用 Tailwind 类...'
-              : (isComponent
+            :placeholder="
+              canIterate
+                ? '描述你想要的修改，如：按钮要居中、加 loading 状态、改用 Tailwind 类...'
+                : isComponent
                   ? '描述你想要的组件，如：带搜索和分页的数据表格卡片，支持空状态和加载状态...'
-                  : '描述 Skill 要做什么，如：批量把项目里的 console.log 替换成统一的 logger 调用...')"
+                  : '描述 Skill 要做什么，如：批量把项目里的 console.log 替换成统一的 logger 调用...'
+            "
             :disabled="isGenerating"
             class="w-full h-24 px-4 py-3 text-sm border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-primary-400 disabled:bg-slate-50 disabled:cursor-not-allowed light-scroll"
             @keydown.enter.exact.prevent="handleSubmit"
@@ -597,7 +701,9 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
               ]"
             >
               <span v-if="isGenerating" class="inline-flex items-center gap-1.5">
-                <span class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                <span
+                  class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"
+                ></span>
                 生成中
               </span>
               <span v-else-if="canIterate" class="inline-flex items-center gap-1.5">
@@ -613,7 +719,9 @@ v-for="tag in (isComponent ? ['数据表格', '弹窗组件', '表单'] : ['代�
         <!-- 底部提示 -->
         <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400">
           <div>Enter 发送 · Shift+Enter 换行</div>
-          <div v-if="isComponent">{{ framework === 'vue' ? 'Vue 3 + Composition API' : 'React 18 + Hooks' }}</div>
+          <div v-if="isComponent">
+            {{ framework === 'vue' ? 'Vue 3 + Composition API' : 'React 18 + Hooks' }}
+          </div>
         </div>
       </div>
     </div>

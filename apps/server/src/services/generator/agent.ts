@@ -42,6 +42,7 @@ export interface GeneratorState {
   framework?: Framework // Component 模式专属
   clarifiedRequirement?: string
   references: string[]
+  referenceNames?: string[] // 检索到的文档名列表（用于前端展示）
   result?: CodegenResult
   previewInfo?: {
     type: 'iframe' | 'markdown' // component 用 iframe，skill 用 markdown
@@ -111,13 +112,38 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
   }
 
   /** 检索参考实现（retrieve）：RAG 搜索 */
-  async function retrieve(requirement: string, type: ArtifactType): Promise<string[]> {
+  async function retrieve(
+    requirement: string,
+    type: ArtifactType,
+  ): Promise<{ contents: string[]; names: string[] }> {
     try {
       const searchType = type === 'component' ? 'component' : 'skill'
       const results = await rag.search(`${requirement} ${searchType}`, 5)
-      return results.map((r) => r.doc.content)
+
+      // 从 metadata.docId 查文档名
+      const docIds = [
+        ...new Set(results.map((r) => (r.doc.metadata?.docId as string) || '')),
+      ].filter(Boolean)
+      const db = getDb()
+      const nameMap = new Map<string, string>()
+      if (docIds.length > 0) {
+        const placeholders = docIds.map(() => '?').join(',')
+        const rows = (await db
+          .prepare(`SELECT id, name FROM documents WHERE id IN (${placeholders})`)
+          .all(...docIds)) as Array<{ id: string; name: string }>
+        rows.forEach((r) => nameMap.set(r.id, r.name))
+      }
+
+      const names = results
+        .map((r) => nameMap.get((r.doc.metadata?.docId as string) || '') || '未知文档')
+        .filter((v, i, a) => a.indexOf(v) === i) // 去重
+
+      return {
+        contents: results.map((r) => r.doc.content),
+        names,
+      }
     } catch {
-      return []
+      return { contents: [], names: [] }
     }
   }
 
@@ -185,22 +211,30 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
 
         // Node 2: Retrieve — RAG 检索
         yield { event: 'on_chain_start', node: 'retrieve' }
-        const references = config.enableRAG === false ? [] : await retrieve(clarified, artifactType)
+        const { contents: references, names: referenceNames } =
+          config.enableRAG === false
+            ? { contents: [] as string[], names: [] as string[] }
+            : await retrieve(clarified, artifactType)
         logger.info('generator.retrieve', 'RAG 检索完成', {
           stateId: state.id,
           referenceCount: references.length,
+          referenceNames,
         })
         state.references = references
+        state.referenceNames = referenceNames
         state.status = 'generating'
         state.history.push({
           node: 'retrieve',
-          content: `found ${references.length} references`,
+          content:
+            references.length > 0
+              ? `found ${references.length} references: ${referenceNames.join(', ')}`
+              : 'no references found',
           timestamp: Date.now(),
         })
         yield {
           event: 'on_chain_end',
           node: 'retrieve',
-          data: { referenceCount: references.length },
+          data: { referenceCount: references.length, referenceNames },
         }
 
         // Node 3: Generate — 代码生成（流式）

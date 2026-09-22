@@ -20,6 +20,7 @@ export default defineNuxtConfig({
 
   alias: {
     '@ai-study/shared': resolve(__dirname, '../../packages/shared/src/index.ts'),
+    '@brand': resolve(__dirname, '../../assets/brand'),
   },
 
   vite: {

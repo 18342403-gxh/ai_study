@@ -62,6 +62,8 @@ export default tseslint.config(
       'scripts/**',
       'eslint-rules/**',
       '.trae/**',
+      'apps/server/scripts/**',
+      'apps/server/drizzle/**',
       'apps/generator/nuxt.config.ts',
     ],
   },

@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@ai-study/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
+      '@brand': path.resolve(__dirname, '../../assets/brand'),
     },
   },
   server: {

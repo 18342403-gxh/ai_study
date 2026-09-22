@@ -36,9 +36,7 @@ const activeKey = computed(() => {
   <aside class="w-60 h-full bg-white border-r border-slate-200 flex flex-col shrink-0">
     <!-- Logo 区域 -->
     <div class="h-16 px-5 flex items-center gap-3 border-b border-slate-100">
-      <div class="w-9 h-9 rounded-xl bg-gradient-primary flex items-center justify-center text-white">
-        <Sparkles class="w-5 h-5" />
-      </div>
+      <img :src="'/logo.png'" alt="Logo" class="w-9 h-9 rounded-xl object-cover shadow-sm" />
       <div class="flex flex-col">
         <h1 class="text-sm font-bold text-slate-800">AI 组件生成器</h1>
         <span class="text-[11px] text-brand-500">Nuxt 3 SSR · Web</span>
