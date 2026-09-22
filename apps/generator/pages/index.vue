@@ -40,6 +40,13 @@ const phases = ref<
 >([])
 const currentFiles = ref<FileItem[]>([])
 const activeFileIdx = ref(0)
+
+// 切换历史消息里的文件 tab
+function openFileInMsg(msg: { files?: FileItem[] }, idx: number) {
+  if (!msg.files) return
+  activeFileIdx.value = idx
+  currentFiles.value = msg.files
+}
 const errorMsg = ref('')
 const stateId = ref('')
 const lastPreviewInfo = ref<{ type: 'iframe' | 'markdown'; url?: string; files?: any[] } | null>(
@@ -540,10 +547,7 @@ const startNewChat = () => {
                     <button
                       v-for="(f, fidx) in msg.files"
                       :key="fidx"
-                      @click="
-                        activeFileIdx = fidx
-                        currentFiles = msg.files!
-                      "
+                      @click="openFileInMsg(msg, fidx)"
                       :class="[
                         'px-2.5 py-1 rounded text-xs whitespace-nowrap transition-colors',
                         activeFileIdx === fidx
