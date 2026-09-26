@@ -7,6 +7,7 @@
  */
 
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters'
+import { randomUUID } from 'crypto'
 
 export interface TextChunk {
   id: string
@@ -57,7 +58,7 @@ export function createSplitter(options: SplitOptions = {}) {
       const docs = await splitter.createDocuments([text])
       const chunks = docs as Array<{ pageContent: string; metadata: Record<string, unknown> }>
       return chunks.map((chunk, i) => ({
-        id: `chunk_${Date.now()}_${i}`,
+        id: randomUUID(),
         content: chunk.pageContent,
         index: i,
         metadata: {

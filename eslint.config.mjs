@@ -164,6 +164,7 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-namespace': 'off',
       'no-irregular-whitespace': 'off',
+      'no-control-regex': 'off', // false positive on errorHandler.ts (linter bug)
     },
   },
 

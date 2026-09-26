@@ -111,14 +111,24 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
     return result.content
   }
 
-  /** 检索参考实现（retrieve）：RAG 搜索 */
+  /** 检索参考实现（retrieve）：Hybrid Search（vector + BM25 + RRF） */
   async function retrieve(
     requirement: string,
     type: ArtifactType,
-  ): Promise<{ contents: string[]; names: string[] }> {
+  ): Promise<{
+    contents: string[]
+    names: string[]
+    refs: Array<{
+      docId: string
+      chunkId: string
+      score: number
+      vectorScore?: number
+      bm25Score?: number
+    }>
+  }> {
     try {
       const searchType = type === 'component' ? 'component' : 'skill'
-      const results = await rag.search(`${requirement} ${searchType}`, 5)
+      const results = await rag.search(`${requirement} ${searchType}`, 5, undefined, 'hybrid')
 
       // 从 metadata.docId 查文档名
       const docIds = [
@@ -138,12 +148,22 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
         .map((r) => nameMap.get((r.doc.metadata?.docId as string) || '') || '未知文档')
         .filter((v, i, a) => a.indexOf(v) === i) // 去重
 
+      // 带分数的检索引用（给前端展示检索上下文用）
+      const refs = results.map((r) => ({
+        docId: (r.doc.metadata?.docId as string) || '',
+        chunkId: r.doc.id || '',
+        score: r.score,
+        vectorScore: r.vectorScore,
+        bm25Score: r.bm25Score,
+      }))
+
       return {
         contents: results.map((r) => r.doc.content),
         names,
+        refs,
       }
     } catch {
-      return { contents: [], names: [] }
+      return { contents: [], names: [], refs: [] }
     }
   }
 
@@ -209,16 +229,34 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
         state.history.push({ node: 'clarify', content: clarified, timestamp: Date.now() })
         yield { event: 'on_chain_end', node: 'clarify', data: { clarifiedRequirement: clarified } }
 
-        // Node 2: Retrieve — RAG 检索
+        // Node 2: Retrieve — Hybrid Search（vector + BM25 + RRF）
         yield { event: 'on_chain_start', node: 'retrieve' }
-        const { contents: references, names: referenceNames } =
-          config.enableRAG === false
-            ? { contents: [] as string[], names: [] as string[] }
-            : await retrieve(clarified, artifactType)
-        logger.info('generator.retrieve', 'RAG 检索完成', {
+        const {
+          contents: references,
+          names: referenceNames,
+          refs,
+        } = config.enableRAG === false
+          ? {
+              contents: [] as string[],
+              names: [] as string[],
+              refs: [] as Array<{
+                docId: string
+                chunkId: string
+                score: number
+                vectorScore?: number
+                bm25Score?: number
+              }>,
+            }
+          : await retrieve(clarified, artifactType)
+        logger.info('generator.retrieve', 'RAG 检索完成（Hybrid）', {
           stateId: state.id,
           referenceCount: references.length,
           referenceNames,
+          refs: refs.map((r) => ({
+            score: +r.score.toFixed(3),
+            v: r.vectorScore ? +r.vectorScore.toFixed(3) : null,
+            b: r.bm25Score ? +r.bm25Score.toFixed(3) : null,
+          })),
         })
         state.references = references
         state.referenceNames = referenceNames
@@ -227,14 +265,14 @@ export function createGeneratorAgent(config: GeneratorConfig = {}) {
           node: 'retrieve',
           content:
             references.length > 0
-              ? `found ${references.length} references: ${referenceNames.join(', ')}`
+              ? `found ${references.length} references via hybrid search: ${referenceNames.join(', ')}`
               : 'no references found',
           timestamp: Date.now(),
         })
         yield {
           event: 'on_chain_end',
           node: 'retrieve',
-          data: { referenceCount: references.length, referenceNames },
+          data: { referenceCount: references.length, referenceNames, refs },
         }
 
         // Node 3: Generate — 代码生成（流式）

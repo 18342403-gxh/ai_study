@@ -7,6 +7,7 @@ import { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from '
 import { createSplitter, type TextChunk } from './splitter.js'
 import { createEmbeddings } from './embeddings.js'
 import { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
+import { bm25Search, type BM25Result } from './bm25.js'
 import { logger } from '../logger.js'
 import { randomUUID } from 'crypto'
 
@@ -24,6 +25,39 @@ export interface RAGQueryResult {
     score: number
   }>
   chunks: VectorSearchResult['doc'][]
+}
+
+export interface HybridSearchResult {
+  doc: VectorSearchResult['doc']
+  score: number // RRF 融合分数（0-1 近似范围）
+  vectorScore?: number // 原始 cosine similarity
+  bm25Score?: number // 原始 BM25 score
+  source: 'vector' | 'bm25' | 'hybrid'
+}
+
+/**
+ * RRF（Reciprocal Rank Fusion）融合
+ * score(d) = Σ 1/(k + rank(d))   — k=60（标准值）
+ */
+function rrfFuse(
+  vectorRanked: VectorSearchResult[],
+  bm25Ranked: BM25Result[],
+  k = 60,
+): Array<{ id: string; score: number }> {
+  const scores = new Map<string, number>()
+
+  vectorRanked.forEach((r, rank) => {
+    const id = r.doc.id!
+    scores.set(id, (scores.get(id) || 0) + 1 / (k + rank + 1))
+  })
+
+  bm25Ranked.forEach((r, rank) => {
+    scores.set(r.id, (scores.get(r.id) || 0) + 1 / (k + rank + 1))
+  })
+
+  return Array.from(scores.entries())
+    .map(([id, score]) => ({ id, score }))
+    .sort((a, b) => b.score - a.score)
 }
 
 export function createRAGService() {
@@ -114,15 +148,81 @@ export function createRAGService() {
     },
 
     /**
-     * 检索流程：用户 query → embedding → 向量搜索
+     * 检索流程：Hybrid Search（vector cosine + BM25 → RRF 融合）
+     *
+     * 优势：
+     *   - vector 捕捉语义（"类似防抖的东西" → 能搜到 debounce 相关）
+     *   - BM25 捕捉精确关键词（"Pinia store" → 必含 "Pinia" 和 "store"）
+     *   - RRF 融合兼顾两者，比单一 cosine 在中英文混合场景准得多
+     *
+     * @param mode 'hybrid'（默认）| 'vector' | 'bm25'
      */
-    async search(query: string, k = 4, docId?: string): Promise<VectorSearchResult[]> {
+    async search(
+      query: string,
+      k = 5,
+      docId?: string,
+      mode: 'hybrid' | 'vector' | 'bm25' = 'hybrid',
+    ): Promise<HybridSearchResult[]> {
       const start = Date.now()
-      logger.info('rag.service', 'search — 入口', { k, docId })
+      logger.info('rag.service', 'search — 入口', { k, docId, mode })
       try {
-        const results = await vectorStore.similaritySearch(query, k, docId)
+        const vectorTopK =
+          mode === 'bm25' ? [] : await vectorStore.similaritySearch(query, k * 3, docId)
+        const bm25TopK = mode === 'vector' ? [] : await bm25Search(query, k * 3, docId)
+
+        let fused: Array<{ id: string; score: number }>
+        let sourceLabel: 'vector' | 'bm25' | 'hybrid'
+
+        if (mode === 'vector') {
+          fused = vectorTopK.map((r, i) => ({ id: r.doc.id!, score: 1 / (60 + i + 1) }))
+          sourceLabel = 'vector'
+        } else if (mode === 'bm25') {
+          fused = bm25TopK.map((r, i) => ({ id: r.id, score: 1 / (60 + i + 1) }))
+          sourceLabel = 'bm25'
+        } else {
+          fused = rrfFuse(vectorTopK, bm25TopK)
+          sourceLabel = 'hybrid'
+        }
+
+        // 把原始 doc 和 score 拼回来
+        const vectorMap = new Map(vectorTopK.map((r) => [r.doc.id!, r]))
+        const bm25Map = new Map(bm25TopK.map((r) => [r.id, r]))
+
+        const results: HybridSearchResult[] = fused.slice(0, k).map(({ id, score }) => {
+          const v = vectorMap.get(id)
+          const b = bm25Map.get(id)
+          const baseDoc =
+            v?.doc ??
+            (() => {
+              // 来自纯 BM25 结果，构造一个最小 doc
+              if (b) {
+                return {
+                  id: b.id,
+                  content: b.content,
+                  metadata: { docId: b.doc_id, chunkIndex: b.chunk_index },
+                }
+              }
+              return { id, content: '', metadata: {} }
+            })()
+
+          return {
+            doc: baseDoc,
+            score,
+            vectorScore: v?.score,
+            bm25Score: b?.score,
+            source: sourceLabel,
+          }
+        })
+
         const costMs = Date.now() - start
-        logger.info('rag.service', 'search — 出口', { resultCount: results.length, costMs })
+        logger.info('rag.service', 'search — 出口', {
+          resultCount: results.length,
+          costMs,
+          mode,
+          vectorCount: vectorTopK.length,
+          bm25Count: bm25TopK.length,
+        })
+
         return results
       } catch (err) {
         const costMs = Date.now() - start
