@@ -39,7 +39,7 @@ export interface HybridSearchResult {
  * RRF（Reciprocal Rank Fusion）融合
  * score(d) = Σ 1/(k + rank(d))   — k=60（标准值）
  */
-function rrfFuse(
+export function rrfFuse(
   vectorRanked: VectorSearchResult[],
   bm25Ranked: BM25Result[],
   k = 60,

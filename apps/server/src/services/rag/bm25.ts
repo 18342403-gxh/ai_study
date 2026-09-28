@@ -34,8 +34,12 @@ export interface BM25Result {
 export function tokenize(text: string): string[] {
   const tokens: string[] = []
 
-  // 先按非字母数字字符切成候选
-  const segments = text.toLowerCase().split(/[\s,.;:!?()[\]{}<>'"\\/|@#$%^&*+=`~\-_—…·]+/)
+  // 先按非字母数字字符（含全角标点）切成候选
+  const segments = text
+    .toLowerCase()
+    .split(
+      /[\s,.;:!?()[\]{}<>'"\\/|@#$%^&*+=`~\-_—…·，。；：？！、「」『』《》（）【】＋＝＊＜＞～￥]+/,
+    )
 
   for (const seg of segments) {
     if (!seg.trim()) continue
