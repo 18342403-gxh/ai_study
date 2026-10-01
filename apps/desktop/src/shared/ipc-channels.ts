@@ -10,6 +10,8 @@ export const DESKTOP = {
   SAVE_FILE: 'desktop:saveFile',
   OPEN_EXTERNAL: 'desktop:openExternal',
   GET_APP_INFO: 'desktop:getAppInfo',
+  SHOW_NOTIFICATION: 'desktop:showNotification',
+  FILE_DROPPED: 'desktop:fileDropped',
 } as const
 
 // ── 服务进程控制（Phase 2+ 预留） ────────────────────────────
