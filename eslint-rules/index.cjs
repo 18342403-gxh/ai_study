@@ -1,20 +1,93 @@
 /**
- * ESLint Custom Rule: no-emoji
- * 禁止在 UI 组件源码里用 emoji 当图标。
+ * ESLint Custom Rules
  *
- * 策略：
- * - 直接扫描源码字符串（不用 AST — vue-eslint-parser 的 template 节点
- *   在 flat config 中不能稳定暴露给自定义 rule visitor）
- * - 只检查 .vue / .tsx / .jsx 文件
- * - 允许 /* emoji 允许 *\/ 或 /* allow-emoji *\/ 注释标记
- * - 允许文档注释、长字符串 > 80 字符（可能是 prompt/代码块）
+ * 1. no-emoji — 禁止 emoji 作为 UI 图标
+ * 2. no-cross-app-import — 禁止 app 之间直接 import（只允许 @ai-study/shared）
  */
 
 // emoji 范围
 const EMOJI_REGEX = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu
 
+// 从文件路径提取 app 名（apps/server/... → server）
+function getAppName(filePath) {
+  const match = filePath.match(/apps[\\/]([^\\/]+)[\\/]/)
+  return match ? match[1] : null
+}
+
+// 允许跨 app 的包白名单（通过 pnpm workspace 或 node_modules）
+const ALLOWED_CROSS_APP = new Set(['@ai-study/shared'])
+
 module.exports = {
   rules: {
+    // ── Rule 1: no-cross-app-import ──
+    'no-cross-app-import': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description: '禁止 app 之间直接 import（只允许 @ai-study/shared 跨 app）',
+          recommended: true,
+        },
+        fixable: null,
+        schema: [],
+        messages: {
+          crossAppImport:
+            '[{{myApp}}] 禁止直接 import 另一个 app 的代码 ' +
+            '"{{specifier}}"（目标 app: {{targetApp}}）。' +
+            '请通过 @ai-study/shared 共享类型/工具，或抽成 package。',
+        },
+      },
+
+      create(context) {
+        const filename = context.filename || context.getFilename?.() || ''
+
+        // 只检查 apps/ 下的源码
+        const myApp = getAppName(filename)
+        if (!myApp) return {}
+
+        function checkImport(node, specifier) {
+          if (!specifier || typeof specifier !== 'string') return
+
+          if (ALLOWED_CROSS_APP.has(specifier)) return
+
+          const crossAppMatch =
+            specifier.includes('/apps/') ||
+            (specifier.startsWith('@ai-study/') && !ALLOWED_CROSS_APP.has(specifier))
+
+          if (!crossAppMatch) return
+
+          let targetApp = '(unknown)'
+          const appsMatch = specifier.match(/apps[\\/]([^\\/]+)/)
+          if (appsMatch) targetApp = appsMatch[1]
+          else {
+            const pkgMatch = specifier.match(/@ai-study\/([^\\/]+)/)
+            if (pkgMatch) targetApp = pkgMatch[1]
+          }
+
+          context.report({
+            node,
+            messageId: 'crossAppImport',
+            data: { myApp, targetApp, specifier },
+          })
+        }
+
+        return {
+          ImportDeclaration(node) {
+            checkImport(node, node.source.value)
+          },
+          CallExpression(node) {
+            const callee = node.callee
+            if (callee && callee.name === 'require' && node.arguments[0]) {
+              checkImport(node, node.arguments[0].value)
+            }
+          },
+          ImportExpression(node) {
+            if (node.source) checkImport(node, node.source.value)
+          },
+        }
+      },
+    },
+
+    // ── Rule 2: no-emoji ──
     'no-emoji': {
       meta: {
         type: 'problem',
@@ -46,8 +119,8 @@ module.exports = {
             for (let i = 0; i < lines.length; i++) {
               const line = lines[i]
 
-              // 允许注释行（//、/*、* continuation、*/）
-              if (/^\s*\/\/\//.test(line)) continue
+              // 允许注释行
+              if (/^\s*\/\//.test(line)) continue
               if (/^\s*\/\*/.test(line)) continue
               if (/^\s*\*(\s|$)/.test(line)) continue
               if (/^\s*\*\//.test(line)) continue
@@ -57,18 +130,12 @@ module.exports = {
 
               if (!EMOJI_REGEX.test(line)) continue
 
-              // 检查：emoji 是否只在注释里？
-              // 取第一个注释标记前的部分检查
               const commentIdx = line.search(/(\/\/|\/\*|\*\/)/)
               if (commentIdx !== -1) {
                 const beforeComment = line.substring(0, commentIdx)
-                if (!EMOJI_REGEX.test(beforeComment)) {
-                  // emoji 只在注释里，跳过
-                  continue
-                }
+                if (!EMOJI_REGEX.test(beforeComment)) continue
               }
 
-              // 检查上一行或这一行有没有 allow 注释
               const prevLine = lines[i - 1] || ''
               const nextLine = lines[i + 1] || ''
               if (
@@ -79,7 +146,6 @@ module.exports = {
                 prevLine.includes('allow-emoji')
               ) continue
 
-              // 从这一行为起点报
               const match = line.match(EMOJI_REGEX)
               const emoji = match ? match[0] : 'emoji'
 

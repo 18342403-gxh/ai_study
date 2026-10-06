@@ -93,6 +93,9 @@ export default tseslint.config(
       // 🚫 禁止 emoji 当 UI 图标 — 项目红线
       'local-rules/no-emoji': 'error',
 
+      // 渐进式：先 warn 让现有代码过 CI，后续收紧到 error
+      'local-rules/no-cross-app-import': 'warn',
+
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'no-debugger': 'error',
       'no-empty': 'off',
