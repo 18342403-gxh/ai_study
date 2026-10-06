@@ -1,0 +1,57 @@
+version: 2
+updates:
+  # pnpm workspace 根 — 所有 apps 共享依赖
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+    commit-message:
+      prefix: 'chore(deps)'
+      include: 'scope'
+    groups:
+      # 安全关键依赖优先
+      security-critical:
+        patterns:
+          - 'express'
+          - 'helmet'
+          - 'zod'
+          - 'better-sqlite3'
+          - 'pg'
+          - 'jsonwebtoken'
+      # 框架依赖
+      frameworks:
+        patterns:
+          - 'react'
+          - 'vue'
+          - 'nuxt'
+          - '@nuxt/*'
+      # 测试工具
+      testing:
+        patterns:
+          - 'vitest'
+          - 'jest'
+          - 'supertest'
+          - '@testing-library/*'
+      # LangChain 栈
+      langchain:
+        patterns:
+          - 'langchain'
+          - '@langchain/*'
+    ignore:
+      # 次版本锁定的依赖（避免破坏性升级）
+      - dependency-name: '@langchain/*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'langchain'
+        update-types: ['version-update:semver-major']
+
+  # GitHub Actions 也自动升级
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+    commit-message:
+      prefix: 'ci(actions)'
