@@ -14,6 +14,7 @@
 
 import express from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
 import dotenv from 'dotenv'
 import { exec } from 'node:child_process'
 
@@ -48,6 +49,25 @@ const PORT = process.env.PORT || 3001
 
 // ── 中间件管线 ──────────────────────────────────────
 app.use(cors())
+
+// 安全头（helmet）
+// CSP 先开 report-only 模式，观察 Nuxt 页面是否有 inline script 被拦
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'localhost:3003'],
+        styleSrc: ["'self'", "'unsafe-inline'", 'localhost:3003'],
+        connectSrc: ["'self'", 'localhost:3003', 'localhost:3001'],
+        imgSrc: ["'self'", 'data:', 'localhost:3003'],
+        fontSrc: ["'self'", 'data:'],
+      },
+      reportOnly: true,
+    },
+  }),
+)
+
 app.use(express.json({ limit: '10mb' }))
 
 // 生产级中间件（顺序重要）
