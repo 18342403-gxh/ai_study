@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, feat/*]
   pull_request:
     branches: [main, master]
 
@@ -40,6 +40,108 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
-        # 跳过 server（需要 PG）和 generator（需要 nuxt）的完整 typecheck
-        # 只检查共享包
+
+  build:
+    name: Build All Apps
+    needs: lint-and-typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package first
+        run: pnpm --filter @ai-study/shared build
+
+      - name: Build all apps
+        run: pnpm build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-output
+          path: |
+            apps/server/dist/
+            apps/generator/.output/
+            apps/web-react/dist/
+            apps/web-vue/dist/
+          if-no-files-found: ignore
+
+  test:
+    name: Unit Tests (vitest)
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 用 SQLite（零配置初始化，不需要 PG）
+      - name: Run server unit tests
+        working-directory: apps/server
+        run: npx vitest run --pool=forks
+        env:
+          DATABASE_DRIVER: sqlite
+          ENABLE_MOCK_EMBEDDING: '1'
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: apps/server/coverage/
+          if-no-files-found: ignore
+
+  audit:
+    name: Security Audit
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 只报告 high + critical，不 block pipeline
+      - name: Dependency audit
+        run: pnpm audit --audit-level=high || echo "AUDIT_FINDINGS: see report above"
         continue-on-error: true
