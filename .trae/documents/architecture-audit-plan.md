@@ -5,7 +5,104 @@
 
 ---
 
-## Phase 0：前置依赖（先做，其他 Phase 依赖它们）
+## Phase -1：包结构重组 + 命名消歧（所有 Phase 的前置）
+
+> **为什么先做这个？** 当前 server 内部有 4 个结构性问题：两套分块器并存、embedding 入口分层绕过、services/ 根目录散乱文件、同名文件不同职责。
+> 如果不先理顺目录和命名，后续补测试时会不知道该 import 谁、该 mock 谁，OpenAPI 自动生成也会扫到重复接口。
+
+### 问题清单（现状 vs 目标）
+
+| #   | 现状                                                    | 问题                                                                                         | 修复                                                                                                                                                           | 改动类型                |
+| --- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 1   | `services/embedding.ts` vs `services/rag/embeddings.ts` | 两个 embedding 入口，routes 绕过 rag 子模块直接 import 根目录                                | 把 `services/embedding.ts` 重命名为 `services/rag/embeddingGateway.ts`（内部实现），`rag/embeddings.ts` 保留为**唯一对外门面**（re-export + createEmbeddings） | 移动 + 改名 + re-export |
+| 2   | `services/chunker.ts` vs `services/rag/splitter.ts`     | 两套分块器并存（chunker 简单版、splitter LangChain 版），routes 绕过 rag 直接 import chunker | 删除 `services/chunker.ts`，routes 改为 import `rag/splitter.ts` 的 `simpleSplit()`（rag/splitter 已有 simpleSplit 函数）                                      | 删除 + 更新 import      |
+| 3   | `middleware/logger.ts` vs `services/logger.ts`          | 文件名都是 logger.ts 但职责完全不同（HTTP request 中间件 vs 通用日志门面）                   | `middleware/logger.ts` → `middleware/requestLogger.ts`（它内部导出的主要函数本来就叫 requestLogger）                                                           | 改名 + 更新 import      |
+| 4   | `services/index.ts`（假设存在）或根目录散乱             | services/ 根目录放了 embedding.ts / chunker.ts 这些 rag 子系统内部文件                       | 根目录只留全局门面：`logger.ts` / `costTracker.ts`；rag 子系统相关的内聚到 `rag/` 下                                                                           | 移动 + re-export        |
+
+### 改动后 services/ 目录（目标结构）
+
+```
+services/
+  logger.ts              ← 全局日志门面（AsyncLocalStorage + ring buffer）
+  costTracker.ts         ← 成本追踪（独立）
+  chain/                 ← LLM 调用
+    index.ts             ← barrel export
+    model.ts
+    streamParser.ts
+    __tests__/
+  agent/                 ← Agent harness
+    index.ts
+    agent.ts
+    evalRunner.ts
+    __tests__/
+  generator/             ← 组件生成
+    index.ts
+    agent.ts
+    codegen.ts
+    __tests__/
+  tools/                 ← 工具引擎
+    index.ts
+    engine.ts
+    registry.ts
+    __tests__/
+  rag/                   ← RAG 子系统（内聚 embedding + splitting）
+    index.ts             ← ★ 唯一对外入口（barrel export）
+    embeddings.ts        ← LangChain 门面（createEmbeddings + simpleSplit）
+    embeddingGateway.ts  ← 原 services/embedding.ts（重命名，rag 内部实现）
+    splitter.ts          ← LangChain splitter（simpleSplit）
+    vectorStore.ts
+    bm25.ts
+    rrf.ts               ← 原 index.ts 的 rrfFuse 导出
+    loader.ts
+    __tests__/
+      bm25.test.ts
+      rrf.test.ts
+```
+
+### 具体改动清单（逐文件）
+
+#### 3.1 `services/embedding.ts` → `services/rag/embeddingGateway.ts`
+
+- 移动文件到 `services/rag/embeddingGateway.ts`
+- 更新文件内部的 import 路径（如 import logger 可能相对路径变了）
+- 更新**所有** import 它的文件（grep `services/embedding` 找到所有引用）
+
+#### 3.2 `services/rag/embeddings.ts` 改为对外门面
+
+- 在 `embeddings.ts` 顶部加：
+  ```typescript
+  export { getEmbeddings, cosineSimilarity, getEmbedding } from './embeddingGateway.js'
+  ```
+- routes 层改为 import 这个门面，不再直接碰 embeddingGateway
+
+#### 3.3 删除 `services/chunker.ts`
+
+- 确认所有 import 它的文件都改完
+- 直接删
+- 用 `rag/splitter.ts` 的 `simpleSplit()` 替代（签名需要检查是否兼容——不兼容就适配）
+
+#### 3.4 `middleware/logger.ts` → `middleware/requestLogger.ts`
+
+- 重命名文件
+- 更新所有 import 它的文件
+- import 路径从 `../middleware/logger` → `../middleware/requestLogger`
+
+#### 3.5 rag/index.ts 补 barrel export
+
+- 把 rag 子模块的所有公共函数统一从 `services/rag/index.ts` export
+- routes 层 import 统一走 `from '../services/rag/index.js'` 而不是子路径
+- 这样外部调用者只需要记住一个入口
+
+### 验证
+
+- `pnpm typecheck` 零错误（全局改动 import 路径后必须过）
+- `pnpm eslint` 零 error
+- 手动启动 server → generator → 跑一次知识库上传（走 splitter + embedding 全链路）
+- 跑一次现有 BM25 + RRF 测试（确保 rag 子模块没被破坏）
+
+---
+
+## Phase 0：前置依赖（先做，其他 Phase 依赖它们 — 依赖 Phase -1 目录清晰）
 
 ### 0.1 vitest.config.ts + 测试目录骨架
 

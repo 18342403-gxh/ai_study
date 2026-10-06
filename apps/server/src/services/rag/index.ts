@@ -1,7 +1,26 @@
 /**
  * RAG 编排层：将 Loader → Splitter → Embeddings → VectorStore 串联
  * 对外暴露 ingest() 和 query() 两个核心方法
+ *
+ * 📦 本文件是 rag 子系统的唯一对外入口（barrel）：
+ *   - routes 层统一 `import { xxx } from '../services/rag/index.js'`
+ *   - 不允许外部直接 import rag/ 子目录下的实现文件
  */
+
+// ── barrel export：RAG 子系统对外的所有公共接口 ────────────────────
+export { simpleSplit, createSplitter, type TextChunk, type SplitOptions } from './splitter.js'
+export {
+  createEmbeddings,
+  getEmbedding,
+  getEmbeddings,
+  cosineSimilarity,
+  hashVector,
+  isMockMode,
+  type Embeddings,
+} from './embeddings.js'
+export { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from './loader.js'
+export { bm25Search } from './bm25.js'
+export { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
 
 import { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from './loader.js'
 import { createSplitter, type TextChunk } from './splitter.js'

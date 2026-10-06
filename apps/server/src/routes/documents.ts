@@ -13,8 +13,7 @@ import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 
 import { getDb, getDriver } from '../db/index.js'
-import { splitIntoChunks } from '../services/chunker.js'
-import { getEmbeddings } from '../services/embedding.js'
+import { simpleSplit, getEmbeddings } from '../services/rag/index.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 
@@ -98,7 +97,7 @@ router.post(
     ;(async () => {
       try {
         const text = await extractText(file.path, file.originalname)
-        const chunks = splitIntoChunks(text)
+        const chunks = simpleSplit(text, 800, 100)
         const embeddings = await getEmbeddings(chunks.map((c) => c.content))
 
         const insertChunk = db.prepare(`

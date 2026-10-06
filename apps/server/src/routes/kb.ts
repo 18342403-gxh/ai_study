@@ -10,7 +10,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 
 import { getDb } from '../db/index.js'
-import { getEmbedding, cosineSimilarity } from '../services/embedding.js'
+import { getEmbedding, cosineSimilarity } from '../services/rag/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'

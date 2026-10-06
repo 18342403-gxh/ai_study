@@ -1,5 +1,5 @@
 /**
- * Embedding 服务
+ * Embedding 服务 — 实现层（内部）
  * 调用 LLM Embedding API 将文本转为向量
  *
  * 🔽 自动降级机制：
@@ -10,10 +10,12 @@
  * 可控开关：
  *   ENABLE_MOCK_EMBEDDING=1  → 强制使用 mock 模式（不调 API）
  *   DISABLE_EMBEDDING_FALLBACK=1 → API 失败直接 throw（不降级）
+ *
+ * ⚠️ 内部文件，外部请通过 rag/embeddings.ts 或 rag/index.ts 访问。
  */
 
-import { logger } from './logger.js'
-import { costTracker } from './costTracker.js'
+import { logger } from '../logger.js'
+import { costTracker } from '../costTracker.js'
 import crypto from 'node:crypto'
 
 const EMBEDDING_DIM = 1536 // 和智谱 embedding-3 一致
@@ -52,7 +54,7 @@ export function hashVector(text: string, dim = EMBEDDING_DIM): number[] {
   }
 
   // ② Mulberry32 PRNG（确定性伪随机数生成器）
-  let seedIdx = 0
+  const seedIdx = 0
   const mulberry32 = () => {
     let a = seeds[seedIdx % seeds.length] >>> 0
     return function () {
@@ -182,7 +184,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
 
 /** 批量获取 embedding（自动降级） */
 export const getEmbeddings = async (texts: string[]): Promise<number[][]> => {
-  const { forceMock, disableFallback } = getEnv()
+  const { forceMock } = getEnv()
 
   if (forceMock) {
     logger.debug('embedding.service', 'getEmbeddings — 强制 mock 模式', { count: texts.length })

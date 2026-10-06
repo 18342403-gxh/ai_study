@@ -1,9 +1,10 @@
 /**
- * RAG — Embeddings 服务（m6 预留接口）
- * 用 LangChain Embeddings 抽象封装，替代原生 fetch 实现
+ * RAG — Embeddings 门面（唯一对外入口）
  *
- * 当前状态：接口骨架，兼容现有 embedding.ts 的原生实现
- * 后续将用 @langchain/community 的 Embeddings 替换
+ * 职责：
+ *   1. 对外暴露 createEmbeddings()（LangChain 风格 Embeddings 接口）
+ *   2. re-export embeddingGateway 的常用函数（getEmbedding / getEmbeddings / cosineSimilarity）
+ *   3. 隔离 embeddingGateway 的实现细节，外部不应直接 import embeddingGateway
  */
 
 /** Embeddings 接口（对齐 LangChain Embeddings 抽象） */
@@ -14,17 +15,26 @@ export interface Embeddings {
   embedDocuments(texts: string[]): Promise<number[][]>
 }
 
-/** 创建 Embeddings 实例（当前委托给原生实现，后续替换为 LangChain） */
+/** 创建 Embeddings 实例（委托给 embeddingGateway 的原生实现） */
 export const createEmbeddings = (): Embeddings => {
-  // 动态导入以避免循环依赖
   return {
     async embedQuery(text: string): Promise<number[]> {
-      const { getEmbedding } = await import('../embedding.js')
+      const { getEmbedding } = await import('./embeddingGateway.js')
       return getEmbedding(text)
     },
     async embedDocuments(texts: string[]): Promise<number[][]> {
-      const { getEmbeddings } = await import('../embedding.js')
+      const { getEmbeddings } = await import('./embeddingGateway.js')
       return getEmbeddings(texts)
     },
   }
 }
+
+// ── re-export embeddingGateway 的常用函数 ──────────────────────────
+// 外部（routes 等）统一从这里或 rag/index.ts 访问，不再直接碰 embeddingGateway
+export {
+  getEmbedding,
+  getEmbeddings,
+  cosineSimilarity,
+  hashVector,
+  isMockMode,
+} from './embeddingGateway.js'

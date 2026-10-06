@@ -8,7 +8,7 @@
  */
 
 import { getDb } from '../../db/index.js'
-import { getEmbedding, cosineSimilarity } from '../embedding.js'
+import { getEmbedding, cosineSimilarity } from './embeddings.js'
 import { randomUUID } from 'crypto'
 
 export interface VectorDoc {
