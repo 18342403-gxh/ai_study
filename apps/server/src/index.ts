@@ -39,6 +39,7 @@ import agentRouter from './routes/agent.js'
 import generatorRouter from './routes/generator.js'
 import logsRouter from './routes/logs.js'
 import costRouter from './routes/cost.js'
+import { getOpenApiSpec } from './openapi/generate.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -79,9 +80,14 @@ app.use(requestLogger) // ⑤ 日志：带 requestId 的结构化日志
 
 initDatabase()
 
-// ── 健康检查 & 指标 ────────────────────────────────
+// ── 健康检查 & 指标 & OpenAPI ────────────────────────
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: Date.now(), uptime: process.uptime() })
+})
+
+app.get('/api/openapi.json', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json')
+  res.json(getOpenApiSpec())
 })
 
 app.get('/api/metrics', metricsHandler)

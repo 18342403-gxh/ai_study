@@ -94,8 +94,10 @@ function currentRequestId(): string | undefined {
 }
 
 // ──────────────────────────────────────────────────
-// 终端输出（带颜色）
+// 终端输出（开发：彩色人类可读；生产：JSON Lines）
 // ──────────────────────────────────────────────────
+
+const IS_JSON_FORMAT = process.env.LOG_FORMAT === 'json'
 
 const COLORS: Record<LogLevel, string> = {
   DEBUG: '\x1b[36m', // 青
@@ -106,6 +108,21 @@ const COLORS: Record<LogLevel, string> = {
 const RESET = '\x1b[0m'
 
 function stdoutWrite(rec: LogRecord) {
+  if (IS_JSON_FORMAT) {
+    // JSON Lines — 一行一条，适合 ELK / Loki / CloudWatch
+    const line = JSON.stringify({
+      time: rec.time,
+      level: rec.level,
+      tag: rec.tag,
+      requestId: rec.requestId,
+      message: rec.message,
+      data: rec.data,
+    })
+    if (rec.level === 'ERROR') process.stderr.write(line + '\n')
+    else process.stdout.write(line + '\n')
+    return
+  }
+
   const time = rec.time.split('T')[1]?.replace('Z', '').slice(0, 12) ?? ''
   const req = rec.requestId ? ` ${rec.requestId.slice(0, 8)}` : ''
   const data = rec.data !== undefined ? ` ${JSON.stringify(rec.data)}` : ''
