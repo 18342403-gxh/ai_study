@@ -7,6 +7,7 @@
  */
 
 import { Router } from 'express'
+import { z } from 'zod'
 import {
   getLogs,
   subscribeLogs,
@@ -14,23 +15,35 @@ import {
   type LogLevel,
   type LogRecord,
 } from '../services/logger.js'
+import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
 
-/** GET /api/logs — 历史 */
-router.get('/', (req, res) => {
-  const level = (req.query.level as string | undefined)?.toUpperCase() as LogLevel | undefined
-  const tag = req.query.tag as string | undefined
-  const limit = Number(req.query.limit) || 200
-  res.json(getLogs({ level, tag, limit }))
+const listLogsQuerySchema = z.object({
+  level: z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR']).optional(),
+  tag: z.string().max(64).optional(),
+  limit: z.coerce.number().int().min(1).max(5000).optional(),
 })
 
+/** GET /api/logs — 历史 */
+router.get(
+  '/',
+  validate({ query: listLogsQuerySchema }),
+  asyncHandler(async (req, res) => {
+    const { level, tag, limit } = listLogsQuerySchema.parse(req.query)
+    res.json(getLogs({ level, tag, limit: limit ?? 200 }))
+  }),
+)
+
 /** GET /api/logs/tags */
-router.get('/tags', (_req, res) => {
-  const all = getLogs({ limit: 5000 })
-  const tags = Array.from(new Set(all.map((r) => r.tag))).sort()
-  res.json(tags)
-})
+router.get(
+  '/tags',
+  asyncHandler(async (_req, res) => {
+    const all = getLogs({ limit: 5000 })
+    const tags = Array.from(new Set(all.map((r) => r.tag))).sort()
+    res.json(tags)
+  }),
+)
 
 /** GET /api/logs/stream — SSE */
 router.get('/stream', (req, res) => {

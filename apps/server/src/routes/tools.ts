@@ -42,12 +42,27 @@ const runSchema = z.object({
   sessionId: z.string().optional(),
 })
 
+const listQuerySchema = z.object({
+  allowedToolIds: z
+    .union([z.string(), z.array(z.string())])
+    .transform((v) =>
+      Array.isArray(v)
+        ? v
+        : v
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+    )
+    .optional(),
+})
+
 /** GET /api/tools/list */
 router.get(
   '/list',
+  validate({ query: listQuerySchema }),
   asyncHandler(async (req, res) => {
     logger.info('tools.route', 'GET /list — 入口')
-    const allowedIds = req.query.allowedToolIds as string[] | undefined
+    const allowedIds = (req.query.allowedToolIds as string[] | undefined) ?? undefined
     const tools =
       allowedIds && allowedIds.length > 0 ? getToolsByWhitelist(allowedIds) : getAllTools()
 

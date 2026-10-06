@@ -7,52 +7,60 @@
  */
 
 import { Router } from 'express'
+import { z } from 'zod'
 import { getTodayTotal, getDailyStats, getBreakdown } from '../services/costTracker.js'
+import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
 
+const daysQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(30).optional(),
+})
+
 /** GET /api/cost/today */
-router.get('/today', async (_req, res) => {
-  try {
+router.get(
+  '/today',
+  asyncHandler(async (_req, res) => {
     const today = await getTodayTotal()
     res.json({ ok: true, data: today })
-  } catch (err) {
-    res.status(500).json({ ok: false, error: (err as Error).message })
-  }
-})
+  }),
+)
 
 /** GET /api/cost/daily?days=7 */
-router.get('/daily', async (req, res) => {
-  try {
-    const days = Math.min(30, parseInt((req.query.days as string) || '7', 10))
-    const stats = await getDailyStats(days)
+router.get(
+  '/daily',
+  validate({ query: daysQuerySchema }),
+  asyncHandler(async (req, res) => {
+    const { days } = daysQuerySchema.parse(req.query)
+    const stats = await getDailyStats(days ?? 7)
     res.json({ ok: true, data: stats })
-  } catch (err) {
-    res.status(500).json({ ok: false, error: (err as Error).message })
-  }
-})
+  }),
+)
 
 /** GET /api/cost/breakdown?days=1 */
-router.get('/breakdown', async (req, res) => {
-  try {
-    const days = Math.min(30, parseInt((req.query.days as string) || '1', 10))
-    const breakdown = await getBreakdown(days)
+router.get(
+  '/breakdown',
+  validate({ query: daysQuerySchema }),
+  asyncHandler(async (req, res) => {
+    const { days } = daysQuerySchema.parse(req.query)
+    const breakdown = await getBreakdown(days ?? 1)
     res.json({ ok: true, data: breakdown })
-  } catch (err) {
-    res.status(500).json({ ok: false, error: (err as Error).message })
-  }
-})
+  }),
+)
 
 /** GET /api/cost/settings */
-router.get('/settings', async (_req, res) => {
-  res.json({
-    ok: true,
-    data: {
-      dailyTokenBudget: process.env.DAILY_TOKEN_BUDGET || null,
-      embeddingMockEnabled: process.env.ENABLE_MOCK_EMBEDDING === '1',
-      embeddingFallbackDisabled: process.env.DISABLE_EMBEDDING_FALLBACK === '1',
-    },
-  })
-})
+router.get(
+  '/settings',
+  asyncHandler(async (_req, res) => {
+    res.json({
+      ok: true,
+      data: {
+        dailyTokenBudget: process.env.DAILY_TOKEN_BUDGET || null,
+        embeddingMockEnabled: process.env.ENABLE_MOCK_EMBEDDING === '1',
+        embeddingFallbackDisabled: process.env.DISABLE_EMBEDDING_FALLBACK === '1',
+      },
+    })
+  }),
+)
 
 export default router
