@@ -19,23 +19,29 @@ import { defineConfig } from 'drizzle-kit'
 
 const DRIVER = process.env.DATABASE_DRIVER || 'postgres'
 
-if (DRIVER === 'sqlite') {
-  const DB_PATH = process.env.DATABASE_SQLITE_PATH || './dev.db'
-  export default defineConfig({
-    schema: './drizzle/schema.ts',
-    out: './drizzle',
-    dialect: 'sqlite',
-    dbCredentials: { url: DB_PATH },
-  })
-} else {
-  const DB_URL = process.env.DATABASE_URL || 'postgresql://localhost:5432/ai_study'
-  export default defineConfig({
-    schema: './drizzle/schema.ts',
-    out: './drizzle',
-    dialect: 'postgresql',
-    dbCredentials: { url: DB_URL },
-    // 开启 pgvector 扩展支持（让 drizzle-kit 识别 vector 类型）
-    // 需要在 PG 里先执行: CREATE EXTENSION IF NOT EXISTS vector;
-    schemaFilter: ['public', 'app'],
-  })
+const base = {
+  schema: './drizzle/schema.ts',
+  out: './drizzle',
 }
+
+const config =
+  DRIVER === 'sqlite'
+    ? defineConfig({
+        ...base,
+        dialect: 'sqlite',
+        dbCredentials: {
+          url: process.env.DATABASE_SQLITE_PATH || './dev.db',
+        },
+      })
+    : defineConfig({
+        ...base,
+        dialect: 'postgresql',
+        dbCredentials: {
+          url: process.env.DATABASE_URL || 'postgresql://localhost:5432/ai_study',
+        },
+        // 开启 pgvector 扩展支持（让 drizzle-kit 识别 vector 类型）
+        // 需要在 PG 里先执行: CREATE EXTENSION IF NOT EXISTS vector;
+        schemaFilter: ['public', 'app'],
+      })
+
+export default config
