@@ -1,20 +1,16 @@
 /**
- * RAG Step 2: Splitter — 文本分压器
+ * RAG Step 2: Splitter — LangChain 版分块器
  *
- * 策略：优先使用 LangChain RecursiveCharacterTextSplitter
- *        中文场景用自定义 separators（按段落 > 句子 > 字符）
- *        兼容现有 chunker.ts 的简化实现
+ * 纯函数 simpleSplit 已抽到 splitterPure.ts（无 LangChain 依赖），
+ * 本文件只保留 LangChain RecursiveCharacterTextSplitter 的封装。
+ *
+ * 测试请 import splitterPure.ts；
+ * 需要高级分块策略时 import 本文件的 createSplitter()。
  */
 
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters'
 import { randomUUID } from 'crypto'
-
-export interface TextChunk {
-  id: string
-  content: string
-  index: number
-  metadata: Record<string, unknown>
-}
+export { simpleSplit, type TextChunk } from './splitterPure.js'
 
 export interface SplitOptions {
   chunkSize?: number
@@ -54,7 +50,10 @@ export function createSplitter(options: SplitOptions = {}) {
 
   return {
     /** 分割文本为 TextChunk 数组（异步） */
-    async splitText(text: string, docMetadata: Record<string, unknown> = {}): Promise<TextChunk[]> {
+    async splitText(
+      text: string,
+      docMetadata: Record<string, unknown> = {},
+    ): Promise<import('./splitterPure.js').TextChunk[]> {
       const docs = await splitter.createDocuments([text])
       const chunks = docs as Array<{ pageContent: string; metadata: Record<string, unknown> }>
       return chunks.map((chunk, i) => ({
@@ -73,44 +72,8 @@ export function createSplitter(options: SplitOptions = {}) {
     async splitDocument(doc: {
       content: string
       metadata: Record<string, unknown>
-    }): Promise<TextChunk[]> {
+    }): Promise<import('./splitterPure.js').TextChunk[]> {
       return this.splitText(doc.content, doc.metadata)
     },
   }
-}
-
-/**
- * 简化版分块器（兼容原有 chunker.ts 的行为）
- * 按字符长度硬切，适合快速 demo
- */
-export function simpleSplit(text: string, maxChunkSize = 500, overlap = 50): TextChunk[] {
-  if (text.length <= maxChunkSize) {
-    return [
-      {
-        id: `chunk_${Date.now()}_0`,
-        content: text,
-        index: 0,
-        metadata: { tokenCount: text.length },
-      },
-    ]
-  }
-
-  const chunks: TextChunk[] = []
-  let start = 0
-  let index = 0
-
-  while (start < text.length) {
-    const end = Math.min(start + maxChunkSize, text.length)
-    const chunk = text.slice(start, end)
-    chunks.push({
-      id: `chunk_${Date.now()}_${index}`,
-      content: chunk,
-      index,
-      metadata: { tokenCount: chunk.length },
-    })
-    start = end - overlap
-    index++
-  }
-
-  return chunks
 }
