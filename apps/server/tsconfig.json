@@ -21,6 +21,6 @@
       "@ai-study/shared/*": ["../../packages/shared/src/*"]
     }
   },
-  "include": ["src/**/*.ts", "drizzle/**/*.ts"],
+  "include": ["src/**/*.ts", "drizzle/**/*.ts", "drizzle.config.ts"],
   "exclude": ["dist", "node_modules"]
 }
