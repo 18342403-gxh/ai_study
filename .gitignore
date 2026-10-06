@@ -42,6 +42,8 @@ Thumbs.db
 
 # Server
 apps/server/data/*.db
+apps/server/data/*.db-shm
+apps/server/data/*.db-wal
 apps/server/uploads/*
 !apps/server/uploads/.gitkeep
 !apps/server/data/.gitkeep
