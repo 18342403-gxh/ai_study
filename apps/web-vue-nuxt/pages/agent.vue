@@ -1,5 +1,17 @@
 <script setup lang="ts">
-import { Brain, Wrench, Eye, Lightbulb, Check, X, Play, Pause, RotateCcw, Shield, Bot } from 'lucide-vue-next'
+import {
+  Brain,
+  Wrench,
+  Eye,
+  Lightbulb,
+  Check,
+  X,
+  Play,
+  Pause,
+  RotateCcw,
+  Shield,
+  Bot,
+} from 'lucide-vue-next'
 
 const {
   state,
@@ -162,7 +174,11 @@ const formatTime = (ts: number): string => {
                 :key="idx"
                 class="flex items-center gap-2 text-xs"
               >
-                <component :is="phaseIcon(phase.phase)" v-if="phaseIcon(phase.phase)" class="w-4 h-4 text-slate-500 shrink-0" />
+                <component
+                  :is="phaseIcon(phase.phase)"
+                  v-if="phaseIcon(phase.phase)"
+                  class="w-4 h-4 text-slate-500 shrink-0"
+                />
                 <span v-else class="text-slate-400 shrink-0">•</span>
                 <div class="flex-1 min-w-0">
                   <span class="font-medium text-slate-700">{{ phase.phase }}</span>

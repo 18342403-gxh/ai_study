@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { FileText, Search, FolderOpen, Link, RotateCcw, Trash2, BookOpen, Lightbulb, MessageCircle, Inbox } from 'lucide-vue-next'
+import {
+  FileText,
+  Search,
+  FolderOpen,
+  Link,
+  RotateCcw,
+  Trash2,
+  BookOpen,
+  Lightbulb,
+  MessageCircle,
+  Inbox,
+} from 'lucide-vue-next'
 
 const {
   documents,
@@ -427,7 +438,9 @@ onMounted(() => {
           v-if="streamingSources.length > 0 || (lastResult && lastResult.sources.length > 0)"
           class="bg-white rounded-2xl border border-slate-200 p-6 mb-6"
         >
-          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5"><BookOpen class="w-4 h-4 text-brand-500" /> 参考来源</h3>
+          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5">
+            <BookOpen class="w-4 h-4 text-brand-500" /> 参考来源
+          </h3>
           <div class="space-y-2">
             <div
               v-for="(source, idx) in streamingSources.length > 0
@@ -449,7 +462,9 @@ onMounted(() => {
           v-if="streamingAnswer || lastResult"
           class="bg-white rounded-2xl border border-slate-200 p-6"
         >
-          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5"><Lightbulb class="w-4 h-4 text-amber-500" /> AI 回答</h3>
+          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5">
+            <Lightbulb class="w-4 h-4 text-amber-500" /> AI 回答
+          </h3>
           <div class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
             {{ streamingAnswer || lastResult?.answer }}
             <span

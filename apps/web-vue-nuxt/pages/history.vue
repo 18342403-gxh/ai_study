@@ -51,9 +51,7 @@ const handleDelete = (e: Event, id: string) => {
 
       <!-- 空状态 -->
       <div v-if="sessions.length === 0" class="flex flex-col items-center justify-center py-20">
-        <div
-          class="w-20 h-20 rounded-2xl bg-slate-100 flex items-center justify-center mb-4"
-        >
+        <div class="w-20 h-20 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
           <MessageCircle class="w-10 h-10 text-slate-400" />
         </div>
         <h3 class="text-lg font-medium text-slate-700 mb-2">暂无历史会话</h3>

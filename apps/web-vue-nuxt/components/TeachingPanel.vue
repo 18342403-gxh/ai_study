@@ -33,7 +33,17 @@
  */
 
 import type { ChatMessage } from '@ai-study/shared'
-import { Zap, MessageSquare, Wrench, Search, Bot, ArrowUp, Target, BookOpen, Brain } from 'lucide-vue-next'
+import {
+  Zap,
+  MessageSquare,
+  Wrench,
+  Search,
+  Bot,
+  ArrowUp,
+  Target,
+  BookOpen,
+  Brain,
+} from 'lucide-vue-next'
 
 const props = defineProps<{
   messages: ChatMessage[]
@@ -149,7 +159,9 @@ const codeGenerated = computed(() =>
 
         <!-- 面试题 -->
         <div class="p-3 rounded-xl bg-purple-50 border border-purple-200">
-          <p class="text-xs font-medium text-purple-700 mb-2 flex items-center gap-1.5"><Brain class="w-3.5 h-3.5" /> 面试考点</p>
+          <p class="text-xs font-medium text-purple-700 mb-2 flex items-center gap-1.5">
+            <Brain class="w-3.5 h-3.5" /> 面试考点
+          </p>
           <div class="space-y-2 text-xs text-purple-600">
             <p class="font-medium">Q1: SSE 流式输出如何实现打字机效果？</p>
             <p class="pl-3 text-purple-500">

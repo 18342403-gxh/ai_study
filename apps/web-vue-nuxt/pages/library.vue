@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { Search, ShoppingBag, BarChart3, FileText, Compass, MessageSquare, Rocket, BookOpen, Zap, Lightbulb } from 'lucide-vue-next'
+import {
+  Search,
+  ShoppingBag,
+  BarChart3,
+  FileText,
+  Compass,
+  MessageSquare,
+  Rocket,
+  BookOpen,
+  Zap,
+  Lightbulb,
+} from 'lucide-vue-next'
 
 interface Template {
   id: string
