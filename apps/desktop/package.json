@@ -10,15 +10,76 @@
     "build:watch": "esbuild src/main/index.ts src/main/spawnServer.ts src/main/spawnGenerator.ts src/main/waitForPort.ts src/main/lifecycle.ts src/main/windowState.ts src/preload/index.ts --bundle --outdir=dist --platform=node --format=cjs --external:electron --watch",
     "start": "wait-on tcp:3001 tcp:3003 && electron .",
     "start:no-wait": "electron .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:all": "pnpm build:embedded && pnpm build:main && pnpm build:dist",
+    "build:embedded": "pnpm --filter @ai-study/shared build && pnpm --filter @ai-study/server build && pnpm --filter @ai-study/generator build",
+    "build:main": "pnpm build",
+    "build:dist": "electron-builder --win",
+    "build:dist:mac": "electron-builder --mac",
+    "build:dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "concurrently": "^9.0.0",
     "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
     "electronmon": "^2.0.4",
     "esbuild": "^0.24.0",
     "typescript": "^5.5.3",
     "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.aistudy.desktop",
+    "productName": "AIStudy",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../server/dist",
+        "to": "server/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../server/node_modules",
+        "to": "server/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../generator/.output",
+        "to": "generator/.output",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "AIStudy-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI 组件生成器"
+    }
   }
 }
