@@ -10,7 +10,13 @@
 
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters'
 import { randomUUID } from 'crypto'
-export { simpleSplit, type TextChunk } from './splitterPure.js'
+import { CHUNK_OVERLAP, CHUNK_TARGET } from './splitterPure.js'
+export {
+  simpleSplit,
+  splitStructured,
+  type StructuredSplitOptions,
+  type TextChunk,
+} from './splitterPure.js'
 
 export interface SplitOptions {
   chunkSize?: number
@@ -40,7 +46,11 @@ const DEFAULT_SEPARATORS = [
  * 使用 LangChain RecursiveCharacterTextSplitter 分块
  */
 export function createSplitter(options: SplitOptions = {}) {
-  const { chunkSize = 500, chunkOverlap = 50, separators = DEFAULT_SEPARATORS } = options
+  const {
+    chunkSize = CHUNK_TARGET,
+    chunkOverlap = CHUNK_OVERLAP,
+    separators = DEFAULT_SEPARATORS,
+  } = options
 
   const splitter = new RecursiveCharacterTextSplitter({
     chunkSize,

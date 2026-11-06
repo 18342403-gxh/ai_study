@@ -18,7 +18,7 @@ import { randomUUID } from 'crypto'
 import { desc, eq } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
-import { simpleSplit, getEmbeddings } from '../services/rag/index.js'
+import { splitStructured, getEmbeddings } from '../services/rag/index.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 
@@ -118,7 +118,8 @@ router.post(
     ;(async () => {
       try {
         const text = await extractText(file.path, file.originalname)
-        const chunks = simpleSplit(text, 800, 100)
+        // v5 统一分片（spec 4.2）：结构 → 段落 → 句子 → 硬切，600/80
+        const chunks = splitStructured(text)
         const embeddings = await getEmbeddings(chunks.map((c) => c.content))
 
         await db.insert(tables.chunks).values(

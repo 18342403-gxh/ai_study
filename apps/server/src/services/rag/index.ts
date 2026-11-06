@@ -8,7 +8,14 @@
  */
 
 // ── barrel export：RAG 子系统对外的所有公共接口 ────────────────────
-export { simpleSplit, createSplitter, type TextChunk, type SplitOptions } from './splitter.js'
+export {
+  simpleSplit,
+  splitStructured,
+  createSplitter,
+  type StructuredSplitOptions,
+  type TextChunk,
+  type SplitOptions,
+} from './splitter.js'
 export {
   createEmbeddings,
   getEmbedding,
@@ -23,7 +30,7 @@ export { bm25Search } from './bm25.js'
 export { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
 
 import { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from './loader.js'
-import { createSplitter, type TextChunk } from './splitter.js'
+import { splitStructured, type TextChunk } from './splitter.js'
 import { createEmbeddings } from './embeddings.js'
 import { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
 import { bm25Search, type BM25Result } from './bm25.js'
@@ -82,7 +89,6 @@ export function rrfFuse(
 export function createRAGService() {
   const embeddings = createEmbeddings()
   const vectorStore = createSqliteVectorStore()
-  const splitter = createSplitter({ chunkSize: 500, chunkOverlap: 50 })
 
   return {
     /**
@@ -129,7 +135,11 @@ export function createRAGService() {
       const start = Date.now()
       logger.info('rag.service', 'ingestDocumentWithId — 入口', { documentId, docName: doc.name })
       try {
-        const chunks = await splitter.splitDocument(doc)
+        // v5 分片策略（spec 4.2）：结构 → 段落 → 句子 → 硬切四级
+        const chunks = splitStructured(doc.content).map((c) => ({
+          ...c,
+          metadata: { ...doc.metadata, ...c.metadata },
+        }))
 
         const texts = chunks.map((c) => c.content)
         const vectors = await embeddings.embedDocuments(texts)
