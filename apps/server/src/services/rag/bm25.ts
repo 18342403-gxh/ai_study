@@ -17,7 +17,9 @@
  *   英文：按非字母数字字符分词 + lowercase
  */
 
-import { getDb } from '../../db/index.js'
+import { and, eq, isNotNull } from 'drizzle-orm'
+
+import { getDb, tables } from '../../db/index.js'
 
 const K1 = 1.2
 const B = 0.75
@@ -70,28 +72,22 @@ export function tokenize(text: string): string[] {
   return tokens
 }
 
-/** 从 SQLite 读全部 chunks → 算 BM25 → 排序取 Top-K */
+/** 从 chunks 表读全部数据 → 算 BM25 → 排序取 Top-K */
 export async function bm25Search(query: string, k = 5, docId?: string): Promise<BM25Result[]> {
   const db = getDb()
 
-  let rows: Array<{
-    id: string
-    doc_id: string
-    content: string
-    chunk_index: number
-  }>
+  const conds = [isNotNull(tables.chunks.content)]
+  if (docId) conds.push(eq(tables.chunks.docId, docId))
 
-  if (docId) {
-    rows = (await db
-      .prepare(
-        'SELECT id, doc_id, content, chunk_index FROM chunks WHERE doc_id = ? AND content IS NOT NULL',
-      )
-      .all(docId)) as typeof rows
-  } else {
-    rows = (await db
-      .prepare('SELECT id, doc_id, content, chunk_index FROM chunks WHERE content IS NOT NULL')
-      .all()) as typeof rows
-  }
+  const rows = await db
+    .select({
+      id: tables.chunks.id,
+      doc_id: tables.chunks.docId,
+      content: tables.chunks.content,
+      chunk_index: tables.chunks.chunkIndex,
+    })
+    .from(tables.chunks)
+    .where(and(...conds))
 
   if (rows.length === 0) return []
 

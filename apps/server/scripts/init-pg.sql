@@ -123,6 +123,26 @@ CREATE TABLE IF NOT EXISTS app.entry_embeddings (
 );
 
 -- ============================
+-- 7. ai_usage_logs — AI Token 用量日志（成本控制核心）
+-- ============================
+CREATE TABLE IF NOT EXISTS app.ai_usage_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  feature VARCHAR(32) NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
+  model VARCHAR(128) NOT NULL,
+  provider VARCHAR(32) NOT NULL DEFAULT 'zhipu',
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_ms INTEGER NOT NULL DEFAULT 0,
+  user_id VARCHAR(64),
+  session_id VARCHAR(64),
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON app.ai_usage_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON app.ai_usage_logs(feature, created_at);
+
+-- ============================
 -- v5 阶段1：组件生成模块已移除，清理旧表
 -- ============================
 DROP TABLE IF EXISTS app.generator_files;

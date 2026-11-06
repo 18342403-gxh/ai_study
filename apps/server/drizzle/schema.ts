@@ -177,3 +177,32 @@ export const entryEmbeddings = app.table(
     entryFk: foreignKey({ columns: [t.entryId], foreignColumns: [entries.id] }).onDelete('cascade'),
   }),
 )
+
+// ─────────────────────────────────────────
+// 7. ai_usage_logs — AI Token 用量日志（成本控制核心）
+// ─────────────────────────────────────────
+export const aiUsageLogs = app.table(
+  'ai_usage_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    feature: varchar('feature', { length: 32 }).notNull(),
+    model: varchar('model', { length: 128 }).notNull(),
+    provider: varchar('provider', { length: 32 }).notNull().default('zhipu'),
+    promptTokens: integer('prompt_tokens').notNull().default(0),
+    completionTokens: integer('completion_tokens').notNull().default(0),
+    totalTokens: integer('total_tokens').notNull().default(0),
+    costMs: integer('cost_ms').notNull().default(0),
+    userId: varchar('user_id', { length: 64 }),
+    sessionId: varchar('session_id', { length: 64 }),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    featureCheck: check(
+      'ai_usage_logs_feature_check',
+      sql`${t.feature} IN ('chat','generator','rag','embedding','eval')`,
+    ),
+    idxCreated: index('idx_ai_usage_logs_created').on(t.createdAt),
+    idxFeature: index('idx_ai_usage_logs_feature').on(t.feature, t.createdAt),
+  }),
+)

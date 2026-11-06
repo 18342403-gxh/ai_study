@@ -1,31 +1,52 @@
 /**
- * 数据库门面 — 根据 DATABASE_DRIVER 自动切换
+ * 数据库门面 — 统一 Drizzle ORM 数据访问层
  *
  *   DATABASE_DRIVER=sqlite   → 本地 SQLite 文件（默认，零依赖）
  *   DATABASE_DRIVER=postgres → 连接 PostgreSQL + pgvector（生产推荐）
  *
- * ⚠️ 所有驱动统一 async API：run/get/all 均返回 Promise。
- *    SQLite 内部是同步的，这里用 Promise.resolve() 包装；
- *    PostgreSQL 是真正的 async postgres.js。
- *    上层调用必须用 await db.prepare(sql).run(...) 风格。
+ * 设计：
+ *   - 双方言共用一套 camelCase schema 属性名（sqliteSchema / pgSchema 一一对应）
+ *   - getDb() 返回 drizzle 实例，编译期类型以 SQLite schema 为准（AppDb）
+ *   - tables 导出当前驱动的表对象，业务层只写方言无关的 drizzle 查询
+ *   - 时间戳统一 Date 对象（SQLite integer ms ↔ timestamp_ms；PG timestamptz）
+ *   - JSON 列自动序列化（messages.metadata 除外：保持手动 string 透传）
+ *   - getPgRaw() 是逃生舱：pgvector `<=>` 等 drizzle 表达不了的操作用原生 client
  */
 
 import 'dotenv/config'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import Database from 'better-sqlite3'
+import { drizzle as drizzleSqlite, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { drizzle as drizzlePg, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import pg from 'postgres'
+
+import * as sqliteSchema from '../../drizzle/schema.sqlite.js'
+import * as pgSchema from '../../drizzle/schema.js'
 import { logger } from '../services/logger.js'
 
 const DRIVER = process.env.DATABASE_DRIVER || 'sqlite'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+/** 统一数据访问层类型（编译期以 SQLite schema 为准，双方言属性名一致） */
+export type AppDb = BetterSQLite3Database<typeof sqliteSchema>
+
+/**
+ * 当前驱动的表对象。运行时按驱动切换，编译期类型固定为 sqliteSchema
+ * （两个 schema 的 camelCase 属性名必须完全一致）。
+ */
+export const tables = (DRIVER === 'postgres'
+  ? pgSchema
+  : sqliteSchema) as unknown as typeof sqliteSchema
+
 // ─────────────────────────────────────────────
-// SQLite 实现（默认）
+// SQLite 初始化（含幂等建表与结构对齐）
 // ─────────────────────────────────────────────
-import Database from 'better-sqlite3'
 
 let sqliteDb: Database.Database | null = null
+let sqliteDrizzle: BetterSQLite3Database<typeof sqliteSchema> | null = null
 
-/** v5 个人记忆系统建表：entries / entry_embeddings + 旧表补字段（幂等） */
+/** v5 个人记忆系统建表：entries / entry_embeddings / ai_usage_logs（幂等） */
 const initV5Schema = (db: Database.Database) => {
   // 条目表（个人记忆系统核心，v5）
   db.exec(`
@@ -53,9 +74,7 @@ const initV5Schema = (db: Database.Database) => {
     )
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_status_type ON entries(status, type)`)
-  db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_start ON entries(start_at) WHERE start_at IS NOT NULL`,
-  )
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_start ON entries(start_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_library ON entries(library_id, status)`)
 
   // 条目向量表（语义检索用，条目本身即最小记忆单元，不再拆分）
@@ -69,85 +88,8 @@ const initV5Schema = (db: Database.Database) => {
     )
   `)
 
-  // v5 补字段（幂等）：documents 归属字段、messages 引用快照
-  const ensureColumn = (table: string, column: string, ddl: string) => {
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
-    if (!cols.some((c) => c.name === column)) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
-    }
-  }
-  ensureColumn('documents', 'user_id', `user_id TEXT NOT NULL DEFAULT 'local'`)
-  ensureColumn('documents', 'library_id', `library_id TEXT NOT NULL DEFAULT 'default'`)
-  ensureColumn('messages', 'citations', 'citations TEXT')
-}
-
-const initSqlite = () => {
-  const dbPath = process.env.DB_PATH || path.join(__dirname, '../../data/knowledge.db')
-  sqliteDb = new Database(dbPath)
-
-  sqliteDb.pragma('journal_mode = WAL')
-  sqliteDb.pragma('foreign_keys = ON')
-
-  // 文档表
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS documents (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      size INTEGER NOT NULL,
-      type TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'processing',
-      chunk_count INTEGER DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-
-  // 文档块表（含向量）
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS chunks (
-      id TEXT PRIMARY KEY,
-      doc_id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      chunk_index INTEGER NOT NULL,
-      embedding TEXT,
-      FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
-    )
-  `)
-
-  // 会话表
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL DEFAULT '新对话',
-      model TEXT NOT NULL DEFAULT 'glm-4-flash',
-      system_prompt TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-
-  // 消息表
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')),
-      content TEXT NOT NULL,
-      metadata TEXT,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-    )
-  `)
-
-  // 索引
-  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`)
-  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)`)
-
-  // v5 个人记忆系统建表（entries / entry_embeddings / 旧表补字段）
-  initV5Schema(sqliteDb)
-
   // AI Token 用量日志表（成本控制核心）
-  sqliteDb.exec(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS ai_usage_logs (
       id TEXT PRIMARY KEY,
       feature TEXT NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
@@ -163,340 +105,135 @@ const initSqlite = () => {
       created_at INTEGER NOT NULL
     )
   `)
-  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON ai_usage_logs(created_at)`)
-  sqliteDb.exec(
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON ai_usage_logs(created_at)`)
+  db.exec(
     `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON ai_usage_logs(feature, created_at)`,
   )
 }
 
-// ─────────────────────────────────────────────
-// 统一 async 包装器（SQLite 和 PG 共用的接口形状）
-// ─────────────────────────────────────────────
+/** 结构对齐：把旧版 SQLite 表结构升级到与 PG schema 一致的列集（幂等） */
+const alignSqliteSchema = (db: Database.Database) => {
+  const hasColumn = (table: string, column: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    return cols.some((c) => c.name === column)
+  }
+  const ensureColumn = (table: string, column: string, ddl: string) => {
+    if (!hasColumn(table, column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
+    }
+  }
 
-interface AsyncPrepared {
-  run(...params: unknown[]): Promise<{ lastInsertRowid: bigint | number | null; changes: number }>
-  get<T = unknown>(...params: unknown[]): Promise<T | undefined>
-  all<T = unknown>(...params: unknown[]): Promise<T[]>
+  // documents：旧列 type → mime_type（RENAME COLUMN 需 SQLite 3.25+）
+  if (hasColumn('documents', 'type') && !hasColumn('documents', 'mime_type')) {
+    db.exec(`ALTER TABLE documents RENAME COLUMN type TO mime_type`)
+  }
+  ensureColumn('documents', 'storage_path', `storage_path TEXT NOT NULL DEFAULT ''`)
+  ensureColumn('documents', 'metadata', 'metadata TEXT')
+  ensureColumn('documents', 'deleted_at', 'deleted_at INTEGER')
+
+  // chunks：补 token_count / created_at
+  ensureColumn('chunks', 'token_count', 'token_count INTEGER')
+  ensureColumn('chunks', 'created_at', 'created_at INTEGER')
+
+  // sessions：补 metadata / deleted_at
+  ensureColumn('sessions', 'metadata', 'metadata TEXT')
+  ensureColumn('sessions', 'deleted_at', 'deleted_at INTEGER')
+
+  // messages：补 tool_call_id
+  ensureColumn('messages', 'tool_call_id', 'tool_call_id TEXT')
 }
 
-interface AsyncDb {
-  prepare(sql: string): AsyncPrepared
-  exec(sql: string): Promise<unknown>
-  transaction<T>(fn: () => T | Promise<T>): () => Promise<T>
-  rawClient?: unknown
-}
+const initSqlite = () => {
+  const dbPath = process.env.DB_PATH || path.join(__dirname, '../../data/knowledge.db')
+  sqliteDb = new Database(dbPath)
 
-/** SQLite 同步 → async 包装 */
-const wrapSqliteAsAsync = (db: Database.Database): AsyncDb => ({
-  prepare(sql: string) {
-    const stmt = db.prepare(sql)
-    return {
-      run(...params: unknown[]) {
-        return Promise.resolve(
-          stmt.run(...params) as { lastInsertRowid: bigint | number | null; changes: number },
-        )
-      },
-      get<T = unknown>(...params: unknown[]) {
-        return Promise.resolve(stmt.get(...params) as T | undefined)
-      },
-      all<T = unknown>(...params: unknown[]) {
-        return Promise.resolve(stmt.all(...params) as T[])
-      },
-    }
-  },
-  exec(sql: string) {
-    return Promise.resolve(db.exec(sql))
-  },
-  transaction<T>(fn: () => T | Promise<T>) {
-    return db.transaction(fn) as () => Promise<T>
-  },
-})
+  sqliteDb.pragma('journal_mode = WAL')
+  sqliteDb.pragma('foreign_keys = ON')
 
-/** PG (postgres.js) → async 包装（内部已是 async） */
-const wrapPostgresAsAsync = (client: ReturnType<typeof pg>): AsyncDb => {
-  /**
-   * 把 SQLite 风格的 ? 占位符转换成 PG 的 $1, $2, $3...
-   * 只转不在引号里的 ?（避免字符串字面量里的 ? 被误转）
-   */
-  const sqliteToPgParams = (sql: string): string => {
-    let counter = 0
-    let inSingle = false
-    let inDouble = false
-    let escapeNext = false
-    let result = ''
-    for (let i = 0; i < sql.length; i++) {
-      const c = sql[i]
-      if (escapeNext) {
-        result += c
-        escapeNext = false
-        continue
-      }
-      if (c === '\\') {
-        result += c
-        escapeNext = true
-        continue
-      }
-      if (c === "'" && !inDouble) {
-        inSingle = !inSingle
-        result += c
-        continue
-      }
-      if (c === '"' && !inSingle) {
-        inDouble = !inDouble
-        result += c
-        continue
-      }
-      if (c === '?' && !inSingle && !inDouble) {
-        result += `$${++counter}`
-        continue
-      }
-      result += c
-    }
-    return result
-  }
-
-  /** 把裸表名加 app schema 前缀 */
-  const qualifySchema = (sql: string): string => {
-    // SQL 关键字白名单（这些不是表名，不能加 schema）
-    const reserved = new Set([
-      'SET',
-      'ON',
-      'WHERE',
-      'GROUP',
-      'ORDER',
-      'LIMIT',
-      'OFFSET',
-      'VALUES',
-      'AND',
-      'OR',
-      'AS',
-      'IS',
-      'IN',
-      'NOT',
-      'NULL',
-      'LIKE',
-      'BETWEEN',
-      'BY',
-      'ASC',
-      'DESC',
-      'HAVING',
-      'UNION',
-      'ALL',
-      'DISTINCT',
-      'CASE',
-      'WHEN',
-      'THEN',
-      'ELSE',
-      'END',
-      'EXISTS',
-      'TRUE',
-      'FALSE',
-      'RETURNING',
-      'DO',
-      'CONFLICT',
-      'EXCLUDED',
-      'DEFAULT',
-      'CHECK',
-      'PRIMARY',
-      'FOREIGN',
-      'KEY',
-      'REFERENCES',
-      'CONSTRAINT',
-      'UNIQUE',
-      'WITH',
-      'RECURSIVE',
-      'LATERAL',
-      'CROSS',
-      'NATURAL',
-      'LEFT',
-      'RIGHT',
-      'INNER',
-      'OUTER',
-      'FULL',
-      'TABLESAMPLE',
-      'ONLY',
-      'USING',
-    ])
-
-    // Step 1: 标准 keyword + table 匹配
-    // FROM/JOIN/INTO/UPDATE 后面的裸表名 → app.table
-    let result = sql.replace(
-      /\b(FROM|JOIN|INTO|UPDATE)\s+(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
-      (m, kw: string, table: string) => {
-        if (reserved.has(table.toUpperCase())) return m
-        return `${kw} app.${table}`
-      },
+  // 文档表（新库直接建全量列；旧库由 alignSqliteSchema 升级）
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      mime_type TEXT,
+      storage_path TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'processing'
+        CHECK(status IN ('processing','ready','failed','deleted')),
+      chunk_count INTEGER DEFAULT 0,
+      user_id TEXT NOT NULL DEFAULT 'local',
+      library_id TEXT NOT NULL DEFAULT 'default',
+      metadata TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      deleted_at INTEGER
     )
+  `)
+  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)`)
+  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at)`)
 
-    // Step 2: 逗号分隔多表 — FROM app.t1, t2 中的 t2 也要加 schema
-    // 匹配: FROM|JOIN app.table [alias] , bare_table
-    result = result.replace(
-      /((?:FROM|JOIN)\s+app\.\w+(?:\s+(?:AS\s+)?\w+)?)\s*,\s*(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
-      (m, prefix: string, table: string) => {
-        if (reserved.has(table.toUpperCase())) return m
-        return `${prefix}, app.${table}`
-      },
+  // 文档块表（含向量）
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS chunks (
+      id TEXT PRIMARY KEY,
+      doc_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      token_count INTEGER,
+      embedding TEXT,
+      created_at INTEGER,
+      FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
     )
+  `)
+  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`)
 
-    return result
-  }
+  // 会话表
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '新对话',
+      model TEXT NOT NULL DEFAULT 'glm-4-flash',
+      system_prompt TEXT,
+      metadata TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      deleted_at INTEGER
+    )
+  `)
 
-  /**
-   * 参数类型转换：SQLite 用 INTEGER 存时间戳，PG 用 TIMESTAMPTZ
-   * 把看起来像毫秒时间戳的整数（> 1e12，约 2001 年后）转成 ISO 日期字符串
-   */
-  const coerceParams = (params: unknown[]): unknown[] => {
-    return params.map((p) => {
-      if (typeof p === 'number' && p > 1_000_000_000_000 && Number.isFinite(p)) {
-        return new Date(p).toISOString()
-      }
-      return p
-    })
-  }
+  // 消息表
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')),
+      content TEXT NOT NULL,
+      tool_call_id TEXT,
+      citations TEXT,
+      metadata TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    )
+  `)
+  sqliteDb.exec(
+    `CREATE INDEX IF NOT EXISTS idx_messages_session_id_created_at ON messages(session_id, created_at)`,
+  )
 
-  const prepareForPg = (sql: string): string => qualifySchema(sqliteToPgParams(sql))
+  // 旧库结构对齐（幂等 ALTER）
+  alignSqliteSchema(sqliteDb)
 
-  // 根据 SQL 判断操作类型（用于日志 tag）
-  const opType = (sql: string): string => {
-    const upper = sql.trim().toUpperCase()
-    if (upper.startsWith('INSERT')) return 'INSERT'
-    if (upper.startsWith('UPDATE')) return 'UPDATE'
-    if (upper.startsWith('DELETE')) return 'DELETE'
-    if (upper.startsWith('SELECT')) return 'SELECT'
-    if (upper.startsWith('CREATE')) return 'CREATE'
-    if (upper.startsWith('DROP')) return 'DROP'
-    if (upper.startsWith('ALTER')) return 'ALTER'
-    return 'OTHER'
-  }
+  // v5 个人记忆系统建表（entries / entry_embeddings / ai_usage_logs）
+  initV5Schema(sqliteDb)
 
-  // 从 SQL 提取表名（简单版，用于日志 data）
-  const extractTable = (sql: string): string => {
-    const m = sql.match(/(?:FROM|JOIN|INTO|UPDATE)\s+(\w+)/i)
-    return m?.[1] ?? '?'
-  }
-
-  return {
-    prepare(sql: string) {
-      const pgSql = prepareForPg(sql)
-      const op = opType(sql)
-      const table = extractTable(sql)
-      return {
-        async run(...params: unknown[]) {
-          const t0 = Date.now()
-          try {
-            const raw: any = await client.unsafe(pgSql, coerceParams(params) as any)
-            // postgres.js 返回数组：SELECT/INSERT RETURNING → rows[] (length=N, count=N)
-            //                   UPDATE/DELETE 无 RETURNING → [] (length=0, count=affected)
-            let changes = 0
-            let lastInsertRowid: bigint | number | null = null
-            if (Array.isArray(raw)) {
-              // count 是非枚举属性，包含 UPDATE/DELETE 影响行数
-              changes = (raw as any).count ?? raw.length ?? 0
-              lastInsertRowid = raw[0]?.id ?? null
-            }
-            const result = { lastInsertRowid, changes }
-            logger.debug('db', `SQL ${op} ${table} OK`, {
-              op,
-              table,
-              costMs: Date.now() - t0,
-              changes: result.changes,
-            })
-            return result
-          } catch (err) {
-            logger.error('db', `SQL ${op} ${table} FAILED`, {
-              op,
-              table,
-              error: (err as Error).message,
-              costMs: Date.now() - t0,
-              sql: pgSql,
-            })
-            throw err
-          }
-        },
-        async get<T = unknown>(...params: unknown[]) {
-          const t0 = Date.now()
-          try {
-            const rows: any[] = await client.unsafe(pgSql, coerceParams(params) as any)
-            logger.debug('db', `SQL ${op} ${table} OK`, { op, table, costMs: Date.now() - t0 })
-            return rows?.[0] as T | undefined
-          } catch (err) {
-            logger.error('db', `SQL ${op} ${table} FAILED`, {
-              op,
-              table,
-              error: (err as Error).message,
-              costMs: Date.now() - t0,
-              sql: pgSql,
-            })
-            throw err
-          }
-        },
-        async all<T = unknown>(...params: unknown[]) {
-          const t0 = Date.now()
-          try {
-            const rows = await client.unsafe(pgSql, coerceParams(params) as any)
-            logger.debug('db', `SQL ${op} ${table} OK`, {
-              op,
-              table,
-              costMs: Date.now() - t0,
-              rowCount: rows.length,
-            })
-            return rows as unknown as T[]
-          } catch (err) {
-            logger.error('db', `SQL ${op} ${table} FAILED`, {
-              op,
-              table,
-              error: (err as Error).message,
-              costMs: Date.now() - t0,
-              sql: pgSql,
-            })
-            throw err
-          }
-        },
-      }
-    },
-    async exec(sql: string) {
-      const t0 = Date.now()
-      try {
-        const result = await client.unsafe(prepareForPg(sql))
-        logger.debug('db', `SQL EXEC OK`, { costMs: Date.now() - t0 })
-        return result
-      } catch (err) {
-        logger.error('db', `SQL EXEC FAILED`, {
-          error: (err as Error).message,
-          costMs: Date.now() - t0,
-          sql,
-        })
-        throw err
-      }
-    },
-    transaction<T>(fn: () => T | Promise<T>) {
-      return async () => {
-        if (!client) throw new Error('PG client not available')
-        const t0 = Date.now()
-        try {
-          const result = (await client.begin(async () => fn())) as T
-          logger.debug('db', `TRANSACTION OK`, { costMs: Date.now() - t0 })
-          return result
-        } catch (err) {
-          logger.error('db', `TRANSACTION FAILED`, {
-            error: (err as Error).message,
-            costMs: Date.now() - t0,
-          })
-          throw err
-        }
-      }
-    },
-    rawClient: client,
-  }
+  sqliteDrizzle = drizzleSqlite(sqliteDb, { schema: sqliteSchema })
 }
 
 // ─────────────────────────────────────────────
 // PostgreSQL 初始化
 // ─────────────────────────────────────────────
-import pg from 'postgres'
 
 let pgClient: ReturnType<typeof pg> | null = null
-let pgDb: AsyncDb | null = null
+let pgDrizzle: PostgresJsDatabase<typeof pgSchema> | null = null
 
 const initPostgres = () => {
   const url = process.env.DATABASE_URL || 'postgresql://ai_study:123456@localhost:5432/ai_study'
@@ -505,9 +242,9 @@ const initPostgres = () => {
     idle_timeout: 30,
     connect_timeout: 10,
   })
-  pgDb = wrapPostgresAsAsync(pgClient)
+  pgDrizzle = drizzlePg(pgClient, { schema: pgSchema })
 
-  // 确保 app schema 存在 + ai_usage_logs 表自动创建
+  // 防御性建表：schema 与 ai_usage_logs（正常应由 scripts/init-pg.sql 创建）
   pgClient.unsafe(`CREATE SCHEMA IF NOT EXISTS app`).catch(() => {})
   pgClient
     .unsafe(
@@ -521,25 +258,22 @@ const initPostgres = () => {
       completion_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_ms INTEGER NOT NULL DEFAULT 0,
-      user_id UUID,
-      session_id UUID,
+      user_id VARCHAR(64),
+      session_id VARCHAR(64),
       metadata JSONB,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `,
     )
     .catch((e: unknown) => {
-      // 忽略建表失败（可能用户已手动建过）
       logger.debug('db', 'PG ai_usage_logs 建表跳过或已存在', { error: (e as Error).message })
     })
   pgClient
-    .unsafe(
-      `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON app.ai_usage_logs(created_at DESC)`,
-    )
+    .unsafe(`CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_created ON app.ai_usage_logs(created_at)`)
     .catch(() => {})
   pgClient
     .unsafe(
-      `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON app.ai_usage_logs(feature, created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON app.ai_usage_logs(feature, created_at)`,
     )
     .catch(() => {})
 }
@@ -548,44 +282,33 @@ const initPostgres = () => {
 // 公共导出
 // ─────────────────────────────────────────────
 
-let sqliteWrapped: AsyncDb | null = null
-
 export const initDatabase = () => {
-  // 延迟 import 避免循环依赖（services/logger 间接依赖 db）
-  import('../services/logger.js').then(({ logger }) => {
-    if (DRIVER === 'postgres') {
-      logger.info('db', '数据库初始化完成', { driver: 'PostgreSQL' })
-    } else {
-      logger.info('db', '数据库初始化完成', { driver: 'SQLite (default)' })
-    }
-  })
-
   if (DRIVER === 'postgres') {
     initPostgres()
+    logger.info('db', '数据库初始化完成', { driver: 'PostgreSQL' })
   } else {
     initSqlite()
-    sqliteWrapped = wrapSqliteAsAsync(sqliteDb!)
+    logger.info('db', '数据库初始化完成', { driver: 'SQLite (default)' })
   }
 }
 
 /**
- * 获取 async 数据库实例
- * 两套驱动统一返回 AsyncDb，所有 prepare().run/get/all 都返回 Promise。
- * 上层调用：await db.prepare(sql).run(...)
+ * 获取 drizzle 数据库实例（双方言统一）
+ * 编译期类型为 AppDb（SQLite schema）；PG 实例运行时等价。
  */
-export const getDb = (): AsyncDb => {
+export const getDb = (): AppDb => {
   if (DRIVER === 'postgres') {
-    if (!pgDb) throw new Error('PostgreSQL not initialized. Call initDatabase() first.')
-    return pgDb
+    if (!pgDrizzle) throw new Error('PostgreSQL not initialized. Call initDatabase() first.')
+    return pgDrizzle as unknown as AppDb
   }
-  if (!sqliteWrapped) throw new Error('SQLite not initialized. Call initDatabase() first.')
-  return sqliteWrapped
+  if (!sqliteDrizzle) throw new Error('SQLite not initialized. Call initDatabase() first.')
+  return sqliteDrizzle
 }
 
 export const getDriver = () => DRIVER as 'sqlite' | 'postgres'
 
 /**
- * 获取 PG 原生客户端（用于 pgvector 特有操作）
+ * 获取 PG 原生客户端（逃生舱：pgvector `<=>` 等 drizzle 表达不了的操作）
  */
 export const getPgRaw = () => {
   if (DRIVER !== 'postgres') return null
@@ -599,6 +322,11 @@ export const closeDatabase = async () => {
   if (DRIVER === 'postgres' && pgClient) {
     await pgClient.end({ timeout: 5 })
     pgClient = null
-    pgDb = null
+    pgDrizzle = null
+  }
+  if (sqliteDb) {
+    sqliteDb.close()
+    sqliteDb = null
+    sqliteDrizzle = null
   }
 }

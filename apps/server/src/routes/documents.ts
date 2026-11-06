@@ -3,6 +3,10 @@
  * POST /api/documents/upload — 上传文档（multer 处理文件 + Zod 校验可选 metadata）
  * GET  /api/documents        — 获取文档列表
  * DELETE /api/documents/:id  — 删除文档
+ *
+ * 约定：
+ *   - API 出入参保持旧形状：snake_case 字段 + 毫秒时间戳
+ *   - 列表/详情的 type 字段映射自 DB 的 mime_type 列（兼容旧 SQLite 形状）
  */
 
 import { Router } from 'express'
@@ -11,15 +15,15 @@ import multer from 'multer'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
+import { desc, eq } from 'drizzle-orm'
 
-import { getDb, getDriver } from '../db/index.js'
+import { getDb, tables } from '../db/index.js'
 import { simpleSplit, getEmbeddings } from '../services/rag/index.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const router = Router()
-const IS_PG = getDriver() === 'postgres'
 
 // ── Zod 校验 Schema ─────────────────────────────────
 const docIdParamSchema = z.object({
@@ -63,6 +67,23 @@ const extractText = async (filePath: string, originalName: string): Promise<stri
   return fs.readFile(filePath, 'utf-8')
 }
 
+// ── 行 → API 对象映射（snake_case + 毫秒时间戳） ──────────
+
+type DocumentRow = typeof tables.documents.$inferSelect
+
+const rowToDocument = (row: DocumentRow) => ({
+  id: row.id,
+  name: row.name,
+  size: row.size,
+  type: row.mimeType,
+  status: row.status,
+  chunk_count: row.chunkCount,
+  created_at: row.createdAt.getTime(),
+  updated_at: row.updatedAt.getTime(),
+  user_id: row.userId,
+  library_id: row.libraryId,
+})
+
 // ── 路由 ─────────────────────────────────────────────
 
 /** POST /api/documents/upload */
@@ -79,19 +100,19 @@ router.post(
 
     const db = getDb()
     const docId = randomUUID()
-    const now = Date.now()
+    const now = new Date()
 
-    // INSERT documents — 双驱动兼容
-    // PG 用 mime_type + storage_path，SQLite 用 type
-    const insertSql = IS_PG
-      ? `INSERT INTO documents (id, name, size, mime_type, storage_path, status, chunk_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'processing', 0, ?, ?)`
-      : `INSERT INTO documents (id, name, size, type, status, chunk_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'processing', 0, ?, ?)`
-    const insertParams = IS_PG
-      ? [docId, file.originalname, file.size, path.extname(file.originalname), file.path, now, now]
-      : [docId, file.originalname, file.size, path.extname(file.originalname), now, now]
-    await db.prepare(insertSql).run(...insertParams)
+    await db.insert(tables.documents).values({
+      id: docId,
+      name: file.originalname,
+      size: file.size,
+      mimeType: path.extname(file.originalname),
+      storagePath: file.path,
+      status: 'processing',
+      chunkCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
 
     // 异步处理文档（解析 → 分块 → 向量化）
     ;(async () => {
@@ -100,44 +121,30 @@ router.post(
         const chunks = simpleSplit(text, 800, 100)
         const embeddings = await getEmbeddings(chunks.map((c) => c.content))
 
-        const insertChunk = db.prepare(`
-          INSERT INTO chunks (id, doc_id, content, chunk_index, embedding)
-          VALUES (?, ?, ?, ?, ?)
-        `)
-
-        const insertMany = db.transaction(async () => {
-          for (let i = 0; i < chunks.length; i++) {
-            await insertChunk.run(
-              randomUUID(),
-              docId,
-              chunks[i].content,
-              chunks[i].index,
-              JSON.stringify(embeddings[i]),
-            )
-          }
-        })
-        insertMany()
+        await db.insert(tables.chunks).values(
+          chunks.map((chunk, i) => ({
+            id: randomUUID(),
+            docId,
+            content: chunk.content,
+            chunkIndex: chunk.index,
+            embedding: JSON.stringify(embeddings[i]),
+            createdAt: new Date(),
+          })),
+        )
 
         await db
-          .prepare(
-            `
-          UPDATE documents SET status = 'ready', chunk_count = ?, updated_at = ?
-          WHERE id = ?
-        `,
-          )
-          .run(chunks.length, Date.now(), docId)
+          .update(tables.documents)
+          .set({ status: 'ready', chunkCount: chunks.length, updatedAt: new Date() })
+          .where(eq(tables.documents.id, docId))
         logger.info('documents.route', 'POST /upload — 后台处理完成', {
           docId,
           chunkCount: chunks.length,
         })
       } catch (err) {
         await db
-          .prepare(
-            `
-          UPDATE documents SET status = 'failed', updated_at = ? WHERE id = ?
-        `,
-          )
-          .run(Date.now(), docId)
+          .update(tables.documents)
+          .set({ status: 'failed', updatedAt: new Date() })
+          .where(eq(tables.documents.id, docId))
         logger.error('documents.route', 'POST /upload — 后台处理失败', {
           docId,
           error: (err as Error).message,
@@ -156,9 +163,9 @@ router.get(
   asyncHandler(async (_req, res) => {
     logger.info('documents.route', 'GET / — 入口')
     const db = getDb()
-    const documents = await db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
-    logger.info('documents.route', 'GET / — 出口', { count: documents.length })
-    res.json(documents)
+    const rows = await db.select().from(tables.documents).orderBy(desc(tables.documents.createdAt))
+    logger.info('documents.route', 'GET / — 出口', { count: rows.length })
+    res.json(rows.map(rowToDocument))
   }),
 )
 
@@ -171,13 +178,17 @@ router.delete(
     const db = getDb()
     const id = req.params.id
 
-    const doc = await db.prepare('SELECT id FROM documents WHERE id = ?').get(id)
-    if (!doc) {
+    const rows = await db
+      .select({ id: tables.documents.id })
+      .from(tables.documents)
+      .where(eq(tables.documents.id, id))
+      .limit(1)
+    if (!rows[0]) {
       throw createError(`文档 ${id} 不存在`, 404, 'DOC_NOT_FOUND')
     }
 
-    await db.prepare('DELETE FROM chunks WHERE doc_id = ?').run(id)
-    await db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+    await db.delete(tables.chunks).where(eq(tables.chunks.docId, id))
+    await db.delete(tables.documents).where(eq(tables.documents.id, id))
     logger.info('documents.route', 'DELETE /:id — 出口', { id })
     res.json({ success: true })
   }),

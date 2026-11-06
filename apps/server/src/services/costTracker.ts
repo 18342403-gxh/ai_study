@@ -10,12 +10,19 @@
  *   - 非阻塞：用量写入是异步的，不影响 AI 调用速度
  *   - 容错：写入失败只 warn 不 throw，主流程不受影响
  *   - 统一入口：所有 AI 相关调用都走这里记录
+ *
+ * 方言说明：
+ *   - 查询/写入全部走 drizzle；唯一感知方言处是 getDailyStats 的日期表达式
+ *     （SQLite created_at 是毫秒整数 → date(created_at/1000,'unixepoch')；
+ *       PG 是 timestamptz → date(created_at)）
  */
 
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { desc, gte, sql } from 'drizzle-orm'
+
 import { logger } from './logger.js'
-import { getDb, getDriver } from '../db/index.js'
+import { getDb, getDriver, tables } from '../db/index.js'
 
 export type AiFeature = 'chat' | 'generator' | 'rag' | 'embedding' | 'eval'
 
@@ -58,32 +65,20 @@ export const costTracker = new CostTrackerEmitter()
 costTracker.on('usage', async (info: UsageInfo) => {
   try {
     const db = getDb()
-    const id = randomUUID()
-    const createdAt = Date.now() // SQLite 用 INTEGER timestamp
-    await db
-      .prepare(
-        `
-      INSERT INTO ai_usage_logs (
-        id, feature, model, provider,
-        prompt_tokens, completion_tokens, total_tokens,
-        cost_ms, user_id, session_id, metadata, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-      )
-      .run(
-        id,
-        info.feature,
-        info.model,
-        info.provider || 'zhipu',
-        info.promptTokens,
-        info.completionTokens,
-        info.totalTokens,
-        info.costMs || 0,
-        info.userId || null,
-        info.sessionId || null,
-        info.metadata ? JSON.stringify(info.metadata) : null,
-        createdAt,
-      )
+    await db.insert(tables.aiUsageLogs).values({
+      id: randomUUID(),
+      feature: info.feature,
+      model: info.model,
+      provider: info.provider || 'zhipu',
+      promptTokens: info.promptTokens,
+      completionTokens: info.completionTokens,
+      totalTokens: info.totalTokens,
+      costMs: info.costMs || 0,
+      userId: info.userId || null,
+      sessionId: info.sessionId || null,
+      metadata: info.metadata ?? null,
+      createdAt: new Date(),
+    })
 
     // ── 预算检查（每次用完都检查一次当日累计） ──────────
     checkDailyBudget(info)
@@ -113,18 +108,18 @@ async function checkDailyBudget(info: UsageInfo): Promise<void> {
   const dailyBudget = parseInt(budgetStr, 10)
   try {
     const db = getDb()
-    // 当日 00:00 的毫秒时间戳（本地时区）
+    // 当日 00:00（本地时区）
     const startOfDay = new Date()
     startOfDay.setHours(0, 0, 0, 0)
-    const dayStart = startOfDay.getTime()
 
-    const row = await db
-      .prepare(
-        `SELECT COALESCE(SUM(total_tokens), 0) as total FROM ai_usage_logs WHERE created_at >= ?`,
-      )
-      .get<{ total: number }>(dayStart)
+    const rows = await db
+      .select({
+        total: sql<number>`COALESCE(SUM(${tables.aiUsageLogs.totalTokens}), 0)`,
+      })
+      .from(tables.aiUsageLogs)
+      .where(gte(tables.aiUsageLogs.createdAt, startOfDay))
 
-    const dailyTotal = Number(row?.total || 0)
+    const dailyTotal = Number(rows[0]?.total || 0)
     if (dailyTotal >= dailyBudget) {
       const pct = Math.min(100, Math.round((dailyTotal / dailyBudget) * 100))
       logger.error('cost-tracker', `⚠️  日 Token 预算已达 ${pct}%`, {
@@ -167,37 +162,37 @@ export async function getDailyStats(days = 7): Promise<DailyAggregate[]> {
   const db = getDb()
   const driver = getDriver()
 
-  // SQLite: created_at = INTEGER ms timestamp
-  // PG:     created_at = TIMESTAMPTZ
-  const dateExpr = driver === 'sqlite' ? `DATE(created_at / 1000, 'unixepoch')` : `DATE(created_at)`
+  // SQLite: created_at = INTEGER ms timestamp → date(created_at/1000,'unixepoch')
+  // PG:     created_at = TIMESTAMPTZ          → date(created_at)
+  const dateExpr =
+    driver === 'sqlite'
+      ? sql`date(${tables.aiUsageLogs.createdAt} / 1000, 'unixepoch')`
+      : sql`date(${tables.aiUsageLogs.createdAt})`
 
   const rows = await db
-    .prepare(
-      `
-    SELECT
-      ${dateExpr} as date,
-      SUM(total_tokens) as total_tokens,
-      SUM(CASE WHEN feature = 'chat' THEN total_tokens ELSE 0 END) as chat_tokens,
-      SUM(CASE WHEN feature = 'generator' THEN total_tokens ELSE 0 END) as generator_tokens,
-      SUM(CASE WHEN feature = 'embedding' THEN total_tokens ELSE 0 END) as embedding_tokens,
-      COUNT(*) as call_count,
-      SUM(cost_ms) as total_cost_ms
-    FROM ai_usage_logs
-    WHERE created_at >= ?
-    GROUP BY ${dateExpr}
-    ORDER BY date DESC
-    LIMIT ?
-  `,
-    )
-    .all<Record<string, unknown>>(Date.now() - days * 86_400_000, days)
+    .select({
+      date: sql<string>`${dateExpr}`,
+      totalTokens: sql<number>`SUM(${tables.aiUsageLogs.totalTokens})`,
+      chatTokens: sql<number>`SUM(CASE WHEN ${tables.aiUsageLogs.feature} = 'chat' THEN ${tables.aiUsageLogs.totalTokens} ELSE 0 END)`,
+      generatorTokens: sql<number>`SUM(CASE WHEN ${tables.aiUsageLogs.feature} = 'generator' THEN ${tables.aiUsageLogs.totalTokens} ELSE 0 END)`,
+      embeddingTokens: sql<number>`SUM(CASE WHEN ${tables.aiUsageLogs.feature} = 'embedding' THEN ${tables.aiUsageLogs.totalTokens} ELSE 0 END)`,
+      callCount: sql<number>`COUNT(*)`,
+      totalCostMs: sql<number>`SUM(${tables.aiUsageLogs.costMs})`,
+    })
+    .from(tables.aiUsageLogs)
+    .where(gte(tables.aiUsageLogs.createdAt, new Date(Date.now() - days * 86_400_000)))
+    .groupBy(dateExpr)
+    .orderBy(desc(dateExpr))
+    .limit(days)
+
   return rows.map((r) => ({
     date: String(r.date),
-    totalTokens: Number(r.total_tokens || 0),
-    chatTokens: Number(r.chat_tokens || 0),
-    generatorTokens: Number(r.generator_tokens || 0),
-    embeddingTokens: Number(r.embedding_tokens || 0),
-    callCount: Number(r.call_count || 0),
-    totalCostMs: Number(r.total_cost_ms || 0),
+    totalTokens: Number(r.totalTokens || 0),
+    chatTokens: Number(r.chatTokens || 0),
+    generatorTokens: Number(r.generatorTokens || 0),
+    embeddingTokens: Number(r.embeddingTokens || 0),
+    callCount: Number(r.callCount || 0),
+    totalCostMs: Number(r.totalCostMs || 0),
   }))
 }
 
@@ -213,27 +208,26 @@ export interface BreakdownItem {
 export async function getBreakdown(days = 1): Promise<BreakdownItem[]> {
   const db = getDb()
   const rows = await db
-    .prepare(
-      `
-    SELECT feature, model,
-      SUM(total_tokens) as total_tokens,
-      SUM(prompt_tokens) as prompt_tokens,
-      SUM(completion_tokens) as completion_tokens,
-      COUNT(*) as call_count
-    FROM ai_usage_logs
-    WHERE created_at >= ?
-    GROUP BY feature, model
-    ORDER BY total_tokens DESC
-  `,
-    )
-    .all<Record<string, unknown>>(Date.now() - days * 86_400_000)
+    .select({
+      feature: tables.aiUsageLogs.feature,
+      model: tables.aiUsageLogs.model,
+      totalTokens: sql<number>`SUM(${tables.aiUsageLogs.totalTokens})`,
+      promptTokens: sql<number>`SUM(${tables.aiUsageLogs.promptTokens})`,
+      completionTokens: sql<number>`SUM(${tables.aiUsageLogs.completionTokens})`,
+      callCount: sql<number>`COUNT(*)`,
+    })
+    .from(tables.aiUsageLogs)
+    .where(gte(tables.aiUsageLogs.createdAt, new Date(Date.now() - days * 86_400_000)))
+    .groupBy(tables.aiUsageLogs.feature, tables.aiUsageLogs.model)
+    .orderBy(desc(sql`SUM(${tables.aiUsageLogs.totalTokens})`))
+
   return rows.map((r) => ({
     feature: r.feature as AiFeature,
     model: String(r.model),
-    totalTokens: Number(r.total_tokens || 0),
-    promptTokens: Number(r.prompt_tokens || 0),
-    completionTokens: Number(r.completion_tokens || 0),
-    callCount: Number(r.call_count || 0),
+    totalTokens: Number(r.totalTokens || 0),
+    promptTokens: Number(r.promptTokens || 0),
+    completionTokens: Number(r.completionTokens || 0),
+    callCount: Number(r.callCount || 0),
   }))
 }
 
@@ -246,23 +240,21 @@ export async function getTodayTotal(): Promise<{
   const db = getDb()
   const startOfDay = new Date()
   startOfDay.setHours(0, 0, 0, 0)
-  const dayStart = startOfDay.getTime()
 
-  const row = await db
-    .prepare(
-      `
-    SELECT COALESCE(SUM(total_tokens), 0) as total, COUNT(*) as calls
-    FROM ai_usage_logs WHERE created_at >= ?
-  `,
-    )
-    .get<{ total: number; calls: number }>(dayStart)
+  const rows = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${tables.aiUsageLogs.totalTokens}), 0)`,
+      calls: sql<number>`COUNT(*)`,
+    })
+    .from(tables.aiUsageLogs)
+    .where(gte(tables.aiUsageLogs.createdAt, startOfDay))
 
   const budgetStr = process.env.DAILY_TOKEN_BUDGET
   const budget = budgetStr ? parseInt(budgetStr, 10) : null
-  const total = Number(row?.total || 0)
+  const total = Number(rows[0]?.total || 0)
   return {
     totalTokens: total,
-    callCount: Number(row?.calls || 0),
+    callCount: Number(rows[0]?.calls || 0),
     budget,
     pct: budget ? Math.round((total / budget) * 100) : null,
   }

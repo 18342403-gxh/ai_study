@@ -8,12 +8,13 @@
 
 import { Router } from 'express'
 import { z } from 'zod'
+import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 
-import { getDb } from '../db/index.js'
+import { getDb, tables } from '../db/index.js'
 import { getEmbedding, cosineSimilarity } from '../services/rag/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
 import { logger } from '../services/logger.js'
-import { validate, asyncHandler, createError } from '../middleware/index.js'
+import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
 const TOP_K = 5
@@ -24,18 +25,7 @@ const querySchema = z.object({
   stream: z.boolean().default(true),
 })
 
-interface ChunkRow {
-  id: string
-  doc_id: string
-  content: string
-  chunk_index: number
-  embedding: string
-}
-
-interface DocumentRow {
-  id: string
-  name: string
-}
+type ChunkRow = typeof tables.chunks.$inferSelect
 
 /**
  * RAG 检索：向量相似度搜索 Top-K
@@ -44,20 +34,17 @@ async function retrieveTopChunks(query: string, documentIds?: string[]) {
   const db = getDb()
   const queryEmbedding = await getEmbedding(query)
 
-  let chunks: ChunkRow[]
+  const conds = [isNotNull(tables.chunks.embedding)]
   if (documentIds && documentIds.length > 0) {
-    const placeholders = documentIds.map(() => '?').join(',')
-    chunks = (await db
-      .prepare(`SELECT * FROM chunks WHERE doc_id IN (${placeholders}) AND embedding IS NOT NULL`)
-      .all(...documentIds)) as ChunkRow[]
-  } else {
-    chunks = (await db
-      .prepare('SELECT * FROM chunks WHERE embedding IS NOT NULL')
-      .all()) as ChunkRow[]
+    conds.push(inArray(tables.chunks.docId, documentIds))
   }
+  const chunks: ChunkRow[] = await db
+    .select()
+    .from(tables.chunks)
+    .where(and(...conds))
 
   const scored = chunks.map((chunk) => {
-    const embedding = JSON.parse(chunk.embedding) as number[]
+    const embedding = JSON.parse(chunk.embedding!) as number[]
     const score = cosineSimilarity(queryEmbedding, embedding)
     return { ...chunk, score }
   })
@@ -93,14 +80,16 @@ router.post(
     const db = getDb()
     const citations = await Promise.all(
       topChunks.map(async (c, i) => {
-        const doc = (await db.prepare('SELECT name FROM documents WHERE id = ?').get(c.doc_id)) as
-          | DocumentRow
-          | undefined
+        const docs = await db
+          .select({ name: tables.documents.name })
+          .from(tables.documents)
+          .where(eq(tables.documents.id, c.docId))
+          .limit(1)
         return {
           index: i + 1,
           content: c.content.slice(0, 200),
-          source: doc?.name || '未知文档',
-          score: Math.round((c as unknown as { score: number }).score * 100) / 100,
+          source: docs[0]?.name || '未知文档',
+          score: Math.round(c.score * 100) / 100,
         }
       }),
     )

@@ -9,13 +9,18 @@
  * DELETE /api/sessions/:id      — 删除会话（级联删除消息）
  * POST   /api/sessions/:id/messages      — 添加消息
  * DELETE /api/sessions/:id/messages     — 清空会话消息
+ *
+ * 约定：
+ *   - API 出入参保持旧形状：snake_case 字段 + 毫秒时间戳
+ *   - messages.metadata 是普通 text 列，业务层手动 JSON.stringify（透传 string）
  */
 
 import { Router } from 'express'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
+import { asc, count, desc, eq, getTableColumns } from 'drizzle-orm'
 
-import { getDb } from '../db/index.js'
+import { getDb, tables } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
 
@@ -41,21 +46,57 @@ const addMessageSchema = z.object({
 
 const sessionIdParam = z.object({ id: z.string().min(1) })
 
+// ── 行 → API 对象映射（snake_case + 毫秒时间戳） ──────────
+
+type SessionRow = typeof tables.sessions.$inferSelect
+type MessageRow = typeof tables.messages.$inferSelect
+
+const toMs = (d: Date | null): number | null => (d ? d.getTime() : null)
+
+const rowToSession = (row: SessionRow) => ({
+  id: row.id,
+  title: row.title,
+  model: row.model,
+  system_prompt: row.systemPrompt,
+  metadata: row.metadata ?? null,
+  created_at: row.createdAt.getTime(),
+  updated_at: row.updatedAt.getTime(),
+  deleted_at: toMs(row.deletedAt),
+})
+
+const rowToMessage = (row: MessageRow) => ({
+  id: row.id,
+  session_id: row.sessionId,
+  role: row.role,
+  content: row.content,
+  tool_call_id: row.toolCallId,
+  citations: row.citations ?? null,
+  metadata: row.metadata,
+  created_at: row.createdAt.getTime(),
+})
+
+const findSession = async (id: string): Promise<SessionRow | undefined> => {
+  const db = getDb()
+  const rows = await db.select().from(tables.sessions).where(eq(tables.sessions.id, id)).limit(1)
+  return rows[0]
+}
+
 /** GET /api/sessions */
 router.get(
   '/',
   asyncHandler(async (_req, res) => {
     const db = getDb()
-    const sessions = await db
-      .prepare(
-        `SELECT s.*, COUNT(m.id) as message_count
-         FROM sessions s
-         LEFT JOIN messages m ON m.session_id = s.id
-         GROUP BY s.id
-         ORDER BY s.updated_at DESC`,
-      )
-      .all()
-    res.json(sessions)
+    const rows = await db
+      .select({
+        ...getTableColumns(tables.sessions),
+        messageCount: count(tables.messages.id),
+      })
+      .from(tables.sessions)
+      .leftJoin(tables.messages, eq(tables.messages.sessionId, tables.sessions.id))
+      .groupBy(tables.sessions.id)
+      .orderBy(desc(tables.sessions.updatedAt))
+
+    res.json(rows.map((row) => ({ ...rowToSession(row), message_count: Number(row.messageCount) })))
   }),
 )
 
@@ -65,20 +106,22 @@ router.post(
   validate({ body: createSessionSchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const now = Date.now()
+    const now = new Date()
     const id = randomUUID()
     const { title = '新对话', model = 'glm-4-flash', systemPrompt = null } = req.body
 
-    await db
-      .prepare(
-        `INSERT INTO sessions (id, title, model, system_prompt, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(id, title, model, systemPrompt, now, now)
+    await db.insert(tables.sessions).values({
+      id,
+      title,
+      model,
+      systemPrompt,
+      createdAt: now,
+      updatedAt: now,
+    })
 
-    const session = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(id)
+    const session = await findSession(id)
     logger.info('sessions.route', 'POST / 完成', { sessionId: id, title })
-    res.status(201).json(session)
+    res.status(201).json(rowToSession(session!))
   }),
 )
 
@@ -88,14 +131,16 @@ router.get(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
+    const session = await findSession(req.params.id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
     const messages = await db
-      .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC')
-      .all(req.params.id)
+      .select()
+      .from(tables.messages)
+      .where(eq(tables.messages.sessionId, req.params.id))
+      .orderBy(asc(tables.messages.createdAt))
 
-    res.json({ ...(session as object), messages })
+    res.json({ ...rowToSession(session), messages: messages.map(rowToMessage) })
   }),
 )
 
@@ -105,37 +150,24 @@ router.patch(
   validate({ params: sessionIdParam, body: updateSessionSchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = await db.prepare('SELECT id FROM sessions WHERE id = ?').get(req.params.id)
+    const session = await findSession(req.params.id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
-    const now = Date.now()
-    const updates: string[] = []
-    const values: unknown[] = []
+    const updates: Partial<typeof tables.sessions.$inferInsert> = {}
+    if (req.body.title !== undefined) updates.title = req.body.title
+    if (req.body.model !== undefined) updates.model = req.body.model
+    if (req.body.systemPrompt !== undefined) updates.systemPrompt = req.body.systemPrompt
 
-    if (req.body.title !== undefined) {
-      updates.push('title = ?')
-      values.push(req.body.title)
-    }
-    if (req.body.model !== undefined) {
-      updates.push('model = ?')
-      values.push(req.body.model)
-    }
-    if (req.body.systemPrompt !== undefined) {
-      updates.push('system_prompt = ?')
-      values.push(req.body.systemPrompt)
-    }
-
-    if (updates.length === 0) {
-      res.json(session)
+    if (Object.keys(updates).length === 0) {
+      res.json(rowToSession(session))
       return
     }
 
-    updates.push('updated_at = ?')
-    values.push(now, req.params.id)
+    updates.updatedAt = new Date()
+    await db.update(tables.sessions).set(updates).where(eq(tables.sessions.id, req.params.id))
 
-    await db.prepare(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`).run(...values)
-    const updated = await db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id)
-    res.json(updated)
+    const updated = await findSession(req.params.id)
+    res.json(rowToSession(updated!))
   }),
 )
 
@@ -145,8 +177,9 @@ router.delete(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const result = await db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id)
-    if (result.changes === 0) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
+    const session = await findSession(req.params.id)
+    if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
+    await db.delete(tables.sessions).where(eq(tables.sessions.id, req.params.id))
     logger.info('sessions.route', 'DELETE /:id 完成', { sessionId: req.params.id })
     res.status(204).end()
   }),
@@ -158,32 +191,34 @@ router.post(
   validate({ params: sessionIdParam, body: addMessageSchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = await db.prepare('SELECT id FROM sessions WHERE id = ?').get(req.params.id)
+    const session = await findSession(req.params.id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
-    const now = Date.now()
+    const now = new Date()
     const msgId = randomUUID()
     const { role, content, metadata } = req.body
 
-    const insert = db.prepare(
-      `INSERT INTO messages (id, session_id, role, content, metadata, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-
-    await insert.run(
-      msgId,
-      req.params.id,
+    await db.insert(tables.messages).values({
+      id: msgId,
+      sessionId: req.params.id,
       role,
       content,
-      metadata ? JSON.stringify(metadata) : null,
-      now,
-    )
+      metadata: metadata ? JSON.stringify(metadata) : null,
+      createdAt: now,
+    })
 
-    await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
+    await db
+      .update(tables.sessions)
+      .set({ updatedAt: now })
+      .where(eq(tables.sessions.id, req.params.id))
 
-    const message = await db.prepare('SELECT * FROM messages WHERE id = ?').get(msgId)
+    const rows = await db
+      .select()
+      .from(tables.messages)
+      .where(eq(tables.messages.id, msgId))
+      .limit(1)
     logger.info('sessions.route', 'POST /:id/messages 完成', { sessionId: req.params.id, role })
-    res.status(201).json(message)
+    res.status(201).json(rowToMessage(rows[0]!))
   }),
 )
 
@@ -193,12 +228,13 @@ router.delete(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const result = await db.prepare('DELETE FROM messages WHERE session_id = ?').run(req.params.id)
-    const now = Date.now()
-    await db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, req.params.id)
+    await db.delete(tables.messages).where(eq(tables.messages.sessionId, req.params.id))
+    await db
+      .update(tables.sessions)
+      .set({ updatedAt: new Date() })
+      .where(eq(tables.sessions.id, req.params.id))
     logger.info('sessions.route', 'DELETE /:id/messages 完成', {
       sessionId: req.params.id,
-      deleted: result.changes,
     })
     res.status(204).end()
   }),

@@ -1,244 +1,179 @@
 /**
- * DB 门面转换函数回归测试
- * 零依赖，node scripts/test-db-wrap.mjs 直接跑
+ * Drizzle 数据访问层冒烟测试（零依赖，node scripts/test-db-wrap.mjs 直接跑）
  *
  * 覆盖：
- *   1. sqliteToPgParams — ? 占位符转 $N，字符串内的 ? 不转
- *   2. qualifySchema    — 裸表名加 app.，关键字不误转，逗号分隔多表
+ *   1. SQLite（better-sqlite3 :memory:）— entries 真实 CRUD + entry_embeddings 级联删除
+ *   2. PostgreSQL（postgres.js lazy 不连接）— .toSQL() 验证生成 SQL：
+ *      app. schema 前缀 + $N 占位符
  */
 
-const RESERVED = new Set([
-  'SET', 'ON', 'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'OFFSET', 'VALUES',
-  'AND', 'OR', 'AS', 'IS', 'IN', 'NOT', 'NULL', 'LIKE', 'BETWEEN',
-  'BY', 'ASC', 'DESC', 'HAVING', 'UNION', 'ALL', 'DISTINCT',
-  'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'EXISTS', 'TRUE', 'FALSE',
-  'RETURNING', 'DO', 'CONFLICT', 'EXCLUDED', 'DEFAULT', 'CHECK',
-  'PRIMARY', 'FOREIGN', 'KEY', 'REFERENCES', 'CONSTRAINT', 'UNIQUE',
-  'WITH', 'RECURSIVE', 'LATERAL', 'CROSS', 'NATURAL', 'LEFT', 'RIGHT',
-  'INNER', 'OUTER', 'FULL', 'TABLESAMPLE', 'ONLY', 'USING',
-])
+import Database from 'better-sqlite3'
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3'
+import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js'
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
+import { pgSchema, uuid, varchar, text as pgText, real as pgReal, timestamp } from 'drizzle-orm/pg-core'
+import { eq } from 'drizzle-orm'
+import pg from 'postgres'
 
-// ─── 复制 db/index.ts 里的两个核心函数（独立可测） ───
+// ─── 与 drizzle/schema.sqlite.ts 同形状的最小表定义（独立可测） ───
 
-function sqliteToPgParams(sql) {
-  let counter = 0
-  let inSingle = false, inDouble = false, escapeNext = false
-  let result = ''
-  for (let i = 0; i < sql.length; i++) {
-    const c = sql[i]
-    if (escapeNext) { result += c; escapeNext = false; continue }
-    if (c === '\\') { result += c; escapeNext = true; continue }
-    if (c === "'" && !inDouble) { inSingle = !inSingle; result += c; continue }
-    if (c === '"' && !inSingle) { inDouble = !inDouble; result += c; continue }
-    if (c === '?' && !inSingle && !inDouble) { result += `$${++counter}`; continue }
-    result += c
-  }
-  return result
-}
+const entries = sqliteTable('entries', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().default('local'),
+  libraryId: text('library_id').notNull().default('default'),
+  type: text('type').notNull(),
+  title: text('title').notNull(),
+  content: text('content').notNull().default(''),
+  status: text('status').notNull().default('draft'),
+  startAt: integer('start_at', { mode: 'timestamp_ms' }),
+  confidence: real('confidence').notNull().default(1),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
 
-function qualifySchema(sql) {
-  let result = sql.replace(
-    /\b(FROM|JOIN|INTO|UPDATE)\s+(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
-    (m, kw, table) => RESERVED.has(table.toUpperCase()) ? m : kw + ' app.' + table
-  )
-  result = result.replace(
-    /((?:FROM|JOIN)\s+app\.\w+(?:\s+(?:AS\s+)?\w+)?)\s*,\s*(?!app\.|public\.|pg_|information_schema\.)(\w+)/gi,
-    (m, prefix, table) => RESERVED.has(table.toUpperCase()) ? m : `${prefix}, app.${table}`
-  )
-  return result
-}
+const entryEmbeddings = sqliteTable('entry_embeddings', {
+  entryId: text('entry_id')
+    .primaryKey()
+    .references(() => entries.id, { onDelete: 'cascade' }),
+  embedding: text('embedding').notNull(),
+  model: text('model').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+// ─── 与 drizzle/schema.ts 同形状的最小 PG 表定义（app schema） ───
+
+const app = pgSchema('app')
+const pgEntries = app.table('entries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: varchar('user_id', { length: 64 }).notNull().default('local'),
+  type: varchar('type', { length: 32 }).notNull(),
+  title: pgText('title').notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('draft'),
+  confidence: pgReal('confidence').notNull().default(1),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+})
 
 // ─── 测试框架（极简，零依赖） ───
 
 let passed = 0, failed = 0
-function test(name, fn) {
-  try { fn(); console.log('  ✓ ' + name); passed++ }
+async function test(name, fn) {
+  try { await fn(); console.log('  ✓ ' + name); passed++ }
   catch (e) { console.log('  ✗ ' + name + ' — ' + e.message); failed++ }
 }
+function assert(cond, msg) { if (!cond) throw new Error(msg) }
 function assertEqual(actual, expected, msg) {
   if (actual !== expected) throw new Error(`${msg || ''}\n    got:      ${actual}\n    expected: ${expected}`)
 }
 
-// ─── sqliteToPgParams ───
+// ═══ 1. SQLite :memory: 真实 CRUD ═══
 
-console.log('\n📦 sqliteToPgParams')
+console.log('\n📦 SQLite（better-sqlite3 :memory: + drizzle）')
 
-test('基本 ? 占位符', () => {
-  assertEqual(sqliteToPgParams('SELECT * FROM t WHERE id = ?'), 'SELECT * FROM t WHERE id = $1')
+const sqlite = new Database(':memory:')
+sqlite.pragma('foreign_keys = ON')
+sqlite.exec(`
+  CREATE TABLE entries (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT 'local',
+    library_id TEXT NOT NULL DEFAULT 'default',
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft',
+    start_at INTEGER,
+    confidence REAL NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE entry_embeddings (
+    entry_id TEXT PRIMARY KEY,
+    embedding TEXT NOT NULL,
+    model TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
+  );
+`)
+const db = drizzleSqlite(sqlite, { schema: { entries, entryEmbeddings } })
+
+const now = new Date()
+
+await test('INSERT entries', async () => {
+  await db.insert(entries).values({
+    id: 'e1', type: 'note', title: '第一条', status: 'active',
+    startAt: now, createdAt: now, updatedAt: now,
+  })
+  const rows = await db.select().from(entries).where(eq(entries.id, 'e1')).limit(1)
+  assert(rows[0], '应能查到刚插入的行')
+  assertEqual(rows[0].title, '第一条', 'title 应一致')
 })
 
-test('多个 ? 顺序递增', () => {
-  assertEqual(sqliteToPgParams('INSERT INTO t (a, b, c) VALUES (?, ?, ?)'),
-    'INSERT INTO t (a, b, c) VALUES ($1, $2, $3)')
+await test('timestamp_ms 模式自动 Date ↔ ms 互转', async () => {
+  const rows = await db.select().from(entries).where(eq(entries.id, 'e1')).limit(1)
+  assert(rows[0].startAt instanceof Date, 'startAt 应映射为 Date')
+  assertEqual(rows[0].startAt.getTime(), now.getTime(), '毫秒时间戳应一致')
 })
 
-test('字符串内的 ? 不转', () => {
-  assertEqual(sqliteToPgParams("SELECT * FROM t WHERE x = 'what?' AND y = ?"),
-    "SELECT * FROM t WHERE x = 'what?' AND y = $1")
+await test('UPDATE entries', async () => {
+  await db.update(entries).set({ status: 'done', updatedAt: new Date() }).where(eq(entries.id, 'e1'))
+  const rows = await db.select().from(entries).where(eq(entries.id, 'e1')).limit(1)
+  assertEqual(rows[0].status, 'done', 'status 应更新为 done')
 })
 
-test('双引号字符串内的 ? 不转', () => {
-  assertEqual(sqliteToPgParams('SELECT * FROM t WHERE x = "a?b" AND y = ?'),
-    'SELECT * FROM t WHERE x = "a?b" AND y = $1')
+await test('INSERT entry_embeddings + 级联删除', async () => {
+  await db.insert(entryEmbeddings).values({
+    entryId: 'e1', embedding: '[0.1,0.2]', model: 'test', updatedAt: new Date(),
+  })
+  let emb = await db.select().from(entryEmbeddings).where(eq(entryEmbeddings.entryId, 'e1'))
+  assertEqual(emb.length, 1, '向量应已写入')
+
+  await db.delete(entries).where(eq(entries.id, 'e1'))
+  emb = await db.select().from(entryEmbeddings).where(eq(entryEmbeddings.entryId, 'e1'))
+  assertEqual(emb.length, 0, '删 entries 后向量应被级联删除')
 })
 
-test('混合引号 + 字符串外 ? 正常转', () => {
-  assertEqual(sqliteToPgParams("SELECT * FROM t WHERE a = '?' AND b = ? AND c = '?' AND d = ?"),
-    "SELECT * FROM t WHERE a = '?' AND b = $1 AND c = '?' AND d = $2")
+sqlite.close()
+
+// ═══ 2. PostgreSQL .toSQL() 离线验证（不建立连接） ═══
+
+console.log('\n📦 PostgreSQL（postgres.js lazy + drizzle .toSQL()）')
+
+// postgres() 惰性创建，不发起网络连接；.toSQL() 纯本地生成
+const client = pg('postgres://user:pass@localhost:5432/db', { max: 1 })
+const pgDb = drizzlePg(client, { schema: { pgEntries } })
+
+await test('SELECT 生成 app. 前缀 + $1 占位符', async () => {
+  const { sql, params } = pgDb
+    .select()
+    .from(pgEntries)
+    .where(eq(pgEntries.id, 'abc-123'))
+    .limit(1)
+    .toSQL()
+  assert(sql.includes('from "app"."entries"'), `FROM 应带 app. schema 前缀\n    got: ${sql}`)
+  assert(sql.includes('$1'), `WHERE 应使用 $1 占位符\n    got: ${sql}`)
+  assertEqual(params[0], 'abc-123', '参数应按序绑定')
 })
 
-test('转义字符不影响引号状态', () => {
-  // 注意：SQLite 的单引号转义是 ''（两个单引号），不是 \'
-  // 这里的 \\' 是 JavaScript 字符串，实际 SQL 是 \'
-  assertEqual(sqliteToPgParams("SELECT * FROM t WHERE x = ? AND y = ''"),
-    "SELECT * FROM t WHERE x = $1 AND y = ''")
+await test('INSERT 生成 app. 前缀 + $N 占位符', async () => {
+  const { sql, params } = pgDb
+    .insert(pgEntries)
+    .values({ type: 'note', title: 't', status: 'active' })
+    .toSQL()
+  assert(sql.includes('into "app"."entries"'), `INSERT 应带 app. schema 前缀\n    got: ${sql}`)
+  assert(sql.includes('$1') && sql.includes('$3'), `VALUES 应使用 $N 占位符\n    got: ${sql}`)
+  assert(params.includes('note') && params.includes('active'), '参数应包含 values')
 })
 
-// ─── qualifySchema ───
-
-console.log('\n🏷️  qualifySchema')
-
-test('基本 FROM', () => {
-  assertEqual(qualifySchema('SELECT * FROM sessions'), 'SELECT * FROM app.sessions')
+await test('UPDATE / DELETE 生成 app. 前缀', async () => {
+  const upd = pgDb.update(pgEntries).set({ status: 'done' }).where(eq(pgEntries.id, 'x')).toSQL()
+  assert(upd.sql.includes('update "app"."entries"'), `UPDATE 应带 app. 前缀\n    got: ${upd.sql}`)
+  const del = pgDb.delete(pgEntries).where(eq(pgEntries.id, 'x')).toSQL()
+  assert(del.sql.includes('delete from "app"."entries"'), `DELETE 应带 app. 前缀\n    got: ${del.sql}`)
 })
 
-test('INTO', () => {
-  assertEqual(qualifySchema('INSERT INTO sessions (id) VALUES (?)'), 'INSERT INTO app.sessions (id) VALUES (?)')
-})
-
-test('UPDATE', () => {
-  assertEqual(qualifySchema('UPDATE sessions SET x = ? WHERE id = ?'), 'UPDATE app.sessions SET x = ? WHERE id = ?')
-})
-
-test('DELETE FROM', () => {
-  assertEqual(qualifySchema('DELETE FROM sessions WHERE id = ?'), 'DELETE FROM app.sessions WHERE id = ?')
-})
-
-test('LEFT JOIN', () => {
-  assertEqual(qualifySchema('SELECT * FROM sessions LEFT JOIN messages ON sessions.id = messages.session_id'),
-    'SELECT * FROM app.sessions LEFT JOIN app.messages ON sessions.id = messages.session_id')
-})
-
-test('ON CONFLICT DO UPDATE — SET/DO/CONFLICT/EXCLUDED 不被误转', () => {
-  const inp = 'INSERT INTO sessions (id) VALUES (?) ON CONFLICT(id) DO UPDATE SET title = excluded.title'
-  const out = qualifySchema(inp)
-  assertEqual(out, 'INSERT INTO app.sessions (id) VALUES (?) ON CONFLICT(id) DO UPDATE SET title = excluded.title')
-})
-
-test('关键字 ON 不被误转', () => {
-  const inp = 'SELECT * FROM sessions JOIN messages ON sessions.id = messages.session_id'
-  const out = qualifySchema(inp)
-  // ON 不应被当作表名
-  assertEqual(out, 'SELECT * FROM app.sessions JOIN app.messages ON sessions.id = messages.session_id')
-})
-
-test('app. 前缀不重复加', () => {
-  assertEqual(qualifySchema('SELECT * FROM app.sessions'), 'SELECT * FROM app.sessions')
-})
-
-test('子查询内层 FROM', () => {
-  assertEqual(qualifySchema('SELECT * FROM (SELECT id FROM sessions) AS sub'),
-    'SELECT * FROM (SELECT id FROM app.sessions) AS sub')
-})
-
-test('INSERT...SELECT 两个表都要加', () => {
-  const out = qualifySchema('INSERT INTO chunks SELECT id FROM documents')
-  assertEqual(out, 'INSERT INTO app.chunks SELECT id FROM app.documents')
-})
-
-// ─── 逗号分隔多表（Step 2） ───
-
-console.log('\n🔗  qualifySchema Step 2: 逗号分隔多表')
-
-test('FROM t1, t2 两个都要加', () => {
-  assertEqual(qualifySchema('FROM t1, t2'), 'FROM app.t1, app.t2')
-})
-
-test('FROM t1 s, t2 m 带别名', () => {
-  assertEqual(qualifySchema('FROM t1 s, t2 m'), 'FROM app.t1 s, app.t2 m')
-})
-
-test('逗号表已限定不重复', () => {
-  assertEqual(qualifySchema('FROM app.t1, messages'), 'FROM app.t1, app.messages')
-})
-
-test('真实代码: sessions 统计查询', () => {
-  const inp = 'SELECT s.*, COUNT(m.id) FROM sessions s, messages m WHERE m.session_id = s.id GROUP BY s.id'
-  const out = qualifySchema(inp)
-  assertEqual(out.includes('FROM app.sessions s, app.messages m'), true, '两个表都应加 app.')
-})
-
-test('逗号表是关键字时不误转', () => {
-  // 如果有人写 "FROM sessions, SELECT" 这种怪 SQL — SELECT 不是 reserved... 但这是非法 SQL
-  // 测试一个合理场景: FROM sessions, EXCLUDED — EXCLUDED 是 reserved
-  assertEqual(qualifySchema('FROM sessions, EXCLUDED'), 'FROM app.sessions, EXCLUDED')
-})
-
-// ─── 全量真实 SQL 回归 ───
-
-console.log('\n📋  真实代码 SQL 回归（26 条）')
-
-const realSqls = [
-  'SELECT s.*, COUNT(m.id) FROM sessions s LEFT JOIN messages m ON m.session_id = s.id GROUP BY s.id ORDER BY s.updated_at DESC',
-  'INSERT INTO sessions (id, title, model, system_prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-  'SELECT * FROM sessions WHERE id = ?',
-  'SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC',
-  'UPDATE sessions SET title = ? WHERE id = ?',
-  'DELETE FROM sessions WHERE id = ?',
-  'INSERT INTO messages (id, session_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  'DELETE FROM messages WHERE session_id = ?',
-  'INSERT INTO documents (id, name, size, type, status, chunk_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)',
-  'UPDATE documents SET status = ? WHERE id = ?',
-  'SELECT * FROM documents ORDER BY created_at DESC',
-  'DELETE FROM documents WHERE id = ?',
-  'SELECT * FROM chunks WHERE doc_id IN (?) AND embedding IS NOT NULL',
-  'SELECT name FROM documents WHERE id = ?',
-  'SELECT s.*, COUNT(m.id) as message_count FROM sessions s LEFT JOIN messages m ON m.session_id = s.id GROUP BY s.id ORDER BY s.updated_at DESC',
-  'INSERT INTO documents (id, name, size, type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  'INSERT INTO chunks (id, doc_id, content, chunk_index, embedding) VALUES (?, ?, ?, ?, ?)',
-  'UPDATE documents SET status = ?, chunk_count = ?, updated_at = ? WHERE id = ?',
-  'DELETE FROM chunks WHERE doc_id = ?',
-  'INSERT INTO entries (id, user_id, library_id, type, title, content, status, start_at, end_at, recurrence, recurrence_until, exceptions, source_type, source_ref, confidence, created_at, updated_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)',
-  'SELECT * FROM entries WHERE id = ?',
-  'SELECT * FROM entries WHERE type = ? AND status = ? ORDER BY updated_at DESC LIMIT ?',
-  'UPDATE entries SET title = ?, updated_at = ? WHERE id = ?',
-  'DELETE FROM entries WHERE id = ?',
-  'INSERT INTO entry_embeddings (entry_id, embedding, model, updated_at) VALUES (?, ?, ?, ?)',
-  'DELETE FROM entry_embeddings WHERE entry_id = ?',
-]
-
-const allTables = ['sessions', 'messages', 'documents', 'chunks', 'entries', 'entry_embeddings']
-
-for (const sql of realSqls) {
-  const out = qualifySchema(sql)
-  // 每个出现的表名都应该加 app.
-  for (const tbl of allTables) {
-    const bareRe = new RegExp('\\b(FROM|JOIN|INTO|UPDATE)\\s+' + tbl + '\\b', 'i')
-    if (bareRe.test(sql)) {
-      // 这个表在 SQL 里裸出现
-      const qualifiedRe = new RegExp('\\b(FROM|JOIN|INTO|UPDATE)\\s+app\\.' + tbl + '\\b', 'i')
-      if (!qualifiedRe.test(out)) {
-        console.log('  ✗ 漏加 schema: ' + tbl + ' in SQL: ' + sql.substring(0, 60))
-        console.log('    OUT: ' + out.substring(0, 80))
-        failed++
-      }
-    }
-  }
-  // sqliteToPgParams: ? 全部转成 $N
-  const pgSql = sqliteToPgParams(sql)
-  if (pgSql.includes('?')) {
-    console.log('  ✗ 漏转 ?: ' + sql.substring(0, 60))
-    failed++
-  }
-}
-if (failed === 0) {
-  console.log('  ✓ 全部 26 条真实 SQL 通过')
-  passed++
-}
+await client.end({ timeout: 0 }).catch(() => {})
 
 // ─── 汇总 ───
 
-console.log('\n══════════════════════════════')
-console.log(`  ${passed} passed, ${failed} failed`)
-console.log('══════════════════════════════\n')
-process.exit(failed > 0 ? 1 : 0)
+console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`)
+process.exit(failed === 0 ? 0 : 1)

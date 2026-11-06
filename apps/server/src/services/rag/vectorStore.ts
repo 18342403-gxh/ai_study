@@ -1,15 +1,17 @@
 /**
- * RAG Step 3+4: VectorStore — SQLite 实现（替换旧接口）
+ * RAG Step 3+4: VectorStore — Drizzle 统一数据访问层实现
  *
  * 设计：
- *   - 复用 db/chunks 表存储向量
+ *   - 复用 chunks 表存储向量（embedding 列为 JSON 文本）
  *   - 支持添加文档、相似度搜索、删除
- *   - 为后续 SQLite-vec 扩展预留接口
+ *   - 为后续 SQLite-vec / pgvector 扩展预留接口
  */
 
-import { getDb } from '../../db/index.js'
-import { getEmbedding, cosineSimilarity } from './embeddings.js'
+import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
+
+import { getDb, tables } from '../../db/index.js'
+import { getEmbedding, cosineSimilarity } from './embeddings.js'
 
 export interface VectorDoc {
   id?: string
@@ -27,39 +29,37 @@ export interface VectorStoreConfig {
   tableName?: string
 }
 
-export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
-  const tableName = config.tableName || 'chunks'
-
+export function createSqliteVectorStore(_config: VectorStoreConfig = {}) {
   return {
     /**
-     * 添加文档（自动生成 embedding 并存入 SQLite）
+     * 添加文档（自动生成 embedding 并存入 chunks 表）
      */
     async addDocuments(docs: VectorDoc[], docId?: string): Promise<string[]> {
       const db = getDb()
       const ids: string[] = []
 
-      const insert = db.prepare(
-        `INSERT INTO ${tableName} (id, doc_id, content, chunk_index, embedding)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-
-      const insertMany = db.transaction(async () => {
-        for (const item of items) {
-          await insert.run(...item)
-        }
-      })
-
-      const items: Array<[string, string, string, number, string]> = []
+      const values = []
+      const now = new Date()
       for (let i = 0; i < docs.length; i++) {
         const doc = docs[i]
         const id = doc.id || randomUUID()
         ids.push(id)
 
         const embedding = doc.embedding || (await getEmbedding(doc.content))
-        items.push([id, docId || id, doc.content, i, JSON.stringify(embedding)])
+        values.push({
+          id,
+          docId: docId || id,
+          content: doc.content,
+          chunkIndex: i,
+          embedding: JSON.stringify(embedding),
+          createdAt: now,
+        })
       }
 
-      await insertMany()
+      if (values.length > 0) {
+        // 单条多行批量插入（≤500 行安全，避免双方言 transaction 行为差异）
+        await db.insert(tables.chunks).values(values)
+      }
       return ids
     },
 
@@ -70,31 +70,22 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
       const db = getDb()
       const queryEmbedding = await getEmbedding(query)
 
-      let rows: Array<{
-        id: string
-        doc_id: string
-        content: string
-        chunk_index: number
-        embedding: string
-      }>
-      if (docId) {
-        rows = (await db
-          .prepare(`SELECT * FROM ${tableName} WHERE doc_id = ? AND embedding IS NOT NULL`)
-          .all(docId)) as typeof rows
-      } else {
-        rows = (await db
-          .prepare(`SELECT * FROM ${tableName} WHERE embedding IS NOT NULL`)
-          .all()) as typeof rows
-      }
+      const conds = [isNotNull(tables.chunks.embedding)]
+      if (docId) conds.push(eq(tables.chunks.docId, docId))
+
+      const rows = await db
+        .select()
+        .from(tables.chunks)
+        .where(and(...conds))
 
       const scored = rows.map((row) => {
-        const emb = JSON.parse(row.embedding) as number[]
+        const emb = JSON.parse(row.embedding!) as number[]
         const score = cosineSimilarity(queryEmbedding, emb)
         return {
           doc: {
             id: row.id,
             content: row.content,
-            metadata: { docId: row.doc_id, chunkIndex: row.chunk_index },
+            metadata: { docId: row.docId, chunkIndex: row.chunkIndex },
           },
           score,
         }
@@ -105,18 +96,23 @@ export function createSqliteVectorStore(config: VectorStoreConfig = {}) {
     },
 
     /**
-     * 删除文档
+     * 删除文档（返回删除条数）
      */
     async deleteByDocId(docId: string): Promise<number> {
       const db = getDb()
-      const result = await db.prepare(`DELETE FROM ${tableName} WHERE doc_id = ?`).run(docId)
-      return result.changes
+      const rows = await db
+        .select({ id: tables.chunks.id })
+        .from(tables.chunks)
+        .where(eq(tables.chunks.docId, docId))
+      if (rows.length === 0) return 0
+      await db.delete(tables.chunks).where(eq(tables.chunks.docId, docId))
+      return rows.length
     },
 
     async delete(ids: string[]): Promise<void> {
+      if (ids.length === 0) return
       const db = getDb()
-      const placeholders = ids.map(() => '?').join(',')
-      await db.prepare(`DELETE FROM ${tableName} WHERE id IN (${placeholders})`).run(...ids)
+      await db.delete(tables.chunks).where(inArray(tables.chunks.id, ids))
     },
   }
 }

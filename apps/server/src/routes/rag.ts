@@ -13,30 +13,16 @@ import multer from 'multer'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
+import { desc, eq } from 'drizzle-orm'
 
 import { createRAGService } from '../services/rag/index.js'
-import { getDb, getDriver } from '../db/index.js'
+import { getDb, tables } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
 import { logger } from '../services/logger.js'
 
 const router = Router()
 const ragService = createRAGService()
-const IS_PG = getDriver() === 'postgres'
-
-// documents 表公共列（PG + SQLite 共有）
-const DOC_COLUMNS = ['id', 'name', 'size', 'status', 'chunk_count', 'created_at', 'updated_at']
-// PG 独有列（NOT NULL 约束）
-const PG_ONLY_COLUMNS = ['mime_type', 'storage_path']
-
-/** 生成 INSERT documents 语句（双驱动兼容） */
-function makeDocInsertSql(extraCols: string[]) {
-  const allCols = IS_PG
-    ? [...DOC_COLUMNS, ...PG_ONLY_COLUMNS, ...extraCols]
-    : [...DOC_COLUMNS, ...extraCols]
-  const placeholders = allCols.map(() => '?').join(', ')
-  return `INSERT INTO documents (${allCols.join(', ')}) VALUES (${placeholders})`
-}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const upload = multer({
@@ -60,6 +46,21 @@ const querySchema = z.object({
 
 const docIdParam = z.object({ id: z.string().min(1) })
 
+/** 行 → API 对象（与 /api/documents 列表形状一致） */
+type DocumentRow = typeof tables.documents.$inferSelect
+const rowToDocument = (row: DocumentRow) => ({
+  id: row.id,
+  name: row.name,
+  size: row.size,
+  type: row.mimeType,
+  status: row.status,
+  chunk_count: row.chunkCount,
+  created_at: row.createdAt.getTime(),
+  updated_at: row.updatedAt.getTime(),
+  user_id: row.userId,
+  library_id: row.libraryId,
+})
+
 /** POST /api/rag/documents — 上传入库 */
 router.post(
   '/documents',
@@ -69,7 +70,7 @@ router.post(
     if (!file) throw createError('未提供文件', 400)
 
     const db = getDb()
-    const now = Date.now()
+    const now = new Date()
     const documentId = randomUUID()
 
     logger.info('rag.route', 'POST /documents 开始', {
@@ -79,22 +80,17 @@ router.post(
     })
 
     // 先写入 documents 表（chunk 外键依赖）
-    const docInsertSql = makeDocInsertSql([])
-    // PG 需要 mime_type + storage_path，SQLite 不需要
-    const insertParams = IS_PG
-      ? [
-          documentId,
-          file.originalname,
-          file.size || 0,
-          'processing',
-          0,
-          now,
-          now,
-          path.extname(file.originalname),
-          file.path,
-        ]
-      : [documentId, file.originalname, file.size || 0, 'processing', 0, now, now]
-    await db.prepare(docInsertSql).run(...insertParams)
+    await db.insert(tables.documents).values({
+      id: documentId,
+      name: file.originalname,
+      size: file.size || 0,
+      mimeType: path.extname(file.originalname),
+      storagePath: file.path,
+      status: 'processing',
+      chunkCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
 
     // 灌入向量（chunk 引用 documentId）
     const t0 = Date.now()
@@ -107,10 +103,9 @@ router.post(
 
     // 更新文档状态和分块数
     await db
-      .prepare(
-        `UPDATE documents SET status = 'ready', chunk_count = ?, updated_at = ? WHERE id = ?`,
-      )
-      .run(doc.chunkCount, Date.now(), documentId)
+      .update(tables.documents)
+      .set({ status: 'ready', chunkCount: doc.chunkCount, updatedAt: new Date() })
+      .where(eq(tables.documents.id, documentId))
 
     logger.info('rag.route', 'POST /documents 完成', { documentId, chunkCount: doc.chunkCount })
 
@@ -141,17 +136,23 @@ router.post(
     }
 
     const db = getDb()
-    const now = Date.now()
+    const now = new Date()
     const documentId = randomUUID()
 
     logger.info('rag.route', 'POST /documents/url 开始', { url, providedName, documentId })
 
     // 先写 DB 记录（URL 导入：storage_path 存 URL，mime_type 存 '.url'）
-    const urlInsertSql = makeDocInsertSql([])
-    const urlInsertParams = IS_PG
-      ? [documentId, providedName || url.slice(0, 120), 0, 'processing', 0, now, now, '.url', url]
-      : [documentId, providedName || url.slice(0, 120), 0, 'processing', 0, now, now]
-    await db.prepare(urlInsertSql).run(...urlInsertParams)
+    await db.insert(tables.documents).values({
+      id: documentId,
+      name: providedName || url.slice(0, 120),
+      size: 0,
+      mimeType: '.url',
+      storagePath: url,
+      status: 'processing',
+      chunkCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
 
     try {
       // 灌入向量
@@ -162,18 +163,18 @@ router.post(
       // 取实际文档大小用于更新
       const contentSize = doc.chunks.reduce((s, c) => s + (c.content.length || 0), 0)
 
-      // 更新文档状态和分块数
+      // 更新文档状态和分块数（有标题才覆盖 name，等价旧 COALESCE 逻辑）
+      const title = (doc.chunks[0]?.metadata?.title as string | undefined) || providedName
       await db
-        .prepare(
-          `UPDATE documents SET status = 'ready', chunk_count = ?, size = ?, name = COALESCE(?, name), updated_at = ? WHERE id = ?`,
-        )
-        .run(
-          doc.chunkCount,
-          contentSize,
-          (doc.chunks[0]?.metadata?.title as string | undefined) || providedName,
-          Date.now(),
-          documentId,
-        )
+        .update(tables.documents)
+        .set({
+          status: 'ready',
+          chunkCount: doc.chunkCount,
+          size: contentSize,
+          ...(title ? { name: title } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(tables.documents.id, documentId))
 
       logger.info('rag.route', 'POST /documents/url 完成', {
         documentId,
@@ -193,8 +194,9 @@ router.post(
       const errorMsg = (err as Error).message
       logger.error('rag.route', 'POST /documents/url 失败', { documentId, url, error: errorMsg })
       await db
-        .prepare(`UPDATE documents SET status = 'failed', updated_at = ? WHERE id = ?`)
-        .run(Date.now(), documentId)
+        .update(tables.documents)
+        .set({ status: 'failed', updatedAt: new Date() })
+        .where(eq(tables.documents.id, documentId))
       throw createError(`URL 导入失败: ${errorMsg}`, 400, 'URL_IMPORT_FAILED')
     }
   }),
@@ -205,8 +207,8 @@ router.get(
   '/documents',
   asyncHandler(async (_req, res) => {
     const db = getDb()
-    const docs = await db.prepare('SELECT * FROM documents ORDER BY created_at DESC').all()
-    res.json(docs)
+    const rows = await db.select().from(tables.documents).orderBy(desc(tables.documents.createdAt))
+    res.json(rows.map(rowToDocument))
   }),
 )
 
@@ -296,7 +298,7 @@ router.delete(
     await ragService.deleteDocument(id)
 
     // 删除记录
-    await db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+    await db.delete(tables.documents).where(eq(tables.documents.id, id))
 
     logger.info('rag.route', 'DELETE /documents/:id 完成', { documentId: id })
     res.status(204).end()
