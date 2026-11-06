@@ -1031,6 +1031,7 @@ ALTER TABLE messages  ADD COLUMN citations TEXT;   -- JSON 快照
 | ---- | -------------------------------------------------------------------------- | ---------------------------------------------------- |
 | 1    | 移除组件生成模块：前端页面、后端 generator / agent / codegen、路由、状态表 | 导航无生成入口，旧接口 404，仓库无残留引用           |
 | 2    | `entries` / `entry_embeddings` 建表 + CRUD 接口                            | 能手动建条目并查询                                   |
+| 2.5  | 数据访问层收敛：Drizzle ORM 双驱动接入 + 存量裸 SQL 迁移（见第 11 节）     | 路由/service 无裸 SQL，正则改写 hack 删除，行为不变  |
 | 3    | 分片改造：结构化分片函数 + 参数收敛 600/80                                 | 文档切块结果符合 4.2                                 |
 | 4    | 抽取链路：意图判别 + JSON 抽取 + 时间解析 + 重复规则                       | 对话录入能产出含重复规则的确认卡片                   |
 | 5    | 文档抽取为记录（4.3.8）                                                    | 文档详情可提取候选条目并入库                         |
@@ -1048,15 +1049,16 @@ ALTER TABLE messages  ADD COLUMN citations TEXT;   -- JSON 快照
 
 ### 9.1 已确认决策
 
-| 编号 | 问题               | 决策                                                  |
-| ---- | ------------------ | ----------------------------------------------------- |
-| Q1   | 组件生成移除程度   | 彻底移除：前端入口、后端服务、路由、状态表全部删除    |
-| Q2   | 日程重复规则       | 完整支持 DAILY / WEEKLY / MONTHLY，只存规则不物化实例 |
-| Q3   | 文档抽取为条目     | 支持，见 4.3.8                                        |
-| Q4   | 多知识库           | 本期单库，`library_id` 字段预留，不做切换界面         |
-| Q5   | 旧组件生成资料迁移 | 不迁移，用户按需自行导入                              |
-| Q6   | 引用上限           | 15 条，超出部分按类型汇总为一行                       |
-| Q7   | 提醒               | 简单版：应用内到期提示，不做系统通知与后台任务        |
+| 编号 | 问题               | 决策                                                       |
+| ---- | ------------------ | ---------------------------------------------------------- |
+| Q1   | 组件生成移除程度   | 彻底移除：前端入口、后端服务、路由、状态表全部删除         |
+| Q2   | 日程重复规则       | 完整支持 DAILY / WEEKLY / MONTHLY，只存规则不物化实例      |
+| Q3   | 文档抽取为条目     | 支持，见 4.3.8                                             |
+| Q4   | 多知识库           | 本期单库，`library_id` 字段预留，不做切换界面              |
+| Q5   | 旧组件生成资料迁移 | 不迁移，用户按需自行导入                                   |
+| Q6   | 引用上限           | 15 条，超出部分按类型汇总为一行                            |
+| Q7   | 提醒               | 简单版：应用内到期提示，不做系统通知与后台任务             |
+| Q8   | 数据访问层         | 公司级规范做法：Drizzle ORM 统一双驱动数据访问，见第 11 节 |
 
 ### 9.2 仍需确认
 
@@ -1174,3 +1176,59 @@ T3 → T2 → T1（glm-4-flash）→ T0（本地，若可用）
 embedding 额外保留现有的 hash 向量降级作为最后兜底（检索质量下降但功能不断）。
 
 底线重申：**录入、检索、问答三个核心功能在 T1 免费档必须完整可用。付费只提升回答质量，不解锁功能。**
+
+---
+
+## 11. 数据访问层（Drizzle ORM）
+
+### 11.1 现状问题
+
+数据访问目前是"裸 SQL 字符串 + 自制双驱动包装"：
+
+- `db.prepare(\`...\`)` 散布在 7 个文件（entries / sessions / documents / rag / kb / vectorStore / db），列名、参数顺序全靠人工对齐，写错只能运行时发现；
+- 为兼容 SQLite 与 PG 两种方言，`db/index.ts` 用**正则改写 SQL**（`qualifySchema` 给裸表名加 `app.` 前缀、`sqliteToPgParams` 把 `?` 转 `$n`、`coerceParams` 把时间戳转 ISO）。这类字符串改写对复杂 SQL 本质脆弱，已需要 26 条回归测试专门防守；
+- 阶段 4-8 还要新增大量抽取、检索、引用 SQL，现在不收敛，后面返工成本越来越高。
+
+### 11.2 选型
+
+| 方案               | 说明                                   | 结论                                                             |
+| ------------------ | -------------------------------------- | ---------------------------------------------------------------- |
+| Prisma             | 公司项目最常见，schema + 迁移管线成熟  | 排除：引擎重，一套 schema 锁死单一数据库，不适配双驱动架构       |
+| Kysely             | 类型安全 query builder，双方言编译     | 备选：够用且轻，但需要另建一份表类型声明，与 drizzle schema 重复 |
+| 仅 DAO 文件收敛    | SQL 集中进 repository 文件             | 排除：靠纪律不靠编译器，正则改写 hack 保留                       |
+| **Drizzle ORM** ✅ | SQL 优先的轻量 ORM，官方支持双方言驱动 | **选定**：公司级规范做法，且仓库已有地基（见下）                 |
+
+选 Drizzle 的额外理由：
+
+1. **仓库已有地基**：`drizzle/schema.ts` 已声明 PG 全套表结构（阶段 2 已含 entries / entry_embeddings），`drizzle-kit` 已在依赖里，本次是"启用运行时"而非"从零引入"；
+2. **双驱动天然匹配**：`drizzle(betterSqlite3)` 与 `drizzle(postgresJs)` 两种驱动官方一等支持，查询 API 完全一致，可以删掉全部正则改写 hack；
+3. **SQL 透明**：Drizzle 是 SQL 语法的类型安全直译（`db.select().from(entries).where(eq(entries.type, 'schedule'))`），没有 ORM 魔术，出问题时 SQL 可预测、可打印，符合第 4.1 节"确定性代码负责检索过滤"的工程取向；
+4. **公司场景同样成立**：类型即文档、schema 单一事实来源、`drizzle-kit` 迁移管线，团队协作需求都被覆盖。
+
+### 11.3 目标架构
+
+```
+apps/server
+├── drizzle/
+│   ├── schema.ts          # PG 方言 schema（现有，保持）
+│   └── schema.sqlite.ts   # 新增：SQLite 方言 schema（与 db/index.ts 建表 DDL 对齐）
+└── src/db/index.ts        # 按 DATABASE_DRIVER 创建对应 drizzle 实例，对外统一导出
+```
+
+- 对外只暴露带类型的 drizzle `db` 对象；路由 / service 一律用 drizzle 查询 API，不再出现裸 SQL 字符串；
+- `qualifySchema` / `sqliteToPgParams` / `coerceParams` 及对应回归测试（test-db-wrap 中的 SQL 改写断言）**整体删除**；
+- 双方言差异收敛到 schema 层：SQLite schema 用 `integer({ mode: 'timestamp_ms' })` 存毫秒时间戳，PG schema 用 `timestamp({ withTimezone: true })`，查询代码无需感知；
+- 特殊场景（如 pgvector 的 `<=>` 距离运算）允许用 drizzle 的 `sql` 模板做逃生舱，限定只在 vectorStore 一处使用；
+- 建表方式不变：SQLite 仍在启动时幂等 `CREATE IF NOT EXISTS`（单机零迁移成本），PG 用 `init-pg.sql`；**drizzle schema 是表结构的唯一事实来源**，改表 = 先改 schema，再同步启动 DDL / init-pg.sql，PR 检查三者一致。
+
+### 11.4 迁移范围（阶段 2.5）
+
+| 步骤 | 内容                                                                                                                 |
+| ---- | -------------------------------------------------------------------------------------------------------------------- |
+| 1    | 新增 `drizzle/schema.sqlite.ts`（7 张表：documents/chunks/sessions/messages/entries/entry_embeddings/ai_usage_logs） |
+| 2    | `db/index.ts` 改为创建并导出 drizzle 实例，删除正则改写与参数强转，保留启动期幂等建表                                |
+| 3    | 迁移存量裸 SQL：entries / sessions / documents / rag / kb / logs / cost 路由 + vectorStore（约 11 处 `db.prepare`）  |
+| 4    | `test-db-wrap.mjs` 改为验证 drizzle 双方言实例可建、基础 CRUD 冒烟；删除 SQL 改写回归                                |
+| 5    | 验证：typecheck + lint + vitest 全绿，接口行为与阶段 2 冒烟结果一致                                                  |
+
+不做的事：不引入 `drizzle-kit migrate` 运行时迁移（单机幂等建表已够）；不碰前端；不改任何接口出入参。
