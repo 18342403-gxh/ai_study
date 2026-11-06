@@ -65,45 +65,6 @@ const chatCompletionsSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
 })
 
-// -- tools
-const executeSchema = z.object({
-  toolName: z.string().min(1),
-  args: z.record(z.string(), z.unknown()).default({}),
-  sessionId: z.string().optional(),
-})
-const runSchema = z.object({
-  messages: z.array(chatMessageSchema),
-  userInput: z.string().optional(),
-  allowedToolIds: z.array(z.string()).optional(),
-  maxIterations: z.coerce.number().int().min(1).max(20).default(5),
-  systemPrompt: z.string().optional(),
-  sessionId: z.string().optional(),
-})
-
-// -- agent
-const agentInputSchema = z.object({
-  requirement: z.string().min(1),
-  model: z.string().optional(),
-  sessionId: z.string().optional(),
-})
-const pauseSchema = z.object({ sessionId: z.string() })
-const resumeSchema = z.object({ sessionId: z.string() })
-const rollbackSchema = z.object({
-  sessionId: z.string(),
-  steps: z.coerce.number().int().min(1).default(1),
-})
-
-// -- generator
-const generatorInputSchema = z.object({
-  requirement: z.string().min(1),
-  artifactType: z.enum(['ppt', 'doc', 'sheet', 'image']),
-  model: z.string().optional(),
-})
-const generatorIterateSchema = z.object({
-  stateId: z.string(),
-  feedback: z.string(),
-})
-
 // -- cost
 const daysQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(30).optional(),
@@ -128,14 +89,6 @@ const ALL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   docIdParam: docIdParamSchema,
   chatMessage: chatMessageSchema,
   chatCompletions: chatCompletionsSchema,
-  execute: executeSchema,
-  run: runSchema,
-  agentInput: agentInputSchema,
-  pause: pauseSchema,
-  resume: resumeSchema,
-  rollback: rollbackSchema,
-  generatorInput: generatorInputSchema,
-  generatorIterate: generatorIterateSchema,
   daysQuery: daysQuerySchema,
   listLogsQuery: listLogsQuerySchema,
 }
@@ -268,90 +221,6 @@ const PATHS: Record<string, PathItem[]> = {
       responses: { '204': { description: '已删除' } },
     },
   ],
-  '/api/tools/list': [
-    { method: 'get', summary: '可用工具列表', responses: { '200': { description: '工具列表' } } },
-  ],
-  '/api/tools/execute': [
-    {
-      method: 'post',
-      summary: '直接执行指定工具',
-      requestBody: 'execute',
-      responses: { '200': { description: '执行结果' } },
-    },
-  ],
-  '/api/tools/run': [
-    {
-      method: 'post',
-      summary: 'Function Calling 循环（流式）',
-      requestBody: 'run',
-      responses: { '200': { description: '执行流' } },
-    },
-  ],
-  '/api/agent/start': [
-    {
-      method: 'post',
-      summary: '启动 Agent 任务',
-      requestBody: 'agentInput',
-      responses: { '201': { description: '任务已启动' } },
-    },
-  ],
-  '/api/agent/pause': [
-    {
-      method: 'post',
-      summary: '暂停 Agent',
-      requestBody: 'pause',
-      responses: { '200': { description: '已暂停' } },
-    },
-  ],
-  '/api/agent/resume': [
-    {
-      method: 'post',
-      summary: '恢复 Agent',
-      requestBody: 'resume',
-      responses: { '200': { description: '已恢复' } },
-    },
-  ],
-  '/api/agent/rollback': [
-    {
-      method: 'post',
-      summary: 'Agent 回退 N 步',
-      requestBody: 'rollback',
-      responses: { '200': { description: '已回退' } },
-    },
-  ],
-  '/api/generator/start': [
-    {
-      method: 'post',
-      summary: '启动文档生成',
-      requestBody: 'generatorInput',
-      responses: { '201': { description: '生成器已启动' } },
-    },
-  ],
-  '/api/generator/iterate': [
-    {
-      method: 'post',
-      summary: '迭代生成（反馈优化）',
-      requestBody: 'generatorIterate',
-      responses: { '200': { description: '迭代完成' } },
-    },
-  ],
-  '/api/generator/state/{id}': [
-    {
-      method: 'get',
-      summary: '查询生成状态',
-      params: ['stateId'],
-      responses: { '200': { description: '状态详情' } },
-    },
-    {
-      method: 'delete',
-      summary: '取消生成',
-      params: ['stateId'],
-      responses: { '204': { description: '已取消' } },
-    },
-  ],
-  '/api/generator/list': [
-    { method: 'get', summary: '生成列表', responses: { '200': { description: '列表' } } },
-  ],
   '/api/cost/today': [
     { method: 'get', summary: '今日用量速览', responses: { '200': { description: 'OK' } } },
   ],
@@ -453,7 +322,7 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       title: 'AI Study Server API',
       version: '0.4.0',
       description:
-        'Node BFF 中间层 — Chat / RAG / Agent / Generator / Tools / Cost / Logs.\n\n所有接口带 `X-Request-Id` response header 用于链路追踪。',
+        'Node BFF 中间层 — Chat / RAG / Cost / Logs.\n\n所有接口带 `X-Request-Id` response header 用于链路追踪。',
     },
     servers: [{ url: 'http://localhost:3001', description: '本地开发' }],
     paths,
@@ -464,9 +333,6 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       { name: 'Chat', description: 'Chat Completions' },
       { name: 'RAG', description: '检索增强生成' },
       { name: 'Documents', description: '文档管理（旧接口）' },
-      { name: 'Tools', description: 'Function Calling' },
-      { name: 'Agent', description: 'Agent 编排' },
-      { name: 'Generator', description: '文档生成器' },
       { name: 'Cost', description: '成本控制' },
       { name: 'Logs', description: '结构化日志' },
     ],

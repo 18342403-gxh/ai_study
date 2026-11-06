@@ -13,7 +13,7 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      appName: 'AI 生成器',
+      appName: '个人知识库',
       bffUrl: process.env.BFF_URL || 'http://localhost:3001',
     },
   },
@@ -31,11 +31,11 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'AI 生成器 — 组件 / Skill 双模式',
+      title: '个人知识库',
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'description', content: 'AI 驱动的组件 & Skill 生成器' },
+        { name: 'description', content: '对话与文档驱动的个人知识库' },
       ],
     },
   },

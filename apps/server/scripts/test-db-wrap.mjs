@@ -120,9 +120,9 @@ test('LEFT JOIN', () => {
 })
 
 test('ON CONFLICT DO UPDATE — SET/DO/CONFLICT/EXCLUDED 不被误转', () => {
-  const inp = 'INSERT INTO generator_states (id) VALUES (?) ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json'
+  const inp = 'INSERT INTO sessions (id) VALUES (?) ON CONFLICT(id) DO UPDATE SET title = excluded.title'
   const out = qualifySchema(inp)
-  assertEqual(out, 'INSERT INTO app.generator_states (id) VALUES (?) ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json')
+  assertEqual(out, 'INSERT INTO app.sessions (id) VALUES (?) ON CONFLICT(id) DO UPDATE SET title = excluded.title')
 })
 
 test('关键字 ON 不被误转', () => {
@@ -176,7 +176,7 @@ test('逗号表是关键字时不误转', () => {
 
 // ─── 全量真实 SQL 回归 ───
 
-console.log('\n📋  真实代码 SQL 回归（24 条）')
+console.log('\n📋  真实代码 SQL 回归（19 条）')
 
 const realSqls = [
   'SELECT s.*, COUNT(m.id) FROM sessions s LEFT JOIN messages m ON m.session_id = s.id GROUP BY s.id ORDER BY s.updated_at DESC',
@@ -193,11 +193,6 @@ const realSqls = [
   'DELETE FROM documents WHERE id = ?',
   'SELECT * FROM chunks WHERE doc_id IN (?) AND embedding IS NOT NULL',
   'SELECT name FROM documents WHERE id = ?',
-  'SELECT state_json FROM generator_states WHERE id = ?',
-  'INSERT INTO generator_states (id, state_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, status = excluded.status, updated_at = excluded.updated_at',
-  'SELECT state_json FROM agent_states WHERE thread_id = ?',
-  'INSERT INTO agent_states (thread_id, state_json, status, current_node, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET state_json = excluded.state_json, status = excluded.status, current_node = excluded.current_node, updated_at = excluded.updated_at',
-  'INSERT INTO tool_calls (id, session_id, tool_name, args_json, result_json, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   'SELECT s.*, COUNT(m.id) as message_count FROM sessions s LEFT JOIN messages m ON m.session_id = s.id GROUP BY s.id ORDER BY s.updated_at DESC',
   'INSERT INTO documents (id, name, size, type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   'INSERT INTO chunks (id, doc_id, content, chunk_index, embedding) VALUES (?, ?, ?, ?, ?)',
@@ -205,7 +200,7 @@ const realSqls = [
   'DELETE FROM chunks WHERE doc_id = ?',
 ]
 
-const allTables = ['sessions', 'messages', 'documents', 'chunks', 'generator_states', 'agent_states', 'tool_calls']
+const allTables = ['sessions', 'messages', 'documents', 'chunks']
 
 for (const sql of realSqls) {
   const out = qualifySchema(sql)
@@ -230,7 +225,7 @@ for (const sql of realSqls) {
   }
 }
 if (failed === 0) {
-  console.log('  ✓ 全部 24 条真实 SQL 通过')
+  console.log('  ✓ 全部 19 条真实 SQL 通过')
   passed++
 }
 

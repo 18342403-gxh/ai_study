@@ -2,7 +2,7 @@
  * Drizzle ORM Schema — PostgreSQL + pgvector
  *
  * 分为两个 schema：
- *   app  — 业务表（文档、会话、Generator、Agent、工具调用）
+ *   app  — 业务表（文档、分块、会话、消息）
  *   public — drizzle 迁移追踪表（自动管理）
  *
  * 命名规范：snake_case、所有表带 created_at/updated_at、JSONB 弹性字段、UUID 主键
@@ -17,7 +17,6 @@ import {
   integer,
   jsonb,
   timestamp,
-  boolean,
   check,
   foreignKey,
   index,
@@ -113,122 +112,5 @@ export const messages = app.table(
     ),
     roleCheck: check('messages_role_check', sql`${t.role} IN ('user','assistant','system','tool')`),
     idxSessionCreated: index('idx_messages_session_id_created_at').on(t.sessionId, t.createdAt),
-  }),
-)
-
-// ─────────────────────────────────────────
-// 5. agent_states — LangGraph Agent 状态持久化
-// ─────────────────────────────────────────
-export const agentStates = app.table(
-  'agent_states',
-  {
-    threadId: uuid('thread_id').defaultRandom().primaryKey(),
-    stateJson: jsonb('state_json').notNull(),
-    status: varchar('status', { length: 32 }).notNull().default('active'),
-    currentNode: varchar('current_node', { length: 64 }),
-    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => ({
-    statusCheck: check(
-      'agent_states_status_check',
-      sql`${t.status} IN ('active','paused','completed','failed','cancelled')`,
-    ),
-  }),
-)
-
-// ─────────────────────────────────────────
-// 6. tool_calls — 工具调用审计
-// ─────────────────────────────────────────
-export const toolCalls = app.table(
-  'tool_calls',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id'),
-    toolName: varchar('tool_name', { length: 128 }).notNull(),
-    argsJson: jsonb('args_json').notNull(),
-    resultJson: jsonb('result_json'),
-    status: varchar('status', { length: 32 }).notNull().default('pending'),
-    durationMs: integer('duration_ms'),
-    errorMessage: text('error_message'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => ({
-    sessionFk: foreignKey({ columns: [t.sessionId], foreignColumns: [sessions.id] }).onDelete(
-      'set null',
-    ),
-    statusCheck: check(
-      'tool_calls_status_check',
-      sql`${t.status} IN ('pending','running','success','error','timeout')`,
-    ),
-    idxSessionId: index('idx_tool_calls_session_id').on(t.sessionId),
-    idxStatus: index('idx_tool_calls_status').on(t.status),
-  }),
-)
-
-// ─────────────────────────────────────────
-// 7. generator_sessions — Generator 会话
-// ─────────────────────────────────────────
-export const generatorSessions = app.table(
-  'generator_sessions',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    requirement: text('requirement').notNull(),
-    artifactType: varchar('artifact_type', { length: 16 }).notNull(),
-    framework: varchar('framework', { length: 16 }),
-    skillName: varchar('skill_name', { length: 128 }),
-    scriptLang: varchar('script_lang', { length: 8 }),
-    stateJson: jsonb('state_json').notNull(),
-    status: varchar('status', { length: 32 }).notNull().default('idle'),
-    iteration: integer('iteration').notNull().default(1),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  },
-  (t) => ({
-    artifactCheck: check(
-      'gen_sessions_artifact_check',
-      sql`${t.artifactType} IN ('component','skill')`,
-    ),
-    statusCheck: check(
-      'gen_sessions_status_check',
-      sql`${t.status} IN ('idle','clarifying','retrieving','generating','previewing','completed','error')`,
-    ),
-    frameworkCheck: check(
-      'gen_sessions_framework_check',
-      sql`${t.framework} IS NULL OR ${t.framework} IN ('vue','react')`,
-    ),
-    scriptLangCheck: check(
-      'gen_sessions_script_lang_check',
-      sql`${t.scriptLang} IS NULL OR ${t.scriptLang} IN ('ts','py')`,
-    ),
-    idxArtifactType: index('idx_gen_sessions_artifact_type').on(t.artifactType),
-    idxStatus: index('idx_gen_sessions_status').on(t.status),
-  }),
-)
-
-// ─────────────────────────────────────────
-// 8. generator_files — Generator 产出文件
-// ─────────────────────────────────────────
-export const generatorFiles = app.table(
-  'generator_files',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    sessionId: uuid('session_id').notNull(),
-    iteration: integer('iteration').notNull(),
-    filePath: varchar('file_path', { length: 512 }).notNull(),
-    content: text('content').notNull(),
-    language: varchar('language', { length: 32 }),
-    isCurrent: boolean('is_current').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => ({
-    sessionFk: foreignKey({
-      columns: [t.sessionId],
-      foreignColumns: [generatorSessions.id],
-    }).onDelete('cascade'),
-    idxSessionId: index('idx_gen_files_session_id').on(t.sessionId),
-    idxSessionIter: index('idx_gen_files_session_iteration').on(t.sessionId, t.iteration),
   }),
 )

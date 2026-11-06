@@ -1,17 +1,15 @@
 {
-  "generatedAt": "2026-09-03T18:37:35.057Z",
-  "overallHash": "ebd40ba9f2cd2675d82f7331f0e3392c5311919b357c7218a4f6e86d08861d75",
+  "generatedAt": "2026-11-06T17:59:39.033Z",
+  "overallHash": "eace607f06e1b545e3a011c234bfd0e5141eb2860342a028178874e1214eadc4",
   "perHash": {
+    "app:desktop": "8ee0ee943009a33b6a54245656f80df096f4cf783ffc04f1f8c8c9c6a7578acb",
     "app:generator": "6b81f42e46a49c97e203defae0e62ec679b3e62aa5d8ebebe2d69c80e49c1f80",
     "app:server": "44aedb08b3e35c4efb4e997644cfca7c210bad0370b7ef894f8cc4a1b73d7e01",
-    "app:web-react": "65f809883103321e15f740ecc88c4ceeb5ed89f78e9360542de2580a2ac84c33",
-    "app:web-vue": "df5d045c24a2ca45f73114ade928eac43f9025b446f67db4b8b059e415115aa6",
-    "app:web-vue-nuxt": "1a458e3169d932f591f8b57caf7e3247ca13316ba2080c1e75e00da6842efe7b",
-    "appsDirs": "003cb0e76be57d6800e716910ef7672ff622aca110e01f675cd2e336825e0160",
+    "appsDirs": "4c9fc3a5e48fc3380fb2c01685eeaed8ae01de67e02b09e3ee6058fc260356f4",
     "packagesDirs": "07b11d0c437f20703317844a5d969f29f2ba7a601396767a61a8684c22b8f9a3",
     "pkg:shared": "d9208ab24d07cf96352a06352a36307a6947b3d0932aff914ea931fb5f91203e",
-    "readmeMtime": "ba739bd4686d5da8e110897747727f81199b010a2540b5c7958d210312893780",
-    "rootPackage": "7bcc306f18a3568699099c2f7ec7ece3a2491a0532fd08c623469b338f96431f",
+    "readmeMtime": "0a58481cfde4bd7ba04494ac01f3b7a7aebb460e3ee15aed88da24cd672573ec",
+    "rootPackage": "d6dd27550a2e826bfdca084edfe7061e33ab23792764bfe612e88e0d1707bdff",
     "workspace": "60ce4d1dbf137701a4683d171391c51662700c2f3e32a7caab8b2efc22540e65"
   },
   "comment": "README 同步指纹 — 由 scripts/check-readme-needs-update.mjs 自动生成。请勿手动编辑。当关键项变化时，AI 需要更新 README 后再跑 pnpm run check:readme --update 刷新本文件。"

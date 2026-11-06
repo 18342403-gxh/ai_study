@@ -1,10 +1,4 @@
 {
   "files": [],
-  "references": [
-    { "path": "./packages/shared" },
-    { "path": "./apps/web-react" },
-    { "path": "./apps/web-vue" },
-    { "path": "./apps/web-vue/tsconfig.node.json" },
-    { "path": "./apps/server" }
-  ]
+  "references": [{ "path": "./packages/shared" }, { "path": "./apps/server" }]
 }

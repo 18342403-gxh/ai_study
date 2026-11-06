@@ -33,10 +33,7 @@ import documentsRouter from './routes/documents.js'
 import kbRouter from './routes/kb.js'
 import chatRouter from './routes/chat.js'
 import sessionsRouter from './routes/sessions.js'
-import toolsRouter from './routes/tools.js'
 import ragRouter from './routes/rag.js'
-import agentRouter from './routes/agent.js'
-import generatorRouter from './routes/generator.js'
 import logsRouter from './routes/logs.js'
 import costRouter from './routes/cost.js'
 import { getOpenApiSpec } from './openapi/generate.js'
@@ -97,10 +94,7 @@ app.use('/api/chat', chatRouter)
 app.use('/api/sessions', sessionsRouter)
 app.use('/api/documents', documentsRouter)
 app.use('/api/kb', kbRouter)
-app.use('/api/tools', toolsRouter)
 app.use('/api/rag', ragRouter)
-app.use('/api/agent', agentRouter)
-app.use('/api/generator', generatorRouter)
 app.use('/api/logs', logsRouter)
 app.use('/api/cost', costRouter)
 

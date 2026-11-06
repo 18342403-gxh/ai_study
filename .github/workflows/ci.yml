@@ -77,8 +77,6 @@ jobs:
           path: |
             apps/server/dist/
             apps/generator/.output/
-            apps/web-react/dist/
-            apps/web-vue/dist/
           if-no-files-found: ignore
 
   test:

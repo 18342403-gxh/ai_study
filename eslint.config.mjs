@@ -117,7 +117,7 @@ export default tseslint.config(
 
   // ============ React Hooks — 只对 React/TSX 生效 ============
   {
-    files: ['**/*.{tsx,jsx}', 'apps/web-react/**/*.{ts,tsx}'],
+    files: ['**/*.{tsx,jsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',

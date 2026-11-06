@@ -17,23 +17,6 @@ export const API_ENDPOINTS = {
   RAG_QUERY: '/api/rag/query',
   RAG_DOCUMENT: '/api/rag/documents/:id',
 
-  // Tools
-  TOOLS_LIST: '/api/tools/list',
-  TOOLS_EXECUTE: '/api/tools/execute',
-
-  // Agent
-  AGENT_RUN: '/api/agent/run',
-  AGENT_STATUS: '/api/agent/status/:threadId',
-  AGENT_PAUSE: '/api/agent/:threadId/pause',
-  AGENT_RESUME: '/api/agent/:threadId/resume',
-  AGENT_ROLLBACK: '/api/agent/:threadId/rollback',
-
-  // Generator
-  GENERATOR_RUN: '/api/generator/run',
-  GENERATOR_JOBS: '/api/generator/jobs',
-  GENERATOR_JOB: '/api/generator/jobs/:id',
-  GENERATOR_RESUME: '/api/generator/jobs/:id/resume',
-
   // Knowledge Base (legacy)
   KB: '/api/kb',
   KB_QUERY: '/api/kb/query',

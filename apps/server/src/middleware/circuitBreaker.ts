@@ -6,7 +6,7 @@
  *   - CLOSED → OPEN：连续 3 次失败（或 5 秒内失败率 ≥ 80%）
  *   - OPEN → HALF_OPEN：开路 30s 后放行 1 个探测请求
  *   - HALF_OPEN → CLOSED：探测成功；HALF_OPEN → OPEN：探测失败
- *   - 对 /api/chat、/api/agent、/api/generator、/api/rag/query、/api/kb/query 生效
+ *   - 对 /api/chat、/api/rag/query、/api/kb/query 生效
  *   - 开路期间直接返回 503，避免把上游 AI 厂商的故障放大
  */
 
@@ -26,13 +26,7 @@ interface CircuitStats {
 
 const circuits = new Map<string, CircuitStats>()
 
-const AI_ROUTE_PATHS = [
-  /^\/api\/chat\/completions$/,
-  /^\/api\/agent\/run$/,
-  /^\/api\/generator\/run$/,
-  /^\/api\/rag\/query$/,
-  /^\/api\/kb\/query$/,
-]
+const AI_ROUTE_PATHS = [/^\/api\/chat\/completions$/, /^\/api\/rag\/query$/, /^\/api\/kb\/query$/]
 
 const FAILURE_THRESHOLD = 3 // 连续失败几次触发开路
 const OPEN_DURATION_MS = 30_000 // 开路多久后进入半开

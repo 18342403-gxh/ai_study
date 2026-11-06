@@ -83,46 +83,9 @@ const initSqlite = () => {
     )
   `)
 
-  // Agent 状态表
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS agent_states (
-      thread_id TEXT PRIMARY KEY,
-      state_json TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      current_node TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-
-  // 工具调用记录表
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS tool_calls (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      tool_name TEXT NOT NULL,
-      args_json TEXT NOT NULL,
-      result_json TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      created_at INTEGER NOT NULL
-    )
-  `)
-
-  // Generator 状态表
-  sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS generator_states (
-      id TEXT PRIMARY KEY,
-      state_json TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'idle',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-
   // 索引
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`)
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)`)
-  sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id)`)
 
   // AI Token 用量日志表（成本控制核心）
   sqliteDb.exec(`
