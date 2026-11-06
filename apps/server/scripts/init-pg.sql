@@ -18,7 +18,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON TABLES TO ai_study;
 ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON SEQUENCES TO ai_study;
 
 -- ============================
--- 1. documents
+-- 1. documents（v5 补 user_id / library_id 归属字段）
 -- ============================
 CREATE TABLE IF NOT EXISTS app.documents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS app.documents (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ
 );
+ALTER TABLE app.documents ADD COLUMN IF NOT EXISTS user_id VARCHAR(64) NOT NULL DEFAULT 'local';
+ALTER TABLE app.documents ADD COLUMN IF NOT EXISTS library_id VARCHAR(64) NOT NULL DEFAULT 'default';
 CREATE INDEX IF NOT EXISTS idx_documents_status ON app.documents(status);
 CREATE INDEX IF NOT EXISTS idx_documents_created_at ON app.documents(created_at);
 
@@ -66,7 +68,7 @@ CREATE TABLE IF NOT EXISTS app.sessions (
 );
 
 -- ============================
--- 4. messages
+-- 4. messages（v5 补 citations 引用快照）
 -- ============================
 CREATE TABLE IF NOT EXISTS app.messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -77,78 +79,56 @@ CREATE TABLE IF NOT EXISTS app.messages (
   metadata JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE app.messages ADD COLUMN IF NOT EXISTS citations JSONB;
 CREATE INDEX IF NOT EXISTS idx_messages_session_created
   ON app.messages(session_id, created_at);
 
 -- ============================
--- 5. agent_states
+-- 5. entries — 个人记忆条目（v5 核心）
 -- ============================
-CREATE TABLE IF NOT EXISTS app.agent_states (
-  thread_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  state_json JSONB NOT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'active'
-    CHECK (status IN ('active','paused','completed','failed','cancelled')),
-  current_node VARCHAR(64),
-  metadata JSONB DEFAULT '{}',
+CREATE TABLE IF NOT EXISTS app.entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id VARCHAR(64) NOT NULL DEFAULT 'local',
+  library_id VARCHAR(64) NOT NULL DEFAULT 'default',
+  type VARCHAR(16) NOT NULL CHECK (type IN ('schedule','plan','fact','note')),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  status VARCHAR(16) NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft','active','done','archived')),
+  start_at TIMESTAMPTZ,
+  end_at TIMESTAMPTZ,
+  recurrence JSONB,              -- RRULE 子集：freq/interval/byWeekday/byMonthDay/until
+  recurrence_until TIMESTAMPTZ,
+  exceptions JSONB,              -- 预留：例外实例，本期不使用
+  source_type VARCHAR(16) NOT NULL DEFAULT 'conversation'
+    CHECK (source_type IN ('conversation','document','manual')),
+  source_ref TEXT,               -- 会话 id 或文档 id
+  confidence REAL NOT NULL DEFAULT 1.0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  archived_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_entries_status_type ON app.entries(status, type);
+CREATE INDEX IF NOT EXISTS idx_entries_start ON app.entries(start_at) WHERE start_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entries_library ON app.entries(library_id, status);
+
+-- ============================
+-- 6. entry_embeddings — 条目向量（embedding 暂用 text，pgvector 装完后改 vector(1536)）
+-- ============================
+CREATE TABLE IF NOT EXISTS app.entry_embeddings (
+  entry_id UUID PRIMARY KEY REFERENCES app.entries(id) ON DELETE CASCADE,
+  embedding TEXT NOT NULL,
+  model VARCHAR(128) NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ============================
--- 6. tool_calls
+-- v5 阶段1：组件生成模块已移除，清理旧表
 -- ============================
-CREATE TABLE IF NOT EXISTS app.tool_calls (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES app.sessions(id) ON DELETE SET NULL,
-  tool_name VARCHAR(128) NOT NULL,
-  args_json JSONB NOT NULL,
-  result_json JSONB,
-  status VARCHAR(32) NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending','running','success','error','timeout')),
-  duration_ms INTEGER,
-  error_message TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON app.tool_calls(session_id);
-CREATE INDEX IF NOT EXISTS idx_tool_calls_status ON app.tool_calls(status);
-
--- ============================
--- 7. generator_sessions
--- ============================
-CREATE TABLE IF NOT EXISTS app.generator_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  requirement TEXT NOT NULL,
-  artifact_type VARCHAR(16) NOT NULL CHECK (artifact_type IN ('component','skill')),
-  framework VARCHAR(16) CHECK (framework IS NULL OR framework IN ('vue','react')),
-  skill_name VARCHAR(128),
-  script_lang VARCHAR(8) CHECK (script_lang IS NULL OR script_lang IN ('ts','py')),
-  state_json JSONB NOT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'idle'
-    CHECK (status IN ('idle','clarifying','retrieving','generating','previewing','completed','error')),
-  iteration INTEGER NOT NULL DEFAULT 1,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_gen_sessions_artifact_type ON app.generator_sessions(artifact_type);
-CREATE INDEX IF NOT EXISTS idx_gen_sessions_status ON app.generator_sessions(status);
-
--- ============================
--- 8. generator_files
--- ============================
-CREATE TABLE IF NOT EXISTS app.generator_files (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID NOT NULL REFERENCES app.generator_sessions(id) ON DELETE CASCADE,
-  iteration INTEGER NOT NULL,
-  file_path VARCHAR(512) NOT NULL,
-  content TEXT NOT NULL,
-  language VARCHAR(32),
-  is_current BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_gen_files_session_id ON app.generator_files(session_id);
-CREATE INDEX IF NOT EXISTS idx_gen_files_session_iter
-  ON app.generator_files(session_id, iteration);
+DROP TABLE IF EXISTS app.generator_files;
+DROP TABLE IF EXISTS app.generator_sessions;
+DROP TABLE IF EXISTS app.tool_calls;
+DROP TABLE IF EXISTS app.agent_states;
 
 -- ============================
 -- 完成

@@ -176,7 +176,7 @@ test('逗号表是关键字时不误转', () => {
 
 // ─── 全量真实 SQL 回归 ───
 
-console.log('\n📋  真实代码 SQL 回归（19 条）')
+console.log('\n📋  真实代码 SQL 回归（26 条）')
 
 const realSqls = [
   'SELECT s.*, COUNT(m.id) FROM sessions s LEFT JOIN messages m ON m.session_id = s.id GROUP BY s.id ORDER BY s.updated_at DESC',
@@ -198,9 +198,16 @@ const realSqls = [
   'INSERT INTO chunks (id, doc_id, content, chunk_index, embedding) VALUES (?, ?, ?, ?, ?)',
   'UPDATE documents SET status = ?, chunk_count = ?, updated_at = ? WHERE id = ?',
   'DELETE FROM chunks WHERE doc_id = ?',
+  'INSERT INTO entries (id, user_id, library_id, type, title, content, status, start_at, end_at, recurrence, recurrence_until, exceptions, source_type, source_ref, confidence, created_at, updated_at, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)',
+  'SELECT * FROM entries WHERE id = ?',
+  'SELECT * FROM entries WHERE type = ? AND status = ? ORDER BY updated_at DESC LIMIT ?',
+  'UPDATE entries SET title = ?, updated_at = ? WHERE id = ?',
+  'DELETE FROM entries WHERE id = ?',
+  'INSERT INTO entry_embeddings (entry_id, embedding, model, updated_at) VALUES (?, ?, ?, ?)',
+  'DELETE FROM entry_embeddings WHERE entry_id = ?',
 ]
 
-const allTables = ['sessions', 'messages', 'documents', 'chunks']
+const allTables = ['sessions', 'messages', 'documents', 'chunks', 'entries', 'entry_embeddings']
 
 for (const sql of realSqls) {
   const out = qualifySchema(sql)
@@ -225,7 +232,7 @@ for (const sql of realSqls) {
   }
 }
 if (failed === 0) {
-  console.log('  ✓ 全部 19 条真实 SQL 通过')
+  console.log('  ✓ 全部 26 条真实 SQL 通过')
   passed++
 }
 

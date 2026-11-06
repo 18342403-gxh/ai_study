@@ -10,11 +10,11 @@
 
 import {
   pgSchema,
-  pgTable,
   uuid,
   varchar,
   text,
   integer,
+  real,
   jsonb,
   timestamp,
   check,
@@ -39,6 +39,8 @@ export const documents = app.table(
     storagePath: varchar('storage_path', { length: 1024 }).notNull(),
     status: varchar('status', { length: 32 }).notNull().default('processing'),
     chunkCount: integer('chunk_count').default(0),
+    userId: varchar('user_id', { length: 64 }).notNull().default('local'),
+    libraryId: varchar('library_id', { length: 64 }).notNull().default('default'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -103,6 +105,7 @@ export const messages = app.table(
     role: varchar('role', { length: 16 }).notNull(),
     content: text('content').notNull(),
     toolCallId: varchar('tool_call_id', { length: 128 }),
+    citations: jsonb('citations').$type<Record<string, unknown>[]>(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -112,5 +115,65 @@ export const messages = app.table(
     ),
     roleCheck: check('messages_role_check', sql`${t.role} IN ('user','assistant','system','tool')`),
     idxSessionCreated: index('idx_messages_session_id_created_at').on(t.sessionId, t.createdAt),
+  }),
+)
+
+// ─────────────────────────────────────────
+// 5. entries — 个人记忆条目（v5 核心）
+// ─────────────────────────────────────────
+export const entries = app.table(
+  'entries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: varchar('user_id', { length: 64 }).notNull().default('local'),
+    libraryId: varchar('library_id', { length: 64 }).notNull().default('default'),
+    type: varchar('type', { length: 16 }).notNull(),
+    title: text('title').notNull(),
+    content: text('content').notNull().default(''),
+    status: varchar('status', { length: 16 }).notNull().default('draft'),
+    startAt: timestamp('start_at', { withTimezone: true }),
+    endAt: timestamp('end_at', { withTimezone: true }),
+    /** RRULE 子集：{ freq, interval?, byWeekday?, byMonthDay?, until? }，null 表示单次事件 */
+    recurrence: jsonb('recurrence').$type<Record<string, unknown>>(),
+    recurrenceUntil: timestamp('recurrence_until', { withTimezone: true }),
+    /** 预留：例外实例，本期不使用 */
+    exceptions: jsonb('exceptions').$type<Record<string, unknown>>(),
+    sourceType: varchar('source_type', { length: 16 }).notNull().default('conversation'),
+    /** 会话 id 或文档 id */
+    sourceRef: text('source_ref'),
+    confidence: real('confidence').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+  },
+  (t) => ({
+    typeCheck: check('entries_type_check', sql`${t.type} IN ('schedule','plan','fact','note')`),
+    statusCheck: check(
+      'entries_status_check',
+      sql`${t.status} IN ('draft','active','done','archived')`,
+    ),
+    sourceTypeCheck: check(
+      'entries_source_type_check',
+      sql`${t.sourceType} IN ('conversation','document','manual')`,
+    ),
+    idxStatusType: index('idx_entries_status_type').on(t.status, t.type),
+    idxStart: index('idx_entries_start').on(t.startAt),
+    idxLibrary: index('idx_entries_library').on(t.libraryId, t.status),
+  }),
+)
+
+// ─────────────────────────────────────────
+// 6. entry_embeddings — 条目向量（pgvector 装好后 embedding 改 vector(1536)）
+// ─────────────────────────────────────────
+export const entryEmbeddings = app.table(
+  'entry_embeddings',
+  {
+    entryId: uuid('entry_id').primaryKey(),
+    embedding: text('embedding').notNull(),
+    model: varchar('model', { length: 128 }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    entryFk: foreignKey({ columns: [t.entryId], foreignColumns: [entries.id] }).onDelete('cascade'),
   }),
 )

@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-06T17:59:39.033Z",
-  "overallHash": "eace607f06e1b545e3a011c234bfd0e5141eb2860342a028178874e1214eadc4",
+  "generatedAt": "2026-11-06T18:16:15.299Z",
+  "overallHash": "f194b8e93e84efdeef09b4821186f0500643b45a6927d2b1ac0a710ba177919a",
   "perHash": {
     "app:desktop": "8ee0ee943009a33b6a54245656f80df096f4cf783ffc04f1f8c8c9c6a7578acb",
     "app:generator": "6b81f42e46a49c97e203defae0e62ec679b3e62aa5d8ebebe2d69c80e49c1f80",
@@ -8,7 +8,7 @@
     "appsDirs": "4c9fc3a5e48fc3380fb2c01685eeaed8ae01de67e02b09e3ee6058fc260356f4",
     "packagesDirs": "07b11d0c437f20703317844a5d969f29f2ba7a601396767a61a8684c22b8f9a3",
     "pkg:shared": "d9208ab24d07cf96352a06352a36307a6947b3d0932aff914ea931fb5f91203e",
-    "readmeMtime": "0a58481cfde4bd7ba04494ac01f3b7a7aebb460e3ee15aed88da24cd672573ec",
+    "readmeMtime": "42650daedb3fd14fd6d049374b4a93bc5a70591daa355186f371a1a0ee94e26d",
     "rootPackage": "d6dd27550a2e826bfdca084edfe7061e33ab23792764bfe612e88e0d1707bdff",
     "workspace": "60ce4d1dbf137701a4683d171391c51662700c2f3e32a7caab8b2efc22540e65"
   },

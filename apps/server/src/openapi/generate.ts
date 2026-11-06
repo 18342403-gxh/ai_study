@@ -53,6 +53,44 @@ const uploadMetadataSchema = z
   .optional()
 const docIdParamSchema = z.object({ id: z.string().uuid() })
 
+// -- entries
+const entryTypeEnum = z.enum(['schedule', 'plan', 'fact', 'note'])
+const entryStatusEnum = z.enum(['draft', 'active', 'done', 'archived'])
+const recurrenceSchema = z.object({
+  freq: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
+  interval: z.number().int().min(1).max(365).optional(),
+  byWeekday: z
+    .array(z.enum(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']))
+    .max(7)
+    .optional(),
+  byMonthDay: z.number().int().min(1).max(31).optional(),
+  until: z.number().int().optional(),
+})
+const createEntrySchema = z.object({
+  type: entryTypeEnum,
+  title: z.string().min(1).max(100),
+  content: z.string().max(10000).default(''),
+  status: entryStatusEnum.default('active'),
+  startAt: z.number().int().nullable().optional(),
+  endAt: z.number().int().nullable().optional(),
+  recurrence: recurrenceSchema.nullable().optional(),
+  recurrenceUntil: z.number().int().nullable().optional(),
+  sourceType: z.enum(['conversation', 'document', 'manual']).default('manual'),
+  sourceRef: z.string().max(128).nullable().optional(),
+  confidence: z.number().min(0).max(1).default(1),
+  userId: z.string().max(64).default('local'),
+  libraryId: z.string().max(64).default('default'),
+})
+const updateEntrySchema = createEntrySchema.partial().omit({ userId: true, sourceType: true })
+const listEntriesQuerySchema = z.object({
+  type: entryTypeEnum.optional(),
+  status: entryStatusEnum.optional(),
+  libraryId: z.string().max(64).optional(),
+  from: z.coerce.number().int().optional(),
+  to: z.coerce.number().int().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+})
+
 // -- chat
 const chatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -87,6 +125,10 @@ const ALL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   ragQuery: ragQuerySchema,
   uploadMetadata: uploadMetadataSchema,
   docIdParam: docIdParamSchema,
+  recurrence: recurrenceSchema,
+  createEntry: createEntrySchema,
+  updateEntry: updateEntrySchema,
+  listEntriesQuery: listEntriesQuerySchema,
   chatMessage: chatMessageSchema,
   chatCompletions: chatCompletionsSchema,
   daysQuery: daysQuerySchema,
@@ -214,6 +256,40 @@ const PATHS: Record<string, PathItem[]> = {
   '/api/documents': [
     { method: 'get', summary: '列出文档', responses: { '200': { description: '文档列表' } } },
   ],
+  '/api/entries': [
+    {
+      method: 'get',
+      summary: '列出条目（?type=&status=&libraryId=&from=&to=&limit=）',
+      responses: { '200': { description: '条目列表' } },
+    },
+    {
+      method: 'post',
+      summary: '新建条目（手动创建默认 active）',
+      requestBody: 'createEntry',
+      responses: { '201': { description: '创建成功' } },
+    },
+  ],
+  '/api/entries/{id}': [
+    {
+      method: 'get',
+      summary: '获取单条条目',
+      params: ['entryId'],
+      responses: { '200': { description: '条目详情' } },
+    },
+    {
+      method: 'patch',
+      summary: '更新条目（含状态流转：确认/完成/归档）',
+      params: ['entryId'],
+      requestBody: 'updateEntry',
+      responses: { '200': { description: '更新成功' } },
+    },
+    {
+      method: 'delete',
+      summary: '永久删除条目（级联删除向量）',
+      params: ['entryId'],
+      responses: { '204': { description: '已删除' } },
+    },
+  ],
   '/api/documents/{id}': [
     {
       method: 'delete',
@@ -333,6 +409,7 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       { name: 'Chat', description: 'Chat Completions' },
       { name: 'RAG', description: '检索增强生成' },
       { name: 'Documents', description: '文档管理（旧接口）' },
+      { name: 'Entries', description: '个人条目（记忆）管理' },
       { name: 'Cost', description: '成本控制' },
       { name: 'Logs', description: '结构化日志' },
     ],

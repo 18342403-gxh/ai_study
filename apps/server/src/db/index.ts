@@ -25,6 +25,62 @@ import Database from 'better-sqlite3'
 
 let sqliteDb: Database.Database | null = null
 
+/** v5 个人记忆系统建表：entries / entry_embeddings + 旧表补字段（幂等） */
+const initV5Schema = (db: Database.Database) => {
+  // 条目表（个人记忆系统核心，v5）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT 'local',
+      library_id TEXT NOT NULL DEFAULT 'default',
+      type TEXT NOT NULL CHECK(type IN ('schedule','plan','fact','note')),
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft','active','done','archived')),
+      start_at INTEGER,
+      end_at INTEGER,
+      recurrence TEXT,
+      recurrence_until INTEGER,
+      exceptions TEXT,
+      source_type TEXT NOT NULL DEFAULT 'conversation'
+        CHECK(source_type IN ('conversation','document','manual')),
+      source_ref TEXT,
+      confidence REAL NOT NULL DEFAULT 1.0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      archived_at INTEGER
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_status_type ON entries(status, type)`)
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_entries_start ON entries(start_at) WHERE start_at IS NOT NULL`,
+  )
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_library ON entries(library_id, status)`)
+
+  // 条目向量表（语义检索用，条目本身即最小记忆单元，不再拆分）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entry_embeddings (
+      entry_id TEXT PRIMARY KEY,
+      embedding TEXT NOT NULL,
+      model TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
+    )
+  `)
+
+  // v5 补字段（幂等）：documents 归属字段、messages 引用快照
+  const ensureColumn = (table: string, column: string, ddl: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
+    }
+  }
+  ensureColumn('documents', 'user_id', `user_id TEXT NOT NULL DEFAULT 'local'`)
+  ensureColumn('documents', 'library_id', `library_id TEXT NOT NULL DEFAULT 'default'`)
+  ensureColumn('messages', 'citations', 'citations TEXT')
+}
+
 const initSqlite = () => {
   const dbPath = process.env.DB_PATH || path.join(__dirname, '../../data/knowledge.db')
   sqliteDb = new Database(dbPath)
@@ -86,6 +142,9 @@ const initSqlite = () => {
   // 索引
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`)
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)`)
+
+  // v5 个人记忆系统建表（entries / entry_embeddings / 旧表补字段）
+  initV5Schema(sqliteDb)
 
   // AI Token 用量日志表（成本控制核心）
   sqliteDb.exec(`

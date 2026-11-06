@@ -12,6 +12,10 @@ export const API_ENDPOINTS = {
   SESSIONS: '/api/sessions',
   SESSION_MESSAGES: '/api/sessions/:id/messages',
 
+  // Entries（个人记忆条目）
+  ENTRIES: '/api/entries',
+  ENTRY: '/api/entries/:id',
+
   // RAG
   RAG_DOCUMENTS: '/api/rag/documents',
   RAG_QUERY: '/api/rag/query',
