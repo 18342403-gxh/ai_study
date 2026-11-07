@@ -43,6 +43,8 @@ export interface SearchResultItem {
   startAt: number | null
   endAt: number | null
   occurrence: boolean
+  /** 条目录入时间（文档块为 null）；回答注入「录入于」与引用快照用 */
+  createdAt: number | null
   /** 加权后的最终分 */
   score: number
   /** 通道内归一化分（0-1） */
@@ -160,6 +162,7 @@ export const mergeSearchSignals = (input: MergeInput): MergeOutput => {
         startAt: hit.startAt,
         endAt: hit.endAt,
         occurrence: hit.occurrence,
+        createdAt: hit.entry.createdAt.getTime(),
         score: hit.score,
         channelScore: 0,
       },
@@ -182,6 +185,7 @@ export const mergeSearchSignals = (input: MergeInput): MergeOutput => {
         startAt: hit.entry.startAt ? hit.entry.startAt.getTime() : null,
         endAt: hit.entry.endAt ? hit.entry.endAt.getTime() : null,
         occurrence: false,
+        createdAt: hit.entry.createdAt.getTime(),
         score: hit.score,
         channelScore: 0,
         vectorScore: hit.vectorScore,
@@ -205,6 +209,7 @@ export const mergeSearchSignals = (input: MergeInput): MergeOutput => {
         startAt: null,
         endAt: null,
         occurrence: false,
+        createdAt: null,
         score: hit.score,
         channelScore: 0,
         vectorScore: hit.vectorScore,

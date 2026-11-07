@@ -118,6 +118,13 @@ const searchSchema = z.object({
   skipUnderstanding: z.boolean().default(false),
 })
 
+// -- chat ask（v5 阶段 7）
+const chatAskSchema = z.object({
+  message: z.string().min(1).max(5000),
+  sessionId: z.string().max(64).nullable().optional(),
+  libraryId: z.string().max(64).default('default'),
+})
+
 // -- chat
 const chatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -159,6 +166,7 @@ const ALL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   extractRequest: extractSchema,
   documentExtractRequest: documentExtractSchema,
   searchRequest: searchSchema,
+  chatAskRequest: chatAskSchema,
   chatMessage: chatMessageSchema,
   chatCompletions: chatCompletionsSchema,
   daysQuery: daysQuerySchema,
@@ -342,6 +350,14 @@ const PATHS: Record<string, PathItem[]> = {
       summary: '检索调试：时间通道 + 条目/文档语义通道，返回加权分与汇总',
       requestBody: 'searchRequest',
       responses: { '200': { description: '检索结果（只读）' } },
+    },
+  ],
+  '/api/chat': [
+    {
+      method: 'post',
+      summary: '个人知识问答：三路检索 + 强制引用回答，citations 快照入消息',
+      requestBody: 'chatAskRequest',
+      responses: { '200': { description: '回答 + citations + missing + degraded 标记' } },
     },
   ],
   '/api/documents/{id}': [
