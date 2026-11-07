@@ -98,6 +98,11 @@ const extractSchema = z.object({
   libraryId: z.string().max(64).default('default'),
 })
 
+const documentExtractSchema = z.object({
+  chunkIds: z.array(z.string().min(1).max(64)).max(100).optional(),
+  libraryId: z.string().max(64).default('default'),
+})
+
 // -- chat
 const chatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -137,6 +142,7 @@ const ALL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   updateEntry: updateEntrySchema,
   listEntriesQuery: listEntriesQuerySchema,
   extractRequest: extractSchema,
+  documentExtractRequest: documentExtractSchema,
   chatMessage: chatMessageSchema,
   chatCompletions: chatCompletionsSchema,
   daysQuery: daysQuerySchema,
@@ -304,6 +310,14 @@ const PATHS: Record<string, PathItem[]> = {
       summary: '对话抽取：意图判别 + 结构化条目（含重复/冲突提示）',
       requestBody: 'extractRequest',
       responses: { '200': { description: '抽取结果（不写库）' } },
+    },
+  ],
+  '/api/documents/{id}/extract': [
+    {
+      method: 'post',
+      summary: '文档抽取为候选记录（整篇或指定块，单次最多 100 块）',
+      requestBody: 'documentExtractRequest',
+      responses: { '200': { description: '候选条目卡片（不写库）' } },
     },
   ],
   '/api/documents/{id}': [

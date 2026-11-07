@@ -78,9 +78,13 @@ export interface PromptEntry {
 
 export interface ExtractOptions {
   text: string
+  /** conversation：对话录入；document：文档节选（阶段 5） */
+  mode?: 'conversation' | 'document'
   now?: number
   timezone?: string
   existingEntries?: PromptEntry[]
+  /** 单次最多返回条数：对话 5，文档 10 */
+  maxEntries?: number
   /** 测试注入；默认走 createChatChain */
   invoke?: (messages: ChatMessage[]) => Promise<string>
   timeoutMs?: number
@@ -134,9 +138,10 @@ export const buildExtractMessages = (params: {
   text: string
   nowMs: number
   timezone: string
+  mode?: 'conversation' | 'document'
   existingEntries?: PromptEntry[]
 }): ChatMessage[] => {
-  const { text, nowMs, timezone, existingEntries = [] } = params
+  const { text, nowMs, timezone, mode = 'conversation', existingEntries = [] } = params
 
   const existing =
     existingEntries.length > 0
@@ -149,7 +154,12 @@ export const buildExtractMessages = (params: {
           .join('\n')
       : '（无）'
 
-  const system = `你是个人记忆助手。从用户的话里提取需要长期记住的信息。
+  const intro =
+    mode === 'document'
+      ? `你是个人记忆助手。从文档内容里提取值得长期记住的信息（忽略目录、页眉页脚等噪音）。`
+      : '你是个人记忆助手。从用户的话里提取需要长期记住的信息。'
+
+  const system = `${intro}
 
 当前时间：${formatDateTime(nowMs, timezone)}，时区：${timezone}
 已有相关记录（用于判重，仅供参考）：
@@ -501,8 +511,10 @@ export const extractEntries = async (options: ExtractOptions): Promise<ExtractOu
     text,
     nowMs,
     timezone,
+    mode: options.mode,
     existingEntries: options.existingEntries,
   })
+  const maxEntries = options.maxEntries ?? MAX_EXTRACT_ENTRIES
 
   let lastFailure: ExtractFailure = 'non_json'
 
@@ -534,15 +546,15 @@ export const extractEntries = async (options: ExtractOptions): Promise<ExtractOu
     }
 
     const total = normalized.entries.length
-    const entries = normalized.entries.slice(0, MAX_EXTRACT_ENTRIES)
+    const entries = normalized.entries.slice(0, maxEntries)
 
     return {
       ok: true,
       intent: normalized.intent,
       reply: normalized.reply,
       entries,
-      truncated: total > MAX_EXTRACT_ENTRIES,
-      remaining: Math.max(0, total - MAX_EXTRACT_ENTRIES),
+      truncated: total > maxEntries,
+      remaining: Math.max(0, total - maxEntries),
       failed: null,
       rawText: text,
     }

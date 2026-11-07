@@ -73,6 +73,8 @@ export const chunks = app.table(
     // 实际建表时会被 pgvector 扩展替换为 vector(1536)
     embedding: text('embedding'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** 抽取标记：null 表示尚未抽取过（v5 4.3.8） */
+    extractedAt: timestamp('extracted_at', { withTimezone: true }),
   },
   (t) => ({
     docFk: foreignKey({ columns: [t.docId], foreignColumns: [documents.id] }).onDelete('cascade'),

@@ -131,9 +131,10 @@ const alignSqliteSchema = (db: Database.Database) => {
   ensureColumn('documents', 'metadata', 'metadata TEXT')
   ensureColumn('documents', 'deleted_at', 'deleted_at INTEGER')
 
-  // chunks：补 token_count / created_at
+  // chunks：补 token_count / created_at / extracted_at
   ensureColumn('chunks', 'token_count', 'token_count INTEGER')
   ensureColumn('chunks', 'created_at', 'created_at INTEGER')
+  ensureColumn('chunks', 'extracted_at', 'extracted_at INTEGER')
 
   // sessions：补 metadata / deleted_at
   ensureColumn('sessions', 'metadata', 'metadata TEXT')
@@ -182,6 +183,7 @@ const initSqlite = () => {
       token_count INTEGER,
       embedding TEXT,
       created_at INTEGER,
+      extracted_at INTEGER,
       FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
     )
   `)
@@ -275,6 +277,10 @@ const initPostgres = () => {
     .unsafe(
       `CREATE INDEX IF NOT EXISTS idx_ai_usage_logs_feature ON app.ai_usage_logs(feature, created_at)`,
     )
+    .catch(() => {})
+  // v5：chunks 抽取标记（旧库幂等补列）
+  pgClient
+    .unsafe(`ALTER TABLE app.chunks ADD COLUMN IF NOT EXISTS extracted_at TIMESTAMPTZ`)
     .catch(() => {})
 }
 

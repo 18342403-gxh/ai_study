@@ -58,6 +58,8 @@ export const chunks = sqliteTable(
     tokenCount: integer('token_count'),
     embedding: text('embedding'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+    /** 抽取标记：null 表示尚未抽取过（v5 4.3.8） */
+    extractedAt: integer('extracted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('idx_chunks_doc_id').on(t.docId)],
 )

@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS app.chunks (
   content TEXT NOT NULL,
   token_count INTEGER,
   embedding TEXT,  -- TODO: pgvector 装好后 ALTER COLUMN embedding TYPE vector(1536) USING NULL;
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  extracted_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON app.chunks(doc_id);
 
