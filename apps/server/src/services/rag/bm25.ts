@@ -72,30 +72,27 @@ export function tokenize(text: string): string[] {
   return tokens
 }
 
-/** 从 chunks 表读全部数据 → 算 BM25 → 排序取 Top-K */
-export async function bm25Search(query: string, k = 5, docId?: string): Promise<BM25Result[]> {
-  const db = getDb()
+export interface BM25TextDoc {
+  id: string
+  text: string
+}
 
-  const conds = [isNotNull(tables.chunks.content)]
-  if (docId) conds.push(eq(tables.chunks.docId, docId))
-
-  const rows = await db
-    .select({
-      id: tables.chunks.id,
-      doc_id: tables.chunks.docId,
-      content: tables.chunks.content,
-      chunk_index: tables.chunks.chunkIndex,
-    })
-    .from(tables.chunks)
-    .where(and(...conds))
-
-  if (rows.length === 0) return []
+/**
+ * 纯打分：给定 query 与文本集合，返回按 BM25 分数排序的 Top-K
+ * （条目检索复用同一套打分，避免两份实现漂移）
+ */
+export function bm25Rank(
+  query: string,
+  docs: BM25TextDoc[],
+  k = 5,
+): Array<{ id: string; score: number }> {
+  if (docs.length === 0) return []
 
   const queryTokens = tokenize(query)
   if (queryTokens.length === 0) return []
 
-  const N = rows.length
-  const docTokens: string[][] = rows.map((r) => tokenize(r.content))
+  const N = docs.length
+  const docTokens: string[][] = docs.map((d) => tokenize(d.text))
   const docLens = docTokens.map((t) => t.length)
   const avgdl = docLens.reduce((a, b) => a + b, 0) / N
 
@@ -140,11 +137,45 @@ export async function bm25Search(query: string, k = 5, docId?: string): Promise<
   const indexed = scores.map((s, i) => ({ score: s, idx: i }))
   indexed.sort((a, b) => b.score - a.score)
 
-  return indexed.slice(0, k).map(({ score, idx }) => ({
-    id: rows[idx].id,
-    doc_id: rows[idx].doc_id,
-    content: rows[idx].content,
-    chunk_index: rows[idx].chunk_index,
-    score,
-  }))
+  return indexed.slice(0, k).map(({ score, idx }) => ({ id: docs[idx].id, score }))
+}
+
+/** 从 chunks 表读全部数据 → 算 BM25 → 排序取 Top-K */
+export async function bm25Search(query: string, k = 5, docId?: string): Promise<BM25Result[]> {
+  const db = getDb()
+
+  const conds = [isNotNull(tables.chunks.content)]
+  if (docId) conds.push(eq(tables.chunks.docId, docId))
+
+  const rows = await db
+    .select({
+      id: tables.chunks.id,
+      doc_id: tables.chunks.docId,
+      content: tables.chunks.content,
+      chunk_index: tables.chunks.chunkIndex,
+    })
+    .from(tables.chunks)
+    .where(and(...conds))
+
+  if (rows.length === 0) return []
+
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  return bm25Rank(
+    query,
+    rows.map((r) => ({ id: r.id, text: r.content })),
+    k,
+  ).flatMap(({ id, score }) => {
+    const row = byId.get(id)
+    return row
+      ? [
+          {
+            id: row.id,
+            doc_id: row.doc_id,
+            content: row.content,
+            chunk_index: row.chunk_index,
+            score,
+          },
+        ]
+      : []
+  })
 }

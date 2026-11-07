@@ -20,6 +20,7 @@ import { and, desc, eq, gte, lte } from 'drizzle-orm'
 import { getDb, tables } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
+import { removeEntryEmbedding, syncEntryEmbedding } from '../services/search/entryIndex.js'
 
 const router = Router()
 
@@ -210,6 +211,8 @@ router.post(
     })
 
     const row = await findEntry(id)
+    // v5 4.4.3：入库后同步向量，供语义检索使用（失败只记日志）
+    await syncEntryEmbedding(id, body.title, body.content)
     logger.info('entries.route', 'POST / 完成', {
       entryId: id,
       type: body.type,
@@ -276,6 +279,15 @@ router.patch(
     updates.updatedAt = new Date()
     await db.update(tables.entries).set(updates).where(eq(tables.entries.id, id))
 
+    // 标题/内容变化 → 重新生成向量（状态变化不重新向量化）
+    if (updates.title !== undefined || updates.content !== undefined) {
+      await syncEntryEmbedding(
+        id,
+        updates.title ?? existing.title,
+        updates.content ?? existing.content,
+      )
+    }
+
     const row = await findEntry(id)
     logger.info('entries.route', 'PATCH /:id 完成', {
       entryId: id,
@@ -293,6 +305,7 @@ router.delete(
     const db = getDb()
     const existing = await findEntry(req.params.id)
     if (!existing) throw createError('条目不存在', 404, 'ENTRY_NOT_FOUND')
+    await removeEntryEmbedding(req.params.id)
     await db.delete(tables.entries).where(eq(tables.entries.id, req.params.id))
     logger.info('entries.route', 'DELETE /:id 完成', { entryId: req.params.id })
     res.status(204).end()

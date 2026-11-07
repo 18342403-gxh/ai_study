@@ -103,6 +103,21 @@ const documentExtractSchema = z.object({
   libraryId: z.string().max(64).default('default'),
 })
 
+// -- search
+const searchSchema = z.object({
+  query: z.string().min(1).max(500),
+  libraryId: z.string().max(64).default('default'),
+  timeRange: z
+    .object({
+      start: z.number().int(),
+      end: z.number().int(),
+    })
+    .nullable()
+    .optional(),
+  includeArchived: z.boolean().default(false),
+  skipUnderstanding: z.boolean().default(false),
+})
+
 // -- chat
 const chatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -143,6 +158,7 @@ const ALL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   listEntriesQuery: listEntriesQuerySchema,
   extractRequest: extractSchema,
   documentExtractRequest: documentExtractSchema,
+  searchRequest: searchSchema,
   chatMessage: chatMessageSchema,
   chatCompletions: chatCompletionsSchema,
   daysQuery: daysQuerySchema,
@@ -318,6 +334,14 @@ const PATHS: Record<string, PathItem[]> = {
       summary: '文档抽取为候选记录（整篇或指定块，单次最多 100 块）',
       requestBody: 'documentExtractRequest',
       responses: { '200': { description: '候选条目卡片（不写库）' } },
+    },
+  ],
+  '/api/search': [
+    {
+      method: 'post',
+      summary: '检索调试：时间通道 + 条目/文档语义通道，返回加权分与汇总',
+      requestBody: 'searchRequest',
+      responses: { '200': { description: '检索结果（只读）' } },
     },
   ],
   '/api/documents/{id}': [
