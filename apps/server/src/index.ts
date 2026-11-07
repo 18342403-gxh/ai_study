@@ -31,6 +31,7 @@ import {
 } from './middleware/index.js'
 import documentsRouter from './routes/documents.js'
 import entriesRouter from './routes/entries.js'
+import extractRouter from './routes/extract.js'
 import kbRouter from './routes/kb.js'
 import chatRouter from './routes/chat.js'
 import sessionsRouter from './routes/sessions.js'
@@ -95,6 +96,7 @@ app.use('/api/chat', chatRouter)
 app.use('/api/sessions', sessionsRouter)
 app.use('/api/documents', documentsRouter)
 app.use('/api/entries', entriesRouter)
+app.use('/api/extract', extractRouter)
 app.use('/api/kb', kbRouter)
 app.use('/api/rag', ragRouter)
 app.use('/api/logs', logsRouter)

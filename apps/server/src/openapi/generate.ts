@@ -91,6 +91,13 @@ const listEntriesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
 })
 
+// -- extract
+const extractSchema = z.object({
+  text: z.string().min(1).max(5000),
+  sessionId: z.string().max(64).nullable().optional(),
+  libraryId: z.string().max(64).default('default'),
+})
+
 // -- chat
 const chatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -129,6 +136,7 @@ const ALL_SCHEMAS: Record<string, z.ZodTypeAny> = {
   createEntry: createEntrySchema,
   updateEntry: updateEntrySchema,
   listEntriesQuery: listEntriesQuerySchema,
+  extractRequest: extractSchema,
   chatMessage: chatMessageSchema,
   chatCompletions: chatCompletionsSchema,
   daysQuery: daysQuerySchema,
@@ -288,6 +296,14 @@ const PATHS: Record<string, PathItem[]> = {
       summary: '永久删除条目（级联删除向量）',
       params: ['entryId'],
       responses: { '204': { description: '已删除' } },
+    },
+  ],
+  '/api/extract': [
+    {
+      method: 'post',
+      summary: '对话抽取：意图判别 + 结构化条目（含重复/冲突提示）',
+      requestBody: 'extractRequest',
+      responses: { '200': { description: '抽取结果（不写库）' } },
     },
   ],
   '/api/documents/{id}': [
