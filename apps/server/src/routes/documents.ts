@@ -20,6 +20,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
 import { splitStructured, getEmbeddings } from '../services/rag/index.js'
+import { extractTextFromFile, isSupportedExtension } from '../services/rag/fileText.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { extractDocumentChunks, MAX_DOC_CHUNKS } from '../services/extract/documentExtractor.js'
@@ -58,30 +59,17 @@ const upload = multer({
   dest: path.join(__dirname, '../../uploads'),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (_req, file, cb) => {
-    const allowedExts = ['.txt', '.md', '.json', '.pdf']
-    const ext = path.extname(file.originalname).toLowerCase()
-    if (allowedExts.includes(ext)) {
+    if (isSupportedExtension(file.originalname)) {
       cb(null, true)
     } else {
-      cb(new Error(`不支持的文件格式: ${ext}`))
+      const ext = path.extname(file.originalname).toLowerCase()
+      cb(createError(`不支持的文件格式: ${ext}`, 400, 'UNSUPPORTED_FILE_TYPE'))
     }
   },
 })
 
 // ── 辅助函数 ─────────────────────────────────────────
-const extractText = async (filePath: string, originalName: string): Promise<string> => {
-  const ext = path.extname(originalName).toLowerCase()
-  const fs = await import('fs/promises')
-
-  if (ext === '.pdf') {
-    const pdfParse = (await import('pdf-parse')).default
-    const buffer = await fs.readFile(filePath)
-    const data = await pdfParse(buffer)
-    return data.text
-  }
-
-  return fs.readFile(filePath, 'utf-8')
-}
+// 解析统一走 services/rag/fileText（txt / md / json / pdf / doc / docx）
 
 // ── 行 → API 对象映射（snake_case + 毫秒时间戳） ──────────
 
@@ -133,7 +121,7 @@ router.post(
     // 异步处理文档（解析 → 分块 → 向量化）
     ;(async () => {
       try {
-        const text = await extractText(file.path, file.originalname)
+        const text = await extractTextFromFile(file.path, file.originalname)
         // v5 统一分片（spec 4.2）：结构 → 段落 → 句子 → 硬切，600/80
         const chunks = splitStructured(text)
         const embeddings = await getEmbeddings(chunks.map((c) => c.content))

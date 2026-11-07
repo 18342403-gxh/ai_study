@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto'
 import { desc, eq } from 'drizzle-orm'
 
 import { createRAGService } from '../services/rag/index.js'
+import { isSupportedExtension } from '../services/rag/fileText.js'
 import { getDb, tables } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
@@ -29,10 +30,11 @@ const upload = multer({
   dest: path.join(__dirname, '../../uploads'),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = ['.txt', '.md', '.json', '.pdf']
-    const ext = path.extname(file.originalname).toLowerCase()
-    if (allowed.includes(ext)) cb(null, true)
-    else cb(new Error(`不支持的格式: ${ext}`))
+    if (isSupportedExtension(file.originalname)) cb(null, true)
+    else {
+      const ext = path.extname(file.originalname).toLowerCase()
+      cb(createError(`不支持的格式: ${ext}`, 400, 'UNSUPPORTED_FILE_TYPE'))
+    }
   },
 })
 

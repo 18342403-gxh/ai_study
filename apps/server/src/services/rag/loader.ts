@@ -1,11 +1,13 @@
 /**
  * RAG Step 1: Loader — 多格式文档加载器
- * 支持 txt / md / json / pdf 四种格式
+ * 支持 txt / md / json / pdf / doc / docx（解析实现见 fileText.ts）
  * 统一输出纯文本，方便后续 Splitter 处理
  */
 
 import path from 'path'
 import { randomUUID } from 'crypto'
+
+import { extractTextFromFile } from './fileText.js'
 
 export interface LoadedDocument {
   id: string
@@ -24,21 +26,6 @@ function detectType(filename: string): string {
   return path.extname(filename).toLowerCase()
 }
 
-/** PDF 加载器 */
-async function loadPdf(filePath: string, originalName: string): Promise<string> {
-  const pdfParse = (await import('pdf-parse')).default
-  const fs = await import('fs/promises')
-  const buffer = await fs.readFile(filePath)
-  const data = await pdfParse(buffer)
-  return data.text
-}
-
-/** 纯文本加载器（txt/md/json） */
-async function loadPlain(filePath: string): Promise<string> {
-  const fs = await import('fs/promises')
-  return fs.readFile(filePath, 'utf-8')
-}
-
 /**
  * 从文件路径加载文档
  */
@@ -49,20 +36,7 @@ export async function loadFromFile(
 ): Promise<LoadedDocument> {
   const name = originalName || path.basename(filePath)
   const type = detectType(name)
-
-  let content: string
-  switch (type) {
-    case '.pdf':
-      content = await loadPdf(filePath, name)
-      break
-    case '.txt':
-    case '.md':
-    case '.json':
-      content = await loadPlain(filePath)
-      break
-    default:
-      throw new Error(`不支持的文件类型: ${type}`)
-  }
+  const content = await extractTextFromFile(filePath, name)
 
   return {
     id: randomUUID(),
