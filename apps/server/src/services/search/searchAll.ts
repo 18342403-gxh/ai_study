@@ -21,6 +21,13 @@ import { searchTimeChannel } from './timeChannel.js'
 
 const ALL_TYPES: EntryType[] = ['schedule', 'plan', 'fact', 'note']
 
+/**
+ * 明确指向「资料/文档」的问法。
+ * 模型常把「文档里写了什么」判成通用问题，导致上传的资料检索不到；
+ * 这类问法无论如何都要跑一次文档通道（v5 对话内上传文档）。
+ */
+const DOC_INTENT = /文档|资料|附件|上传|pdf|docx?|word|excel|ppt/i
+
 export interface SearchAllOptions {
   query: string
   libraryId?: string
@@ -68,8 +75,10 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
           })
 
   const window = understanding.timeRange
+  const needsPersonal = understanding.needsPersonalContext
+  const docIntent = DOC_INTENT.test(options.query)
 
-  if (!understanding.needsPersonalContext) {
+  if (!needsPersonal && !docIntent) {
     logger.info('search.all', '通用知识问题，跳过个人检索', { queryLength: options.query.length })
     return {
       understanding,
@@ -83,7 +92,7 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
   }
 
   const [timeHits, entryHits, docHits] = await Promise.all([
-    window
+    needsPersonal && window
       ? searchTimeChannel({
           windowStart: window.start,
           windowEnd: window.end,
@@ -92,7 +101,9 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
           now: nowMs,
         })
       : Promise.resolve([]),
-    searchEntriesSemantic({ query: options.query, libraryId: options.libraryId }),
+    needsPersonal
+      ? searchEntriesSemantic({ query: options.query, libraryId: options.libraryId })
+      : Promise.resolve([]),
     searchDocumentsSemantic(options.query).catch((err: unknown) => {
       logger.warn('search.all', '文档语义通道失败，已跳过', {
         error: (err as Error).message,
@@ -101,10 +112,28 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
     }),
   ])
 
+  // 模型判为通用问题、但确实命中了资料 → 按个人上下文回答（带引用）
+  if (!needsPersonal && docHits.length === 0) {
+    logger.info('search.all', '通用知识问题，资料未命中', { queryLength: options.query.length })
+    return {
+      understanding,
+      window,
+      results: [],
+      summary: null,
+      channels: { time: 0, entry: 0, doc: 0 },
+      embeddingMock: isMockMode(),
+      empty: true,
+    }
+  }
+
+  const resolved: QueryUnderstanding = needsPersonal
+    ? understanding
+    : { ...understanding, needsPersonalContext: true }
+
   const { results, summary } = mergeSearchSignals({ timeHits, entryHits, docHits })
 
   logger.info('search.all', '检索完成', {
-    needsPersonalContext: understanding.needsPersonalContext,
+    needsPersonalContext: resolved.needsPersonalContext,
     understandingSource: understanding.source,
     hasWindow: window !== null,
     time: timeHits.length,
@@ -115,7 +144,7 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
   })
 
   return {
-    understanding,
+    understanding: resolved,
     window,
     results,
     summary,

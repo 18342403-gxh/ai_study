@@ -1,13 +1,5 @@
 <template>
   <div class="h-full flex flex-col">
-    <!-- 头部 -->
-    <div class="px-6 py-4 border-b border-slate-200">
-      <h2 class="text-lg font-semibold text-slate-800">知识库管理</h2>
-      <p class="text-xs text-slate-500 mt-1">
-        上传 AI 应用相关的文档，组件 / Skill 生成时会自动检索参考
-      </p>
-    </div>
-
     <!-- 上传区 -->
     <div class="px-6 py-5 border-b border-slate-100">
       <div class="flex gap-3">

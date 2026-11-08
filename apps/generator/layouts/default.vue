@@ -13,9 +13,6 @@
 
       <!-- 导航 -->
       <nav class="flex-1 py-2 overflow-y-auto light-scroll">
-        <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-          记忆
-        </div>
         <NuxtLink
           to="/chat"
           class="nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors"
@@ -25,24 +22,19 @@
           <span>对话</span>
         </NuxtLink>
 
-        <div
-          class="px-3 py-1.5 mt-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider"
+        <button
+          type="button"
+          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors"
+          @click="libraryOpen = true"
         >
-          资料
-        </div>
-        <NuxtLink
-          to="/"
-          class="nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors"
-          exact-active-class="active bg-sidebar-active text-sidebar-activeText font-medium"
-        >
-          <BookOpen class="w-4 h-4" />
-          <span>文档</span>
+          <Library class="w-4 h-4" />
+          <span>资料库</span>
           <span
             v-if="kbCount > 0"
             class="ml-auto text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full"
             >{{ kbCount }}</span
           >
-        </NuxtLink>
+        </button>
       </nav>
 
       <!-- 底部 -->
@@ -56,16 +48,19 @@
     <main class="flex-1 flex flex-col overflow-hidden bg-white">
       <slot />
     </main>
+
+    <LibraryDialog />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { BookOpen, MessageSquare } from 'lucide-vue-next'
+import { Library, MessageSquare } from 'lucide-vue-next'
 import techCatLogo from '@brand/tech_cat.png'
 
 // 知识库文档数量（侧边栏徽章）
 const kbCount = ref(0)
+const libraryOpen = useState<boolean>('libraryOpen', () => false)
 const config = useRuntimeConfig()
 const bffUrl = config.public.bffUrl as string
 

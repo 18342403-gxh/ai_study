@@ -1,18 +1,40 @@
 <template>
-  <div class="h-full flex flex-col">
-    <!-- 页头 -->
-    <header
-      class="h-14 px-6 flex items-center justify-between border-b border-slate-200 flex-shrink-0"
+  <div
+    class="h-full flex flex-col relative"
+    @dragover.prevent="dragging = true"
+    @dragleave="onDragLeave"
+    @drop.prevent="onDrop"
+  >
+    <!-- 拖拽上传覆盖层 -->
+    <div
+      v-if="dragging"
+      class="absolute inset-3 z-30 rounded-2xl bg-primary-50/90 border-2 border-dashed border-primary-400 flex items-center justify-center pointer-events-none"
     >
-      <div class="flex items-center gap-2">
-        <h2 class="text-base font-semibold text-slate-800">对话</h2>
-        <span class="text-[11px] text-slate-400">录入与问答共用</span>
+      <div class="text-center">
+        <Upload class="w-8 h-8 text-primary-500 mx-auto mb-2" />
+        <p class="text-sm text-primary-600 font-medium">松手即可上传到资料库</p>
+        <p class="text-[11px] text-primary-500 mt-1">上传后可以直接就文档内容提问</p>
       </div>
-      <div class="flex items-center gap-3">
-        <span class="text-[11px] text-slate-400">{{ model }}</span>
+    </div>
+
+    <!-- 顶栏 -->
+    <header class="h-12 px-5 flex items-center justify-between flex-shrink-0">
+      <div class="flex items-center gap-2">
+        <h1 class="text-sm font-semibold text-slate-800">对话</h1>
+        <span class="text-[11px] text-slate-400">记录与资料都能问</span>
+      </div>
+      <div class="flex items-center gap-1">
         <button
           type="button"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+          @click="openLibrary"
+        >
+          <Library class="w-3.5 h-3.5" />
+          资料库
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
           @click="startNewChat"
         >
           <Plus class="w-3.5 h-3.5" />
@@ -22,14 +44,15 @@
     </header>
 
     <!-- 消息流 -->
-    <div ref="scrollEl" class="flex-1 overflow-y-auto light-scroll px-6 py-5">
+    <div ref="scrollEl" class="flex-1 overflow-y-auto light-scroll px-4">
       <!-- 空态 -->
       <div v-if="messages.length === 0" class="h-full flex flex-col items-center justify-center">
-        <div class="w-11 h-11 rounded-xl bg-primary-50 flex items-center justify-center mb-3">
-          <MessageSquare class="w-5 h-5 text-primary-500" />
+        <div class="w-12 h-12 rounded-2xl bg-primary-50 flex items-center justify-center mb-4">
+          <Sparkles class="w-5 h-5 text-primary-500" />
         </div>
-        <p class="text-sm text-slate-600">说点什么，我会记住，也会在回答时引用你的记录</p>
-        <div class="mt-4 flex flex-wrap justify-center gap-2 max-w-lg">
+        <p class="text-base font-medium text-slate-700">有什么想记下来，或者想问的？</p>
+        <p class="text-xs text-slate-400 mt-1">说一句话我会整理成记录；也可以直接上传文档再提问</p>
+        <div class="mt-5 flex flex-wrap justify-center gap-2 max-w-lg">
           <button
             v-for="example in examples"
             :key="example"
@@ -42,7 +65,7 @@
         </div>
       </div>
 
-      <div v-else class="max-w-3xl mx-auto space-y-5">
+      <div v-else class="max-w-3xl mx-auto py-4 space-y-5">
         <div
           v-for="message in messages"
           :key="message.id"
@@ -51,9 +74,16 @@
           <!-- 用户消息 -->
           <div
             v-if="message.role === 'user'"
-            class="max-w-[72%] bg-primary-500 text-white text-sm rounded-2xl rounded-br-md px-3.5 py-2.5 whitespace-pre-wrap leading-6"
+            class="max-w-[72%] bg-primary-500 text-white text-sm rounded-2xl rounded-br-md px-3.5 py-2.5 leading-6"
           >
-            {{ message.content }}
+            <div v-if="message.attachment" class="flex items-center gap-2">
+              <FileText class="w-4 h-4 flex-shrink-0 opacity-90" />
+              <span class="truncate">{{ message.attachment.name }}</span>
+              <span class="text-[11px] opacity-70 flex-shrink-0">{{
+                message.attachment.sizeLabel
+              }}</span>
+            </div>
+            <p v-if="message.content" class="whitespace-pre-wrap">{{ message.content }}</p>
           </div>
 
           <!-- 助手消息 -->
@@ -103,9 +133,6 @@
                   @edit="item.state = 'editing'"
                   @cancel="item.state = 'pending'"
                 />
-                <p v-if="itemError(message)" class="text-[11px] text-red-500">
-                  {{ itemError(message) }}
-                </p>
               </div>
             </div>
 
@@ -145,37 +172,81 @@
     </div>
 
     <!-- 输入区 -->
-    <footer class="border-t border-slate-200 px-6 py-3 flex-shrink-0">
+    <footer class="px-4 pb-4 pt-1 flex-shrink-0">
       <div class="max-w-3xl mx-auto">
+        <!-- 上传中的附件 -->
+        <div v-if="uploads.length > 0" class="flex flex-wrap gap-2 mb-2">
+          <div
+            v-for="chip in uploads"
+            :key="chip.id"
+            class="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-600"
+          >
+            <FileText class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+            <span class="truncate max-w-[150px]">{{ chip.name }}</span>
+            <Loader2
+              v-if="chip.status === 'uploading'"
+              class="w-3.5 h-3.5 text-primary-500 animate-spin flex-shrink-0"
+            />
+            <Check
+              v-else-if="chip.status === 'done'"
+              class="w-3.5 h-3.5 text-emerald-500 flex-shrink-0"
+            />
+            <button
+              v-else
+              type="button"
+              class="p-0.5 text-slate-300 hover:text-slate-500"
+              @click="removeChip(chip.id)"
+            >
+              <X class="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+
         <div
-          class="flex items-end gap-2 border border-slate-300 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary-400 focus-within:border-transparent transition-shadow"
+          class="flex items-end gap-1.5 rounded-2xl border border-slate-300 bg-white pl-1.5 pr-2 py-1.5 shadow-sm focus-within:border-primary-400 focus-within:ring-1 focus-within:ring-primary-400 transition-shadow"
         >
+          <button
+            type="button"
+            class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0"
+            title="上传文档"
+            @click="fileInputEl?.click()"
+          >
+            <Paperclip class="w-4 h-4" />
+          </button>
           <textarea
             ref="textareaEl"
             v-model="input"
             rows="1"
             placeholder="说点什么，Enter 发送，Shift + Enter 换行"
-            class="flex-1 text-sm text-slate-800 resize-none focus:outline-none leading-6 max-h-36 bg-transparent"
-            :disabled="sending"
+            class="flex-1 text-sm text-slate-800 resize-none focus:outline-none leading-6 max-h-36 bg-transparent py-1.5"
             @input="autoGrow"
             @keydown.enter.exact.prevent="send"
           />
           <button
             type="button"
-            class="p-1.5 rounded-lg transition-colors flex-shrink-0"
+            class="p-2 rounded-xl transition-colors flex-shrink-0"
             :class="
               input.trim() && !sending
                 ? 'bg-primary-500 text-white hover:bg-primary-600'
-                : 'text-slate-300'
+                : 'bg-slate-100 text-slate-300'
             "
             :disabled="!input.trim() || sending"
             @click="send"
           >
-            <Send class="w-4 h-4" />
+            <ArrowUp class="w-4 h-4" />
           </button>
         </div>
-        <p class="mt-1.5 text-[10px] text-slate-400">
-          陈述句会被整理成记录，问句会基于你的记录作答
+
+        <input
+          ref="fileInputEl"
+          type="file"
+          multiple
+          accept=".txt,.md,.json,.pdf,.doc,.docx"
+          class="hidden"
+          @change="onFileSelect"
+        />
+        <p class="mt-1.5 text-center text-[10px] text-slate-400">
+          支持 .txt / .md / .json / .pdf / .doc / .docx，也可直接拖拽文件进来
         </p>
       </div>
     </footer>
@@ -185,13 +256,26 @@
 </template>
 
 <script setup lang="ts">
-import { Plus, MessageSquare, Send } from 'lucide-vue-next'
+import {
+  ArrowUp,
+  Check,
+  FileText,
+  Library,
+  Loader2,
+  Paperclip,
+  Plus,
+  Sparkles,
+  Upload,
+  X,
+} from 'lucide-vue-next'
 import {
   apiGet,
   apiPost,
+  apiUpload,
   type ChatAnswer,
   type Citation,
   type CreateEntryPayload,
+  type DocumentRow,
   type EntryCard as EntryCardData,
   type ExtractResponse,
   type SessionDetail,
@@ -209,10 +293,17 @@ interface UiCard {
   saving: boolean
 }
 
+interface UploadChip {
+  id: string
+  name: string
+  status: 'uploading' | 'done' | 'error'
+}
+
 interface UiMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  attachment?: { name: string; sizeLabel: string }
   cards?: UiCard[]
   citations?: Citation[]
   missing?: string[]
@@ -222,7 +313,8 @@ interface UiMessage {
   error?: string
 }
 
-const model = 'glm-4-flash'
+const ACCEPT_EXTS = ['.txt', '.md', '.json', '.pdf', '.doc', '.docx']
+
 const examples = [
   '下周有什么安排',
   '我习惯用什么技术风格',
@@ -237,9 +329,16 @@ const sessionId = ref<string | null>(null)
 const activeCitation = ref<Citation | null>(null)
 const scrollEl = ref<HTMLElement | null>(null)
 const textareaEl = ref<HTMLTextAreaElement | null>(null)
-const cardError = ref('')
+const fileInputEl = ref<HTMLInputElement | null>(null)
+const uploads = ref<UploadChip[]>([])
+const dragging = ref(false)
+const libraryOpen = useState<boolean>('libraryOpen', () => false)
 
 const uid = () => Math.random().toString(36).slice(2, 10)
+
+const openLibrary = () => {
+  libraryOpen.value = true
+}
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -275,9 +374,7 @@ const openCitation = (citation: Citation) => {
 
 const ensureSession = async (title: string): Promise<string> => {
   if (sessionId.value) return sessionId.value
-  const session = await apiPost<SessionSummary>('/api/sessions', {
-    title: title.slice(0, 20),
-  })
+  const session = await apiPost<SessionSummary>('/api/sessions', { title: title.slice(0, 20) })
   sessionId.value = session.id
   return session.id
 }
@@ -290,7 +387,7 @@ const startNewChat = () => {
   sessionId.value = null
   messages.value = []
   input.value = ''
-  cardError.value = ''
+  uploads.value = []
   nextTick(autoGrow)
 }
 
@@ -314,10 +411,12 @@ const loadLatestSession = async () => {
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .map((message) => {
         const meta = parseMeta(message.metadata)
+        const upload = /^上传文档[：:]\s*(.+)$/.exec(message.content)
         return {
           id: message.id,
           role: message.role as 'user' | 'assistant',
-          content: message.content,
+          content: upload ? '' : message.content,
+          attachment: upload ? { name: upload[1], sizeLabel: '' } : undefined,
           citations: message.citations ?? undefined,
           missing: Array.isArray(meta.missing) ? (meta.missing as string[]) : [],
           degraded: meta.degraded === true,
@@ -330,6 +429,121 @@ const loadLatestSession = async () => {
 }
 
 onMounted(loadLatestSession)
+
+// ── 文档上传 ────────────────────────────────────────
+
+const formatSize = (bytes: number): string => {
+  if (!bytes) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+const isSupported = (name: string): boolean => {
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && ACCEPT_EXTS.includes(name.slice(dot).toLowerCase())
+}
+
+const removeChip = (id: string) => {
+  uploads.value = uploads.value.filter((chip) => chip.id !== id)
+}
+
+/** 上传后文档在后台解析，轮询列表直到终态再给出片段数 */
+const waitForDocument = async (id: string): Promise<DocumentRow | null> => {
+  for (let i = 0; i < 25; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    try {
+      const list = await apiGet<DocumentRow[]>('/api/documents')
+      const doc = list.find((item) => item.id === id)
+      if (!doc) return null
+      if (doc.status !== 'processing') return doc
+    } catch {
+      /* 后台写库时偶发失败，继续轮询 */
+    }
+  }
+  return null
+}
+
+const uploadFiles = async (files: File[]) => {
+  if (files.length === 0) return
+
+  for (const file of files) {
+    if (!isSupported(file.name)) {
+      messages.value.push({
+        id: uid(),
+        role: 'assistant',
+        content: '',
+        error: `不支持的文件格式：${file.name}`,
+      })
+      continue
+    }
+
+    const sid = await ensureSession(file.name)
+    const chip: UploadChip = { id: uid(), name: file.name, status: 'uploading' }
+    uploads.value.push(chip)
+    messages.value.push({
+      id: uid(),
+      role: 'user',
+      content: '',
+      attachment: { name: file.name, sizeLabel: formatSize(file.size) },
+    })
+    await scrollToBottom()
+
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const created = await apiUpload<{ id: string; name: string; status: string }>(
+        '/api/documents/upload',
+        form,
+      )
+      const doc = await waitForDocument(created.id)
+
+      chip.status = doc?.status === 'failed' ? 'error' : 'done'
+      await persistMessage(sid, 'user', `上传文档：${file.name}`)
+
+      let ack: string
+      if (!doc || doc.status === 'processing') {
+        ack = `《${file.name}》还在解析中，稍等片刻就能就它提问。`
+      } else if (doc.status === 'ready') {
+        ack = `已读取《${file.name}》，共 ${doc.chunk_count} 个片段，可以直接就它提问。`
+      } else {
+        ack = `《${file.name}》解析失败，可能是空文档、扫描件或格式不支持。`
+      }
+      messages.value.push({ id: uid(), role: 'assistant', content: ack })
+      await persistMessage(sid, 'assistant', ack)
+      setTimeout(() => removeChip(chip.id), 1800)
+    } catch (error) {
+      chip.status = 'error'
+      messages.value.push({
+        id: uid(),
+        role: 'assistant',
+        content: '',
+        error: (error as Error).message,
+      })
+    }
+    await scrollToBottom()
+  }
+}
+
+const onFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const files = target.files ? Array.from(target.files) : []
+  target.value = ''
+  void uploadFiles(files)
+}
+
+let dragDepth = 0
+const onDragLeave = () => {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) dragging.value = false
+}
+
+const onDrop = (event: DragEvent) => {
+  dragDepth = 0
+  dragging.value = false
+  const files = event.dataTransfer?.files
+  if (files && files.length > 0) void uploadFiles(Array.from(files))
+}
 
 // ── 发送 ────────────────────────────────────────────
 
@@ -364,7 +578,6 @@ const send = async () => {
 
   sending.value = true
   input.value = ''
-  cardError.value = ''
   nextTick(autoGrow)
 
   try {
@@ -415,21 +628,23 @@ const send = async () => {
 const pendingCount = (message: UiMessage): number =>
   (message.cards ?? []).filter((item) => item.state === 'pending').length
 
-const itemError = (message: UiMessage): string =>
-  message.id === cardError.value.split('::')[0] ? (cardError.value.split('::')[1] ?? '') : ''
-
 const confirmCard = async (message: UiMessage, item: UiCard, payload: CreateEntryPayload) => {
   item.saving = true
-  cardError.value = ''
   try {
     await apiPost('/api/entries', payload)
     item.card = { ...item.card, ...payload } as EntryCardData
     item.state = 'confirmed'
   } catch (error) {
-    cardError.value = `${message.id}::${(error as Error).message}`
+    messages.value.push({
+      id: uid(),
+      role: 'assistant',
+      content: '',
+      error: (error as Error).message,
+    })
   } finally {
     item.saving = false
   }
+  void message
 }
 
 const confirmAll = async (message: UiMessage) => {

@@ -49,6 +49,31 @@ export const apiPatch = <T>(path: string, body: unknown): Promise<T> =>
 
 export const apiDelete = (path: string): Promise<void> => apiFetch<void>(path, { method: 'DELETE' })
 
+/** multipart 上传（不手写 Content-Type，交给浏览器生成 boundary） */
+export const apiUpload = async <T>(path: string, form: FormData): Promise<T> => {
+  const res = await fetch(`${baseUrl()}${path}`, { method: 'POST', body: form })
+  if (!res.ok) {
+    let message = `上传失败（${res.status}）`
+    try {
+      const body = (await res.json()) as ApiErrorBody
+      message = body?.error?.message ?? body?.message ?? message
+    } catch {
+      /* 非 JSON 错误体 */
+    }
+    throw new Error(message)
+  }
+  return (await res.json()) as T
+}
+
+export interface DocumentRow {
+  id: string
+  name: string
+  size: number
+  status: 'ready' | 'processing' | 'failed'
+  chunk_count: number
+  created_at: number
+}
+
 // ── 对话相关类型（与 server 端响应形状一致） ──────────
 
 export type EntryType = 'schedule' | 'plan' | 'fact' | 'note'
