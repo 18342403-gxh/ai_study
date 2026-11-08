@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "eval": "tsx tests/eval/run.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:db-wrap": "node scripts/test-db-wrap.mjs"

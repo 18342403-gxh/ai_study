@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "comment": "v5 评测用例（spec 4.11）：时间 5 / 规划 4 / 事实 4 / 无命中 3 / 冲突 2 / 降级 2。startAt 用相对偏移，用例永不过期；查询中的 {{d:N}} 表示 N 天后的日期（M月D日），{{wd:W}} 表示下一个周 W 的日期。",
+  "cases": [
+    {
+      "id": "time-1",
+      "category": "time",
+      "query": "我明天下午有什么安排？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "提交产品方案",
+          "content": "明天下午两点前把产品方案提交给主管。",
+          "startAt": { "offsetDays": 1, "hour": 14 }
+        }
+      ],
+      "expect": { "cite": ["提交产品方案"], "replyAny": ["14:00", "两点", "2点"] }
+    },
+    {
+      "id": "time-2",
+      "category": "time",
+      "query": "我今天晚上有什么安排？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "牙医复诊",
+          "content": "今天晚上六点半去口腔医院复诊。",
+          "startAt": { "offsetDays": 0, "hour": 18, "minute": 30 }
+        }
+      ],
+      "expect": { "cite": ["牙医复诊"], "replyAny": ["18:30", "六点半"] }
+    },
+    {
+      "id": "time-3",
+      "category": "time",
+      "query": "我这周有什么安排？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "羽毛球约球",
+          "content": "周三晚上七点和朋友打羽毛球。",
+          "startAt": { "offsetDays": 3, "hour": 19 }
+        }
+      ],
+      "expect": { "cite": ["羽毛球约球"] }
+    },
+    {
+      "id": "time-4",
+      "category": "time",
+      "query": "我在{{d:8}}有什么安排？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "给客户演示新版本",
+          "content": "上午十点给客户演示新版本功能。",
+          "startAt": { "offsetDays": 8, "hour": 10 }
+        }
+      ],
+      "expect": { "cite": ["给客户演示新版本"], "replyAny": ["10:00", "十点", "上午"] }
+    },
+    {
+      "id": "time-5",
+      "category": "time",
+      "query": "下周一上午有什么安排？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "部门晨会",
+          "content": "每周一上午九点部门晨会。",
+          "startAt": { "weekday": 1, "hour": 9 },
+          "recurrence": { "freq": "WEEKLY", "byWeekday": ["MO"] }
+        }
+      ],
+      "expect": { "cite": ["部门晨会"], "replyAny": ["9:00", "09:00", "九点"] }
+    },
+
+    {
+      "id": "plan-1",
+      "category": "plan",
+      "query": "我的前端工程化学得怎么样了？",
+      "seed": [
+        {
+          "type": "plan",
+          "title": "前端工程化系统学习",
+          "content": "今年系统学完前端工程化：已完成构建工具章节，正在进行单元测试章节。"
+        }
+      ],
+      "expect": { "cite": ["前端工程化系统学习"], "replyAny": ["单元测试", "进行中", "构建工具"] }
+    },
+    {
+      "id": "plan-2",
+      "category": "plan",
+      "query": "我今年有什么运动目标？",
+      "seed": [
+        {
+          "type": "plan",
+          "title": "半程马拉松挑战",
+          "content": "今年完成三次半程马拉松，已完成一次。"
+        }
+      ],
+      "expect": { "cite": ["半程马拉松挑战"], "replyAny": ["马拉松"] }
+    },
+    {
+      "id": "plan-3",
+      "category": "plan",
+      "query": "我目前有哪些进行中的计划？",
+      "seed": [
+        { "type": "plan", "title": "年度读书计划", "content": "今年读 12 本书，已读完 4 本。" },
+        {
+          "type": "plan",
+          "title": "美食摄影课程",
+          "content": "报名了美食摄影课程，正在上第三节课。"
+        }
+      ],
+      "expect": { "cite": ["年度读书计划", "美食摄影课程"] }
+    },
+    {
+      "id": "plan-4",
+      "category": "plan",
+      "query": "我英语六级准备得如何？",
+      "seed": [
+        {
+          "type": "plan",
+          "title": "英语六级备考",
+          "content": "备考英语六级：每天背 30 个单词，已坚持 20 天。"
+        },
+        {
+          "type": "schedule",
+          "title": "六级报名截止",
+          "content": "英语六级考试报名截止日。",
+          "startAt": { "offsetDays": 5, "hour": 9 }
+        }
+      ],
+      "expect": { "cite": ["英语六级备考"], "replyAny": ["单词", "20 天", "20天"] }
+    },
+
+    {
+      "id": "fact-1",
+      "category": "fact",
+      "query": "我平时习惯用什么技术栈？",
+      "seed": [
+        { "type": "fact", "title": "技术栈偏好", "content": "我习惯 TypeScript，不喜欢过度封装。" }
+      ],
+      "expect": { "cite": ["技术栈偏好"], "replyAny": ["TypeScript"] }
+    },
+    {
+      "id": "fact-2",
+      "category": "fact",
+      "query": "我一天中什么时候工作效率最高？",
+      "seed": [
+        { "type": "fact", "title": "作息习惯", "content": "我是夜猫子，晚上十点以后效率最高。" }
+      ],
+      "expect": { "cite": ["作息习惯"], "replyAny": ["晚上十点", "十点"] }
+    },
+    {
+      "id": "fact-3",
+      "category": "fact",
+      "query": "我有什么饮食上的禁忌？",
+      "seed": [{ "type": "fact", "title": "饮食禁忌", "content": "我不吃辣，而且对花生过敏。" }],
+      "expect": { "cite": ["饮食禁忌"], "replyAny": ["花生", "辣"] }
+    },
+    {
+      "id": "fact-4",
+      "category": "fact",
+      "query": "我住在哪里？",
+      "seed": [
+        { "type": "fact", "title": "居住地", "content": "我住在北京望京。" },
+        { "type": "fact", "title": "代码风格", "content": "我喜欢简洁直接的代码风格。" }
+      ],
+      "expect": { "cite": ["居住地"], "replyAny": ["望京", "北京"] }
+    },
+
+    {
+      "id": "miss-1",
+      "category": "miss",
+      "query": "我养过猫吗？",
+      "seed": [],
+      "expect": { "notFound": true }
+    },
+    {
+      "id": "miss-2",
+      "category": "miss",
+      "query": "我会开飞机吗？",
+      "seed": [],
+      "expect": { "notFound": true }
+    },
+    {
+      "id": "miss-3",
+      "category": "miss",
+      "query": "我在上海有房子吗？",
+      "seed": [],
+      "expect": { "notFound": true }
+    },
+
+    {
+      "id": "conflict-1",
+      "category": "conflict",
+      "query": "{{d:2}}下午我有什么安排？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "产品评审会",
+          "content": "下午两点产品评审会。",
+          "startAt": { "offsetDays": 2, "hour": 14 }
+        },
+        {
+          "type": "schedule",
+          "title": "客户电话会议",
+          "content": "下午两点半客户电话会议。",
+          "startAt": { "offsetDays": 2, "hour": 14, "minute": 30 }
+        }
+      ],
+      "expect": { "cite": ["产品评审会", "客户电话会议"] }
+    },
+    {
+      "id": "conflict-2",
+      "category": "conflict",
+      "query": "{{wd:3}}下午有什么安排？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "周报例会",
+          "content": "每周三下午三点周报例会。",
+          "startAt": { "weekday": 3, "hour": 15 },
+          "recurrence": { "freq": "WEEKLY", "byWeekday": ["WE"] }
+        },
+        {
+          "type": "schedule",
+          "title": "牙齿清洁",
+          "content": "下午三点半诊所洗牙。",
+          "startAt": { "weekday": 3, "hour": 15, "minute": 30 }
+        }
+      ],
+      "expect": { "cite": ["周报例会", "牙齿清洁"] }
+    },
+
+    {
+      "id": "degraded-1",
+      "category": "degraded",
+      "query": "我习惯用什么编程语言？",
+      "seed": [
+        {
+          "type": "fact",
+          "title": "编程语言偏好",
+          "content": "我习惯 TypeScript，不喜欢过度封装。"
+        }
+      ],
+      "expect": { "cite": ["编程语言偏好"], "replyAny": ["TypeScript"] }
+    },
+    {
+      "id": "degraded-2",
+      "category": "degraded",
+      "query": "我明天下午要做什么？",
+      "seed": [
+        {
+          "type": "schedule",
+          "title": "提交阶段总结",
+          "content": "明天下午三点前提交阶段总结。",
+          "startAt": { "offsetDays": 1, "hour": 15 }
+        }
+      ],
+      "expect": { "cite": ["提交阶段总结"], "replyAny": ["15:00", "三点", "3点"] }
+    }
+  ]
+}
