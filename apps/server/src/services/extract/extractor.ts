@@ -31,8 +31,11 @@ export type ExtractFailure = 'non_json' | 'timeout' | 'llm_error' | null
 
 /** 单次最多展示 5 条（spec 4.3.6） */
 export const MAX_EXTRACT_ENTRIES = 5
-/** 抽取调用超时（spec 4.3.6：15s） */
-export const DEFAULT_EXTRACT_TIMEOUT_MS = 15_000
+/** 抽取调用超时（spec 4.3.6 基线 15s；一致性反馈重试需要更大余量，可用 EXTRACT_TIMEOUT_MS 覆盖） */
+export const DEFAULT_EXTRACT_TIMEOUT_MS = Math.max(
+  1000,
+  parseInt(process.env.EXTRACT_TIMEOUT_MS || '25000', 10) || 25_000,
+)
 
 export interface ExtractedTime {
   raw: string
@@ -124,8 +127,10 @@ const OUTPUT_SCHEMA = `{
 const SECURITY_RULES = `规则：
 1. 只提取与用户本人相关的事实、日程、规划。
 2. 时间必须转换为带时区的 ISO 8601；无法确定就不填。
-3. 一条话包含多个事件时拆成多条。
-4. 不要编造用户没说的信息。
+3. 一事一卡：原文里不同的活动/事项必须拆成不同条目，禁止合并概括。
+   例：「我星期一去上班，星期二打游戏」→ 2 条：「星期一去上班」「星期二打游戏」。
+4. 不要编造用户没说的信息。标题必须取自原文短语（可截取主谓宾），
+   禁止出现原文没有的词（如把一次性的安排概括成「每周…安排」）。
 5. 只输出 JSON，不要附加解释，不要使用 Markdown 代码围栏。
 6. 重复规则只支持：DAILY（可带 interval）、WEEKLY（可带 byWeekday）、MONTHLY（可带 byMonthDay）。
    其他重复方式（每年、每月第 N 个周几等）请按单次事件输出，并在 content 里说明。
@@ -444,6 +449,53 @@ export const normalizeExtractResponse = (
 }
 
 // ─────────────────────────────────────────────
+// 一致性校验：条目必须忠实覆盖原文
+// ─────────────────────────────────────────────
+
+/** 原文中的时间词（星期X / 周X / 明天 / 后天 / 大后天 / 今晚 / 周末） */
+const TIME_MENTION_RE = /(?:星期|周)[一二三四五六日天]|大后天|后天|明天|今晚|周末/g
+
+/** 条目中禁止凭空出现的时间/重复词（如把单次事件概括成「每周…」） */
+const INVENTED_TIME_RE =
+  /(?:每|隔)\s*[一二两三四五六七八九十\d天周月年晚]|(?:星期|周)[一二三四五六日天]|大后天|后天|明天|今晚|周末/g
+
+const distinctMatches = (text: string, re: RegExp): string[] => [...new Set(text.match(re) ?? [])]
+
+/**
+ * 校验抽取结果与原文意思一致（对话模式）：
+ *   1. 覆盖：原文的每个时间词都要有条目承接（出现在某条的 time.raw / title / content 里）
+ *   2. 忠实：条目里不允许出现原文没有的时间/重复词
+ * 返回违例描述列表；空数组 = 通过。
+ */
+export const verifyConsistency = (entries: ExtractedEntry[], sourceText: string): string[] => {
+  const violations: string[] = []
+  const normalize = (s: string): string => s.replace(/星期/g, '周')
+  const normalizedSource = normalize(sourceText)
+
+  // 1. 覆盖检查：原文的每个时间词至少被一条条目提及
+  const covered = normalize(
+    entries.map((e) => `${e.time?.raw ?? ''} ${e.title} ${e.content}`).join('\n'),
+  )
+  for (const mention of distinctMatches(sourceText, TIME_MENTION_RE)) {
+    if (!covered.includes(normalize(mention))) {
+      violations.push(`遗漏：原文的「${mention}」没有对应条目`)
+    }
+  }
+
+  // 2. 忠实检查：条目不允许出现原文没有的时间/重复词
+  for (const entry of entries) {
+    const invented = distinctMatches(`${entry.title} ${entry.content}`, INVENTED_TIME_RE).filter(
+      (word) => !normalizedSource.includes(normalize(word)),
+    )
+    if (invented.length > 0) {
+      violations.push(`「${entry.title}」包含原文没有的信息：${invented.join('、')}`)
+    }
+  }
+
+  return violations
+}
+
+// ─────────────────────────────────────────────
 // 调用编排
 // ─────────────────────────────────────────────
 
@@ -470,13 +522,17 @@ const defaultInvoke = async (messages: ChatMessage[]): Promise<string> => {
   return response.content
 }
 
-const retryMessages = (messages: ChatMessage[]): ChatMessage[] => {
+const retryMessages = (messages: ChatMessage[], feedback?: string[]): ChatMessage[] => {
   const last = messages[messages.length - 1]
+  const note =
+    feedback && feedback.length > 0
+      ? `（注意：上一次输出与原文不一致——${feedback.join('；')}。请严格按原文拆分与命名，只输出 JSON。）`
+      : '（注意：上一次输出不是合法 JSON。请只输出 JSON 对象，不要解释，不要代码围栏。）'
   return [
     ...messages.slice(0, -1),
     {
       role: last.role,
-      content: `${last.content}\n\n（注意：上一次输出不是合法 JSON。请只输出 JSON 对象，不要解释，不要代码围栏。）`,
+      content: `${last.content}\n\n${note}`,
     },
   ]
 }
@@ -519,9 +575,12 @@ export const extractEntries = async (options: ExtractOptions): Promise<ExtractOu
   const maxEntries = options.maxEntries ?? MAX_EXTRACT_ENTRIES
 
   let lastFailure: ExtractFailure = 'non_json'
+  /** 一致性校验违例，重试时反馈给模型自我修正 */
+  let consistencyFeedback: string[] | null = null
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const requestMessages = attempt === 0 ? messages : retryMessages(messages)
+    const requestMessages =
+      attempt === 0 ? messages : retryMessages(messages, consistencyFeedback ?? undefined)
 
     let content: string
     try {
@@ -545,6 +604,23 @@ export const extractEntries = async (options: ExtractOptions): Promise<ExtractOu
       lastFailure = 'non_json'
       logger.warn('extract', '模型输出不是合法 JSON', { attempt: attempt + 1 })
       continue
+    }
+
+    // 一致性校验（仅对话模式）：与原文不一致 → 带违例反馈重试一次
+    const violations =
+      options.mode === 'document' ? [] : verifyConsistency(normalized.entries, text)
+    if (violations.length > 0 && attempt === 0) {
+      consistencyFeedback = violations
+      logger.warn('extract', '抽取与原文不一致，带反馈重试', { violations })
+      continue
+    }
+    if (violations.length > 0) {
+      // 重试后仍不一致：标注出来让用户核对，而不是静默通过
+      for (const entry of normalized.entries) {
+        entry.warnings.push(...violations)
+        entry.needsReview = true
+        entry.confidence = Math.min(entry.confidence, 0.5)
+      }
     }
 
     const total = normalized.entries.length

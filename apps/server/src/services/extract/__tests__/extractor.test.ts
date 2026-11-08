@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { extractEntries, parseLooseJson } from '../extractor.js'
+import { extractEntries, parseLooseJson, verifyConsistency } from '../extractor.js'
+import type { ExtractedEntry } from '../extractor.js'
 import { formatDateTime } from '../timeParse.js'
 
 /** 固定基准：2026-11-07（周六）10:00 本地时间 */
@@ -318,5 +319,94 @@ describe('extractEntries', () => {
     const entry = outcome.entries[0]
     expect(entry.recurrence).toBeNull()
     expect(entry.warnings.join()).toContain('原文未表达重复')
+  })
+})
+
+describe('verifyConsistency', () => {
+  it('覆盖且忠实时无违例', () => {
+    expect(
+      verifyConsistency(
+        [
+          { title: '星期一去上班', content: '我星期一去上班', time: { raw: '星期一' } },
+          { title: '星期二打游戏', content: '星期二打游戏', time: { raw: '星期二' } },
+        ] as unknown as ExtractedEntry[],
+        '我星期一去上班，星期二打游戏',
+      ),
+    ).toEqual([])
+  })
+
+  it('遗漏原文时间词时报违例', () => {
+    const violations = verifyConsistency(
+      [{ title: '去上班', content: '去上班', time: null }] as unknown as ExtractedEntry[],
+      '我星期一去上班',
+    )
+    expect(violations.join()).toContain('遗漏')
+  })
+
+  it('条目出现原文没有的「每周」时报违例', () => {
+    const violations = verifyConsistency(
+      [
+        { title: '每周健身安排', content: '每周健身安排', time: null },
+      ] as unknown as ExtractedEntry[],
+      '我周三去健身',
+    )
+    expect(violations.join()).toContain('每周')
+  })
+})
+
+describe('extractEntries 一致性重试', () => {
+  const MERGED_SOURCE = '我星期一去上班，星期二打游戏，星期三去上学'
+  /** 模型把三件事合并概括成一条（含原文没有的「每周」） */
+  const mergedPayload = json({
+    intent: 'record',
+    entries: [
+      {
+        type: 'schedule',
+        title: '每周工作与娱乐安排',
+        content: '每周工作与娱乐安排',
+        time: { raw: '星期一', start: '2026-11-09T09:00:00+08:00', end: null },
+        confidence: 0.9,
+      },
+    ],
+  })
+
+  it('合并概括触发一致性校验并带反馈重试', async () => {
+    const seen: string[] = []
+    const outcome = await extractEntries({
+      text: MERGED_SOURCE,
+      now: NOW,
+      invoke: async (messages) => {
+        seen.push(messages.map((m) => m.content).join('\n'))
+        if (seen.length === 1) return mergedPayload
+        return json({
+          intent: 'record',
+          entries: ['星期一去上班', '星期二打游戏', '星期三去上学'].map((frag) => ({
+            type: 'plan',
+            title: frag,
+            content: frag,
+            time: { raw: frag.slice(0, 3), start: null, end: null },
+            confidence: 0.9,
+          })),
+        })
+      },
+    })
+
+    expect(seen).toHaveLength(2)
+    expect(seen[1]).toContain('上一次输出与原文不一致')
+    expect(outcome.ok).toBe(true)
+    expect(outcome.entries).toHaveLength(3)
+  })
+
+  it('重试后仍不一致时标注需核对并降置信度', async () => {
+    const outcome = await extractEntries({
+      text: MERGED_SOURCE,
+      now: NOW,
+      invoke: async () => mergedPayload,
+    })
+
+    const entry = outcome.entries[0]
+    expect(entry.needsReview).toBe(true)
+    expect(entry.confidence).toBeLessThanOrEqual(0.5)
+    expect(entry.warnings.join()).toContain('遗漏')
   })
 })
