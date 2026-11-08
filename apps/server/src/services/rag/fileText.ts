@@ -12,6 +12,7 @@
  */
 
 import path from 'path'
+import { createRequire } from 'module'
 
 /** 上传允许的扩展名：multer fileFilter 与解析器共用，避免两处漂移 */
 export const SUPPORTED_EXTENSIONS = ['.txt', '.md', '.json', '.pdf', '.doc', '.docx']
@@ -23,8 +24,15 @@ const stripBom = (text: string): string => (text.charCodeAt(0) === 0xfeff ? text
 
 const normalize = (text: string): string => stripBom(text).replace(/\r\n?/g, '\n').trim()
 
+// pdf-parse 的 index.js 入口在 module.parent 为空（tsx/ESM 环境）时会误判为 debug 模式，
+// 启动即读取包内 test/data 下的样例文件 → 直接抛 ENOENT，导致所有 PDF 解析失败。
+// 绕过入口、直接 require 内部实现模块。
+const require = createRequire(import.meta.url)
+const pdfParse: (
+  buffer: Buffer,
+) => Promise<{ text: string }> = require('pdf-parse/lib/pdf-parse.js')
+
 const extractPdf = async (buffer: Buffer): Promise<string> => {
-  const pdfParse = (await import('pdf-parse')).default
   const data = await pdfParse(buffer)
   return data.text
 }
