@@ -360,7 +360,7 @@
             class="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 mb-0.5 rounded-full text-xs transition-colors"
             :class="
               recordMode
-                ? 'bg-primary-500 text-white shadow-sm'
+                ? 'bg-orange-100 text-orange-600 shadow-sm'
                 : 'bg-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-200'
             "
             :title="
