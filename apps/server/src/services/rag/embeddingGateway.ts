@@ -20,6 +20,12 @@ import crypto from 'node:crypto'
 
 const EMBEDDING_DIM = 1536 // 和智谱 embedding-3 一致
 
+/** 单次 embedding 请求超时：超时走 catch → hash 降级，避免挂死检索链路 */
+const EMBEDDING_TIMEOUT_MS = Math.max(
+  1000,
+  parseInt(process.env.EMBEDDING_TIMEOUT_MS || '15000', 10) || 15_000,
+)
+
 function getEnv() {
   return {
     apiUrl: process.env.AI_API_URL || 'https://open.bigmodel.cn/api/paas/v4',
@@ -120,6 +126,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({ model, input: text }),
+      signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
     })
 
     if (!response.ok) {

@@ -773,7 +773,7 @@ const askAI = async (text: string, sid: string) => {
   await scrollToBottom()
 
   try {
-    const answer = await apiPost<ChatAnswer>('/api/chat', { message: text, sessionId: sid })
+    const answer = await apiPost<ChatAnswer>('/api/chat', { message: text, sessionId: sid }, 90_000)
     placeholder.loading = false
     placeholder.content = answer.reply
     placeholder.citations = answer.citations

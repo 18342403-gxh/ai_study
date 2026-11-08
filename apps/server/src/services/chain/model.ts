@@ -39,6 +39,9 @@ function getEnv() {
 
 type ModelEnv = ReturnType<typeof getEnv>
 
+/** LLM 单次请求超时：fetch 不带 signal 时连接挂死会无限等待，拖死整条请求链 */
+const LLM_TIMEOUT_MS = Math.max(1000, parseInt(process.env.AI_TIMEOUT_MS || '60000', 10) || 60_000)
+
 /** 解析目标模型：显式 model 优先，其次 tier 路由，最后默认免费档 */
 export const resolveModelName = (config: ModelConfig, env: ModelEnv = getEnv()): string => {
   if (config.model) return config.model
@@ -156,7 +159,7 @@ const postChat = (ctx: ChatCtx, opts: PostChatOpts) =>
       temperature: ctx.temperature,
       stream: opts.stream,
     }),
-    signal: opts.signal,
+    signal: opts.signal ?? AbortSignal.timeout(LLM_TIMEOUT_MS),
   })
 
 /** 非 2xx 统一处理：日志 + 429/余额不足标记 + throw */
@@ -227,6 +230,10 @@ const invokeChat = async (ctx: ChatCtx, input: RawInput): Promise<string> => {
     return data.choices[0]?.message?.content || ''
   } catch (err) {
     if ((err as Error).message.startsWith('AI 请求失败')) throw err
+    if ((err as Error).name === 'TimeoutError') {
+      logger.error('llm.invoke', '调用超时', { model, timeoutMs: LLM_TIMEOUT_MS })
+      throw new Error('AI 响应超时，请稍后重试', { cause: err })
+    }
     logger.error('llm.invoke', '网络异常', {
       model,
       error: (err as Error).message,

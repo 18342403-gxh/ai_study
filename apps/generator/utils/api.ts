@@ -15,14 +15,28 @@ const baseUrl = (): string => {
   return String(config.public.bffUrl ?? '').replace(/\/$/, '')
 }
 
-export const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const res = await fetch(`${baseUrl()}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init?.headers,
-    },
-  })
+export const apiFetch = async <T>(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<T> => {
+  const { timeoutMs, ...rest } = init ?? {}
+  let res: Response
+  try {
+    res = await fetch(`${baseUrl()}${path}`, {
+      ...rest,
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+      headers: {
+        ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
+        ...rest.headers,
+      },
+    })
+  } catch (err) {
+    // AbortSignal.timeout 触发时 fetch 抛 TimeoutError，转成可读文案
+    if ((err as Error).name === 'TimeoutError' || (err as Error).name === 'AbortError') {
+      throw new Error('请求超时，请稍后重试', { cause: err })
+    }
+    throw err
+  }
 
   if (!res.ok) {
     let message = `请求失败（${res.status}）`
@@ -41,8 +55,8 @@ export const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> 
 
 export const apiGet = <T>(path: string): Promise<T> => apiFetch<T>(path)
 
-export const apiPost = <T>(path: string, body: unknown): Promise<T> =>
-  apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) })
+export const apiPost = <T>(path: string, body: unknown, timeoutMs?: number): Promise<T> =>
+  apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body), timeoutMs })
 
 export const apiPatch = <T>(path: string, body: unknown): Promise<T> =>
   apiFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
