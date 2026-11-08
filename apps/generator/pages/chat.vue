@@ -27,14 +27,6 @@
         <button
           type="button"
           class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
-          @click="openLibrary"
-        >
-          <Library class="w-3.5 h-3.5" />
-          资料库
-        </button>
-        <button
-          type="button"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
           @click="startNewChat"
         >
           <Plus class="w-3.5 h-3.5" />

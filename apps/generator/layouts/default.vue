@@ -21,20 +21,6 @@
           <MessageSquare class="w-4 h-4" />
           <span>对话</span>
         </NuxtLink>
-
-        <button
-          type="button"
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors"
-          @click="libraryOpen = true"
-        >
-          <Library class="w-4 h-4" />
-          <span>资料库</span>
-          <span
-            v-if="kbCount > 0"
-            class="ml-auto text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full"
-            >{{ kbCount }}</span
-          >
-        </button>
       </nav>
 
       <!-- 底部 -->
@@ -54,27 +40,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Library, MessageSquare } from 'lucide-vue-next'
+import { MessageSquare } from 'lucide-vue-next'
 import techCatLogo from '@brand/tech_cat.png'
 
-// 知识库文档数量（侧边栏徽章）
-const kbCount = ref(0)
-const libraryOpen = useState<boolean>('libraryOpen', () => false)
 const config = useRuntimeConfig()
-const bffUrl = config.public.bffUrl as string
-
-async function fetchKbCount() {
-  try {
-    const res = await fetch(`${bffUrl}/api/rag/documents`)
-    if (res.ok) {
-      const list = await res.json()
-      kbCount.value = list.filter((d: any) => d.status === 'ready').length
-    }
-  } catch {
-    /* BFF 没启动就静默忽略 */
-  }
-}
-
-onMounted(fetchKbCount)
 </script>
