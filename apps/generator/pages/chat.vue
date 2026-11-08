@@ -829,7 +829,17 @@ const send = async () => {
       return
     }
 
-    const extracted = await apiPost<ExtractResponse>('/api/extract', { text, sessionId: sid })
+    // 入库路径：先挂加载占位（一致性校验可能带反馈重试，耗时可达几十秒）
+    const pending: UiMessage = { id: uid(), role: 'assistant', content: '', loading: true }
+    messages.value.push(pending)
+    await scrollToBottom()
+
+    let extracted: ExtractResponse
+    try {
+      extracted = await apiPost<ExtractResponse>('/api/extract', { text, sessionId: sid }, 75_000)
+    } finally {
+      messages.value = messages.value.filter((m) => m.id !== pending.id)
+    }
 
     if (extracted.intent === 'record' && extracted.entries.length > 0) {
       await persistMessage(sid, 'user', text)
@@ -845,6 +855,13 @@ const send = async () => {
           state: 'pending',
           saving: false,
         })),
+      })
+    } else if (extracted.failed) {
+      // 抽取降级：直接展示后端降级话术，不再二次调用问答（避免重复等待）
+      messages.value.push({
+        id: uid(),
+        role: 'assistant',
+        content: extracted.reply || '整理失败了，请稍后重试',
       })
     } else {
       await askAI(text, sid)
