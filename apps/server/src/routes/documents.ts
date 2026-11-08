@@ -59,6 +59,8 @@ const upload = multer({
   dest: path.join(__dirname, '../../uploads'),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (_req, file, cb) => {
+    // busboy 默认按 latin1 解析 multipart 文件名，中文名会变乱码，这里转回 UTF-8
+    file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8')
     if (isSupportedExtension(file.originalname)) {
       cb(null, true)
     } else {

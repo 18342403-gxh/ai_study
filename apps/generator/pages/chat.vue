@@ -519,7 +519,7 @@ const pickFiles = () => {
   fileInputEl.value?.click()
 }
 
-/** 面板里的「粘贴链接」：同步导入网页，直接播报片段数 */
+/** 面板里的「粘贴链接」：同步导入网页，反馈解析结果 */
 const importUrl = async () => {
   const url = urlInput.value.trim()
   if (!url || urlLoading.value) return
@@ -531,7 +531,7 @@ const importUrl = async () => {
     )
     const sid = await ensureSession(doc.name || url)
     await persistMessage(sid, 'user', `导入链接：${url}`)
-    const ack = `已读取链接《${doc.name}》，共 ${doc.chunkCount} 个片段，可以直接就它提问。`
+    const ack = `《${doc.name}》解析成功。`
     messages.value.push({ id: uid(), role: 'assistant', content: ack })
     await persistMessage(sid, 'assistant', ack)
     closePanel()
@@ -659,7 +659,7 @@ const removeChip = (id: string) => {
   uploads.value = uploads.value.filter((chip) => chip.id !== id)
 }
 
-/** 上传后文档在后台解析，轮询列表直到终态再给出片段数 */
+/** 上传后文档在后台解析，轮询列表直到终态再反馈结果 */
 const waitForDocument = async (id: string): Promise<DocumentRow | null> => {
   for (let i = 0; i < 25; i++) {
     await new Promise((resolve) => setTimeout(resolve, 700))
@@ -716,7 +716,7 @@ const uploadFiles = async (files: File[]) => {
       if (!doc || doc.status === 'processing') {
         ack = `《${file.name}》还在解析中，稍等片刻就能就它提问。`
       } else if (doc.status === 'ready') {
-        ack = `已读取《${file.name}》，共 ${doc.chunk_count} 个片段，可以直接就它提问。`
+        ack = `《${file.name}》解析成功。`
       } else {
         ack = `《${file.name}》解析失败，可能是空文档、扫描件或格式不支持。`
       }
@@ -758,10 +758,14 @@ const onDrop = (event: DragEvent) => {
 
 // ── 发送 ────────────────────────────────────────────
 
-/** 明显是疑问句时直接走问答，省一次抽取调用（疑问词出现在句中也要识别） */
-const looksLikeQuestion = (text: string): boolean =>
-  /[?？]|(吗|呢)[。！!]?$/.test(text) ||
-  /什么|怎么|为什么|哪些|哪个|多少|如何|是否|有没有|能不能|几时|什么时候/.test(text)
+/**
+ * 信息存储意图关键词：命中才走「整理入库」，其余一律按问答处理（直接用知识回答）。
+ * 默认问答是安全选择——把问题误判成存储会生成空卡片，反过来只是少一次主动整理。
+ */
+const looksLikeStorage = (text: string): boolean =>
+  /记住|帮我记|记一下|记下来|记录一下|存一下|提醒我|别忘了|备忘|收藏一下|加个日程|帮我安排/.test(
+    text,
+  )
 
 const askAI = async (text: string, sid: string) => {
   const placeholder: UiMessage = { id: uid(), role: 'assistant', content: '', loading: true }
@@ -796,7 +800,7 @@ const send = async () => {
     messages.value.push({ id: uid(), role: 'user', content: text })
     await scrollToBottom()
 
-    if (looksLikeQuestion(text)) {
+    if (!looksLikeStorage(text)) {
       await askAI(text, sid)
       return
     }

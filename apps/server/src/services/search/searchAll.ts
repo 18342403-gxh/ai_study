@@ -21,13 +21,6 @@ import { searchTimeChannel } from './timeChannel.js'
 
 const ALL_TYPES: EntryType[] = ['schedule', 'plan', 'fact', 'note']
 
-/**
- * 明确指向「资料/文档」的问法。
- * 模型常把「文档里写了什么」判成通用问题，导致上传的资料检索不到；
- * 这类问法无论如何都要跑一次文档通道（v5 对话内上传文档）。
- */
-const DOC_INTENT = /文档|资料|附件|上传|pdf|docx?|word|excel|ppt/i
-
 export interface SearchAllOptions {
   query: string
   libraryId?: string
@@ -76,21 +69,10 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
 
   const window = understanding.timeRange
   const needsPersonal = understanding.needsPersonalContext
-  const docIntent = DOC_INTENT.test(options.query)
 
-  if (!needsPersonal && !docIntent) {
-    logger.info('search.all', '通用知识问题，跳过个人检索', { queryLength: options.query.length })
-    return {
-      understanding,
-      window,
-      results: [],
-      summary: null,
-      channels: { time: 0, entry: 0, doc: 0 },
-      embeddingMock: isMockMode(),
-      empty: true,
-    }
-  }
-
+  // 文档通道始终跑一次（本地 BM25 + 向量，成本低）：
+  // 「龚熙皓是谁」这类问法常被误判为通用问题，但答案就在刚上传的资料里；
+  // 真正的通用问题会在下方「资料未命中」分支返回空。
   const [timeHits, entryHits, docHits] = await Promise.all([
     needsPersonal && window
       ? searchTimeChannel({
