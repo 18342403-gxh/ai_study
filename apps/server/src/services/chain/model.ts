@@ -42,6 +42,9 @@ type ModelEnv = ReturnType<typeof getEnv>
 /** LLM 单次请求超时：fetch 不带 signal 时连接挂死会无限等待，拖死整条请求链 */
 const LLM_TIMEOUT_MS = Math.max(1000, parseInt(process.env.AI_TIMEOUT_MS || '60000', 10) || 60_000)
 
+/** 429 限流重试延迟：免费档 QPS 窗口短，等几秒大概率恢复；测试环境缩短避免拖慢用例 */
+const RETRY_429_DELAY_MS = process.env.VITEST ? 10 : 4000
+
 /** 解析目标模型：显式 model 优先，其次 tier 路由，最后默认免费档 */
 export const resolveModelName = (config: ModelConfig, env: ModelEnv = getEnv()): string => {
   if (config.model) return config.model
@@ -215,10 +218,20 @@ const invokeChat = async (ctx: ChatCtx, input: RawInput): Promise<string> => {
   })
 
   try {
-    const response = await postChat(ctx, { model, messages, stream: false })
-    if (!response.ok) await throwHttpError('llm.invoke', model, response, Date.now() - t0)
+    // 429 限流重试一次（只重试 HTTP 429，超时/网络错误直接抛）
+    let response: Response | undefined
+    for (let attempt = 0; attempt <= 1; attempt++) {
+      response = await postChat(ctx, { model, messages, stream: false })
+      if (response.ok) break
+      if (response.status === 429 && attempt < 1) {
+        logger.warn('llm.invoke', '429 限流，稍后重试一次', { model, delayMs: RETRY_429_DELAY_MS })
+        await new Promise((resolve) => setTimeout(resolve, RETRY_429_DELAY_MS))
+        continue
+      }
+      await throwHttpError('llm.invoke', model, response, Date.now() - t0)
+    }
 
-    const data = (await response.json()) as {
+    const data = (await response!.json()) as {
       choices: Array<{ message: { content: string } }>
       usage?: any
     }
