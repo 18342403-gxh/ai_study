@@ -28,7 +28,7 @@
             ref="fileInput"
             class="hidden"
             multiple
-            accept=".txt,.md,.json,.pdf"
+            accept=".txt,.md,.json,.pdf,.doc,.docx"
             @change="handleFileSelect"
           />
           <div class="flex items-center gap-3">
@@ -36,7 +36,7 @@
             <div>
               <div class="text-sm font-medium text-slate-700">点击或拖拽文件到这里</div>
               <div class="text-[11px] text-slate-400 mt-0.5">
-                支持 .txt / .md / .json / .pdf，单文件 ≤ 10MB
+                支持 .txt / .md / .json / .pdf / .doc / .docx，单文件 ≤ 10MB
               </div>
             </div>
           </div>

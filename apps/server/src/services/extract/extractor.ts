@@ -131,7 +131,9 @@ const SECURITY_RULES = `规则：
    其他重复方式（每年、每月第 N 个周几等）请按单次事件输出，并在 content 里说明。
 7. 时间无法解析时 time 为 null，此时 type 不能是 schedule。
 8. intent 判别：疑问句 → query；纯寒暄 → chat；含时间/自我描述/未来意图 → record；
-   同时含提问与陈述时 intent 用 record，并在 reply 中回答用户的问题。`
+   同时含提问与陈述时 intent 用 record，并在 reply 中回答用户的问题。
+9. 句中出现「什么 / 怎么 / 为什么 / 哪些 / 哪个 / 多少 / 如何 / 是否 / 有没有」等疑问词时，
+   即使句子里带「我」，也判为 query，不要抽取成条目。`
 
 /** 组装抽取 Prompt（spec 4.3.5） */
 export const buildExtractMessages = (params: {

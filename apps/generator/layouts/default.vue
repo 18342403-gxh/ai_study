@@ -14,19 +14,35 @@
       <!-- 导航 -->
       <nav class="flex-1 py-2 overflow-y-auto light-scroll">
         <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-          知识库
+          记忆
         </div>
-        <button
-          class="nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left active bg-sidebar-active text-sidebar-activeText font-medium"
+        <NuxtLink
+          to="/chat"
+          class="nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors"
+          active-class="active bg-sidebar-active text-sidebar-activeText font-medium"
+        >
+          <MessageSquare class="w-4 h-4" />
+          <span>对话</span>
+        </NuxtLink>
+
+        <div
+          class="px-3 py-1.5 mt-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider"
+        >
+          资料
+        </div>
+        <NuxtLink
+          to="/"
+          class="nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors"
+          exact-active-class="active bg-sidebar-active text-sidebar-activeText font-medium"
         >
           <BookOpen class="w-4 h-4" />
-          <span>文档管理</span>
+          <span>文档</span>
           <span
             v-if="kbCount > 0"
             class="ml-auto text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full"
             >{{ kbCount }}</span
           >
-        </button>
+        </NuxtLink>
       </nav>
 
       <!-- 底部 -->
@@ -45,7 +61,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { BookOpen } from 'lucide-vue-next'
+import { BookOpen, MessageSquare } from 'lucide-vue-next'
 import techCatLogo from '@brand/tech_cat.png'
 
 // 知识库文档数量（侧边栏徽章）
