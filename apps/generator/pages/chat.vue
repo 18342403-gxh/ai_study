@@ -35,6 +35,49 @@
       </div>
     </header>
 
+    <!-- 今日/明日提醒 -->
+    <div v-if="reminderCount > 0" class="px-4 flex-shrink-0">
+      <div class="max-w-3xl mx-auto">
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700 hover:bg-amber-100 transition-colors"
+          @click="reminderOpen = !reminderOpen"
+        >
+          <Bell class="w-3.5 h-3.5 flex-shrink-0" />
+          <span v-if="reminders.today.length > 0">今天 {{ reminders.today.length }} 项</span>
+          <span v-if="reminders.today.length > 0 && reminders.tomorrow.length > 0">·</span>
+          <span v-if="reminders.tomorrow.length > 0">明天 {{ reminders.tomorrow.length }} 项</span>
+          <ChevronDown
+            class="w-3.5 h-3.5 ml-auto transition-transform"
+            :class="reminderOpen && 'rotate-180'"
+          />
+        </button>
+        <div
+          v-if="reminderOpen"
+          class="mt-1 px-3 py-2 bg-white border border-amber-200 rounded-xl space-y-1"
+        >
+          <div
+            v-for="item in reminders.today"
+            :key="'t' + item.id + item.startAt"
+            class="flex items-center gap-2 text-xs text-slate-600"
+          >
+            <span class="text-amber-600 font-medium flex-shrink-0 w-8">今天</span>
+            <span class="text-slate-400 flex-shrink-0">{{ fmtClock(item.startAt) }}</span>
+            <span class="truncate">{{ item.title }}</span>
+          </div>
+          <div
+            v-for="item in reminders.tomorrow"
+            :key="'m' + item.id + item.startAt"
+            class="flex items-center gap-2 text-xs text-slate-600"
+          >
+            <span class="text-slate-400 font-medium flex-shrink-0 w-8">明天</span>
+            <span class="text-slate-400 flex-shrink-0">{{ fmtClock(item.startAt) }}</span>
+            <span class="truncate">{{ item.title }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 消息流 -->
     <div ref="scrollEl" class="flex-1 overflow-y-auto light-scroll px-4">
       <!-- 空态 -->
@@ -356,7 +399,9 @@
 <script setup lang="ts">
 import {
   ArrowUp,
+  Bell,
   Check,
+  ChevronDown,
   FileText,
   FileUp,
   Library,
@@ -377,6 +422,7 @@ import {
   type DocumentRow,
   type EntryCard as EntryCardData,
   type ExtractResponse,
+  type RemindersResponse,
   type SessionDetail,
   type SessionMessage,
   type SessionSummary,
@@ -436,6 +482,24 @@ const panelOpen = ref(false)
 const urlMode = ref(false)
 const urlInput = ref('')
 const urlLoading = ref(false)
+const reminders = ref<RemindersResponse>({ today: [], tomorrow: [] })
+const reminderOpen = ref(false)
+const reminderCount = computed(() => reminders.value.today.length + reminders.value.tomorrow.length)
+
+/** 今日/明日提醒：进对话页拉一次，确认卡片入库后再刷新（spec 阶段 10） */
+const fetchReminders = async () => {
+  try {
+    reminders.value = await apiGet<RemindersResponse>('/api/reminders')
+  } catch {
+    /* 后端未启动时静默 */
+  }
+}
+
+const fmtClock = (ms: number): string => {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -572,7 +636,10 @@ const loadLatestSession = async () => {
   }
 }
 
-onMounted(loadLatestSession)
+onMounted(() => {
+  void loadLatestSession()
+  void fetchReminders()
+})
 
 // ── 文档上传 ────────────────────────────────────────
 
@@ -778,6 +845,7 @@ const confirmCard = async (message: UiMessage, item: UiCard, payload: CreateEntr
     await apiPost('/api/entries', payload)
     item.card = { ...item.card, ...payload } as EntryCardData
     item.state = 'confirmed'
+    void fetchReminders()
   } catch (error) {
     messages.value.push({
       id: uid(),

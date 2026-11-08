@@ -216,6 +216,20 @@ export interface CreateEntryPayload {
   confidence?: number
 }
 
+export interface ReminderItem {
+  id: string
+  type: string
+  title: string
+  startAt: number
+  endAt: number | null
+  occurrence: boolean
+}
+
+export interface RemindersResponse {
+  today: ReminderItem[]
+  tomorrow: ReminderItem[]
+}
+
 export const TYPE_LABEL: Record<EntryType, string> = {
   schedule: '日程',
   plan: '规划',

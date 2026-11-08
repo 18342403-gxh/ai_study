@@ -32,6 +32,7 @@ import {
 import documentsRouter from './routes/documents.js'
 import entriesRouter from './routes/entries.js'
 import extractRouter from './routes/extract.js'
+import remindersRouter from './routes/reminders.js'
 import searchRouter from './routes/search.js'
 import kbRouter from './routes/kb.js'
 import chatRouter from './routes/chat.js'
@@ -98,6 +99,7 @@ app.use('/api/sessions', sessionsRouter)
 app.use('/api/documents', documentsRouter)
 app.use('/api/entries', entriesRouter)
 app.use('/api/extract', extractRouter)
+app.use('/api/reminders', remindersRouter)
 app.use('/api/search', searchRouter)
 app.use('/api/kb', kbRouter)
 app.use('/api/rag', ragRouter)

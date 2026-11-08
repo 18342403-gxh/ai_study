@@ -360,6 +360,13 @@ const PATHS: Record<string, PathItem[]> = {
       responses: { '200': { description: '回答 + citations + missing + degraded 标记' } },
     },
   ],
+  '/api/reminders': [
+    {
+      method: 'get',
+      summary: '简单提醒：返回今天与明天的日程/规划（重复事件已展开为实例）',
+      responses: { '200': { description: '{ today: ReminderItem[], tomorrow: ReminderItem[] }' } },
+    },
+  ],
   '/api/documents/{id}': [
     {
       method: 'delete',
