@@ -354,11 +354,32 @@
               </div>
             </Transition>
           </div>
+          <!-- 「记一下」模式开关：开启后输入的内容默认整理为记录 -->
+          <button
+            type="button"
+            class="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 mb-0.5 rounded-full text-xs transition-colors"
+            :class="
+              recordMode
+                ? 'bg-primary-500 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-200'
+            "
+            :title="
+              recordMode ? '已开启：内容将整理为记录，点击关闭' : '开启后，输入的内容默认整理为记录'
+            "
+            @click="recordMode = !recordMode"
+          >
+            <PenLine class="w-3.5 h-3.5" />
+            记一下
+          </button>
           <textarea
             ref="textareaEl"
             v-model="input"
             rows="1"
-            placeholder="说点什么，Enter 发送，Shift + Enter 换行"
+            :placeholder="
+              recordMode
+                ? '记一条：内容将整理为记录入库'
+                : '说点什么，Enter 发送，Shift + Enter 换行'
+            "
             class="flex-1 text-sm text-slate-800 resize-none focus:outline-none leading-6 max-h-36 bg-transparent py-1.5"
             @input="autoGrow"
             @keydown.enter.exact.prevent="send"
@@ -407,6 +428,7 @@ import {
   Library,
   Link2,
   Loader2,
+  PenLine,
   Plus,
   Sparkles,
   Upload,
@@ -470,6 +492,8 @@ const examples = [
 const messages = ref<UiMessage[]>([])
 const input = ref('')
 const sending = ref(false)
+/** 「记一下」模式：开启后输入的内容默认走整理入库，不再需要关键词 */
+const recordMode = ref(false)
 const sessionId = ref<string | null>(null)
 const activeCitation = ref<Citation | null>(null)
 const scrollEl = ref<HTMLElement | null>(null)
@@ -800,7 +824,7 @@ const send = async () => {
     messages.value.push({ id: uid(), role: 'user', content: text })
     await scrollToBottom()
 
-    if (!looksLikeStorage(text)) {
+    if (!recordMode.value && !looksLikeStorage(text)) {
       await askAI(text, sid)
       return
     }
