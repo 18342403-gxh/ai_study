@@ -202,17 +202,123 @@
           </div>
         </div>
 
+        <!-- 「+」面板打开时的点击遮罩 -->
+        <div v-if="panelOpen" class="fixed inset-0 z-10" @click="closePanel" />
+
         <div
           class="flex items-end gap-1.5 rounded-2xl border border-slate-300 bg-white pl-1.5 pr-2 py-1.5 shadow-sm focus-within:border-primary-400 focus-within:ring-1 focus-within:ring-primary-400 transition-shadow"
         >
-          <button
-            type="button"
-            class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0"
-            title="上传文档"
-            @click="fileInputEl?.click()"
-          >
-            <Paperclip class="w-4 h-4" />
-          </button>
+          <div class="relative flex-shrink-0">
+            <button
+              type="button"
+              class="p-2 rounded-xl transition-colors"
+              :class="
+                panelOpen
+                  ? 'bg-slate-100 text-slate-600'
+                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+              "
+              title="添加资料"
+              @click.stop="panelOpen = !panelOpen"
+            >
+              <Plus class="w-4 h-4" />
+            </button>
+
+            <!-- 「+」弹出面板 -->
+            <Transition
+              enter-active-class="transition duration-150 ease-out"
+              leave-active-class="transition duration-100 ease-in"
+              enter-from-class="opacity-0 translate-y-1"
+              leave-to-class="opacity-0 translate-y-1"
+            >
+              <div
+                v-if="panelOpen"
+                class="absolute bottom-full left-0 mb-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-lg p-1.5 z-20"
+                @click.stop
+              >
+                <template v-if="!urlMode">
+                  <button
+                    type="button"
+                    class="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-slate-50 transition-colors text-left"
+                    @click="pickFiles"
+                  >
+                    <span
+                      class="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0"
+                    >
+                      <FileUp class="w-4 h-4 text-primary-500" />
+                    </span>
+                    <span>
+                      <span class="block text-sm text-slate-700">上传文件</span>
+                      <span class="block text-[11px] text-slate-400"
+                        >.txt / .md / .json / .pdf / .doc / .docx</span
+                      >
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-slate-50 transition-colors text-left"
+                    @click="urlMode = true"
+                  >
+                    <span
+                      class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0"
+                    >
+                      <Link2 class="w-4 h-4 text-emerald-500" />
+                    </span>
+                    <span>
+                      <span class="block text-sm text-slate-700">粘贴链接</span>
+                      <span class="block text-[11px] text-slate-400">导入网页内容</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-slate-50 transition-colors text-left"
+                    @click="openLibrary"
+                  >
+                    <span
+                      class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0"
+                    >
+                      <Library class="w-4 h-4 text-slate-500" />
+                    </span>
+                    <span>
+                      <span class="block text-sm text-slate-700">资料库</span>
+                      <span class="block text-[11px] text-slate-400">管理已入库的文档</span>
+                    </span>
+                  </button>
+                </template>
+
+                <!-- 链接导入 -->
+                <div v-else class="p-1.5">
+                  <p class="text-[11px] text-slate-400 mb-1.5">
+                    粘贴 http / https 链接，导入网页内容
+                  </p>
+                  <div class="flex gap-1.5">
+                    <input
+                      v-model="urlInput"
+                      type="url"
+                      placeholder="https://…"
+                      class="flex-1 text-sm px-2.5 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-400 focus:border-primary-400"
+                      @keyup.enter="importUrl"
+                    />
+                    <button
+                      type="button"
+                      class="px-2.5 py-1.5 bg-primary-500 text-white text-xs rounded-lg hover:bg-primary-600 disabled:opacity-40 transition-colors"
+                      :disabled="!urlInput.trim() || urlLoading"
+                      @click="importUrl"
+                    >
+                      <Loader2 v-if="urlLoading" class="w-3.5 h-3.5 animate-spin" />
+                      <template v-else>导入</template>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    class="mt-1.5 text-[11px] text-slate-400 hover:text-slate-600"
+                    @click="urlMode = false"
+                  >
+                    返回
+                  </button>
+                </div>
+              </div>
+            </Transition>
+          </div>
           <textarea
             ref="textareaEl"
             v-model="input"
@@ -260,9 +366,10 @@ import {
   ArrowUp,
   Check,
   FileText,
+  FileUp,
   Library,
+  Link2,
   Loader2,
-  Paperclip,
   Plus,
   Sparkles,
   Upload,
@@ -333,11 +440,56 @@ const fileInputEl = ref<HTMLInputElement | null>(null)
 const uploads = ref<UploadChip[]>([])
 const dragging = ref(false)
 const libraryOpen = useState<boolean>('libraryOpen', () => false)
+const panelOpen = ref(false)
+const urlMode = ref(false)
+const urlInput = ref('')
+const urlLoading = ref(false)
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
 const openLibrary = () => {
+  closePanel()
   libraryOpen.value = true
+}
+
+const closePanel = () => {
+  panelOpen.value = false
+  urlMode.value = false
+  urlInput.value = ''
+}
+
+const pickFiles = () => {
+  closePanel()
+  fileInputEl.value?.click()
+}
+
+/** 面板里的「粘贴链接」：同步导入网页，直接播报片段数 */
+const importUrl = async () => {
+  const url = urlInput.value.trim()
+  if (!url || urlLoading.value) return
+  urlLoading.value = true
+  try {
+    const doc = await apiPost<{ id: string; name: string; chunkCount: number }>(
+      '/api/rag/documents/url',
+      { url },
+    )
+    const sid = await ensureSession(doc.name || url)
+    await persistMessage(sid, 'user', `导入链接：${url}`)
+    const ack = `已读取链接《${doc.name}》，共 ${doc.chunkCount} 个片段，可以直接就它提问。`
+    messages.value.push({ id: uid(), role: 'assistant', content: ack })
+    await persistMessage(sid, 'assistant', ack)
+    closePanel()
+  } catch (error) {
+    messages.value.push({
+      id: uid(),
+      role: 'assistant',
+      content: '',
+      error: (error as Error).message,
+    })
+  } finally {
+    urlLoading.value = false
+    await scrollToBottom()
+  }
 }
 
 const scrollToBottom = async () => {
