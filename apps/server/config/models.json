@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "currency": "CNY",
+  "unit": "per_1m_tokens",
+  "note": "单价表：价格变化频繁，以厂商官网为准，改这里不改代码。free=true 表示免费档（永不计费、永不触发熔断）。",
+  "models": [
+    { "provider": "zhipu", "model": "glm-4-flash", "free": true, "input": 0, "output": 0 },
+    { "provider": "zhipu", "model": "glm-4-flashx", "free": true, "input": 0, "output": 0 },
+    { "provider": "zhipu", "model": "glm-4-air", "input": 0.5, "output": 0.5 },
+    { "provider": "zhipu", "model": "glm-4-airx", "input": 5, "output": 5 },
+    { "provider": "zhipu", "model": "glm-4-plus", "input": 50, "output": 50 },
+    { "provider": "zhipu", "model": "embedding-3", "free": true, "input": 0, "output": 0 }
+  ]
+}

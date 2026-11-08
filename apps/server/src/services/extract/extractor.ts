@@ -465,7 +465,7 @@ const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> =>
   })
 
 const defaultInvoke = async (messages: ChatMessage[]): Promise<string> => {
-  const chain = createChatChain({ temperature: 0.1, feature: 'chat' })
+  const chain = createChatChain({ temperature: 0.1, feature: 'extract' })
   const response = await chain.invoke({ messages })
   return response.content
 }

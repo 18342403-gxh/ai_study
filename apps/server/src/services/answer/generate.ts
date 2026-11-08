@@ -143,8 +143,11 @@ const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> =>
     )
   })
 
-const defaultInvoke = async (messages: ChatMessage[]): Promise<string> => {
-  const chain = createChatChain({ temperature: 0.7, feature: 'chat' })
+const defaultInvoke = async (
+  messages: ChatMessage[],
+  feature: 'chat_general' | 'chat_with_records',
+): Promise<string> => {
+  const chain = createChatChain({ temperature: 0.7, feature })
   const response = await chain.invoke({ messages })
   return response.content
 }
@@ -162,7 +165,6 @@ const fallbackReply = (assembled: AssembledContext): string => {
 export const generateAnswer = async (options: AnswerOptions): Promise<AnswerOutcome> => {
   const { query, search } = options
   const timezone = options.timezone ?? getLocalTimezone()
-  const invoke = options.invoke ?? defaultInvoke
   const timeoutMs = options.timeoutMs ?? DEFAULT_ANSWER_TIMEOUT_MS
 
   // ── 通用问题：不注入个人记录，正常回答（4.7.2 通用问题行） ──
@@ -173,6 +175,7 @@ export const generateAnswer = async (options: AnswerOptions): Promise<AnswerOutc
       history: trimHistory(options.history ?? []),
       general: true,
     })
+    const invoke = options.invoke ?? ((m: ChatMessage[]) => defaultInvoke(m, 'chat_general'))
     const content = await withTimeout(invoke(messages), timeoutMs)
     return {
       reply: content.trim(),
@@ -220,6 +223,7 @@ export const generateAnswer = async (options: AnswerOptions): Promise<AnswerOutc
   })
 
   let content: string
+  const invoke = options.invoke ?? ((m: ChatMessage[]) => defaultInvoke(m, 'chat_with_records'))
   try {
     content = await withTimeout(invoke(messages), timeoutMs)
   } catch (err) {

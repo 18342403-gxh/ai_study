@@ -182,7 +182,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
   }
 }
 
-/** 批量获取 embedding（自动降级） */
+/** 批量获取 embedding（自动降级，worker pool 限并发） */
 export const getEmbeddings = async (texts: string[]): Promise<number[][]> => {
   const { forceMock } = getEnv()
 
@@ -191,25 +191,24 @@ export const getEmbeddings = async (texts: string[]): Promise<number[][]> => {
     return texts.map((t) => hashVector(t))
   }
 
-  // 批量模式下，逐个调用 getEmbedding（每个都有独立的降级逻辑）
-  const results: number[][] = []
-  const batchSize = 10
+  // 并发 4（spec 阶段 11）：免费档限速敏感，批量上传文档时避免打满厂商 QPS
+  const concurrency = Math.max(1, parseInt(process.env.EMBEDDING_CONCURRENCY || '4', 10) || 4)
+  const results: number[][] = new Array(texts.length)
+  let next = 0
 
-  for (let i = 0; i < texts.length; i += batchSize) {
-    const batch = texts.slice(i, i + batchSize)
-    // 每个 batch 独立处理：API 失败的单个文本 → hash，不影响同 batch 其他
-    const batchResults = await Promise.all(
-      batch.map(async (text) => {
-        try {
-          return await getEmbedding(text)
-        } catch {
-          return hashVector(text)
-        }
-      }),
-    )
-    results.push(...batchResults)
+  const worker = async (): Promise<void> => {
+    while (next < texts.length) {
+      const i = next++
+      // 单个文本失败 → hash 降级，不影响其他文本
+      try {
+        results[i] = await getEmbedding(texts[i])
+      } catch {
+        results[i] = hashVector(texts[i])
+      }
+    }
   }
 
+  await Promise.all(Array.from({ length: Math.min(concurrency, texts.length) }, () => worker()))
   return results
 }
 

@@ -128,13 +128,14 @@ CREATE TABLE IF NOT EXISTS app.entry_embeddings (
 -- ============================
 CREATE TABLE IF NOT EXISTS app.ai_usage_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  feature VARCHAR(32) NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
+  feature VARCHAR(32) NOT NULL CHECK(feature IN ('chat_general','chat_with_records','extract','understand','embedding','eval')),
   model VARCHAR(128) NOT NULL,
   provider VARCHAR(32) NOT NULL DEFAULT 'zhipu',
   prompt_tokens INTEGER NOT NULL DEFAULT 0,
   completion_tokens INTEGER NOT NULL DEFAULT 0,
   total_tokens INTEGER NOT NULL DEFAULT 0,
   cost_ms INTEGER NOT NULL DEFAULT 0,
+  cost DOUBLE PRECISION,
   user_id VARCHAR(64),
   session_id VARCHAR(64),
   metadata JSONB,

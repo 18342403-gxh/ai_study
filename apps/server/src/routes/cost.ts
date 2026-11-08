@@ -1,6 +1,7 @@
 /**
  * 成本控制查询 API
  *   GET /api/cost/today      — 今日用量速览（total + budget + pct）
+ *   GET /api/cost/month      — 本月估算花费 + 月度预算进度（spec 10.4 熔断依据）
  *   GET /api/cost/daily?days=7    — 按天聚合（默认 7 天）
  *   GET /api/cost/breakdown?days=1 — 按 feature + model 拆解
  *   GET /api/cost/settings    — 预算等配置
@@ -8,7 +9,13 @@
 
 import { Router } from 'express'
 import { z } from 'zod'
-import { getTodayTotal, getDailyStats, getBreakdown } from '../services/costTracker.js'
+import {
+  getTodayTotal,
+  getDailyStats,
+  getBreakdown,
+  getMonthCost,
+} from '../services/costTracker.js'
+import { getChatDegradedState } from '../services/chain/model.js'
 import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
@@ -23,6 +30,15 @@ router.get(
   asyncHandler(async (_req, res) => {
     const today = await getTodayTotal()
     res.json({ ok: true, data: today })
+  }),
+)
+
+/** GET /api/cost/month — 本月估算花费（按单价表）与预算进度 */
+router.get(
+  '/month',
+  asyncHandler(async (_req, res) => {
+    const month = await getMonthCost()
+    res.json({ ok: true, data: month })
   }),
 )
 
@@ -56,8 +72,12 @@ router.get(
       ok: true,
       data: {
         dailyTokenBudget: process.env.DAILY_TOKEN_BUDGET || null,
+        monthlyCostBudget: process.env.MONTHLY_COST_BUDGET || '10',
+        largeModel: process.env.AI_MODEL_LARGE || null,
+        chatDegraded: getChatDegradedState(),
         embeddingMockEnabled: process.env.ENABLE_MOCK_EMBEDDING === '1',
         embeddingFallbackDisabled: process.env.DISABLE_EMBEDDING_FALLBACK === '1',
+        embeddingConcurrency: parseInt(process.env.EMBEDDING_CONCURRENCY || '4', 10) || 4,
       },
     })
   }),

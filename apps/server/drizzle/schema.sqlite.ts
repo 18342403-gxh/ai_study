@@ -169,6 +169,7 @@ export const aiUsageLogs = sqliteTable(
     completionTokens: integer('completion_tokens').notNull().default(0),
     totalTokens: integer('total_tokens').notNull().default(0),
     costMs: integer('cost_ms').notNull().default(0),
+    cost: real('cost'),
     userId: text('user_id'),
     sessionId: text('session_id'),
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
@@ -177,7 +178,7 @@ export const aiUsageLogs = sqliteTable(
   (t) => [
     check(
       'ai_usage_logs_feature_check',
-      sql`${t.feature} IN ('chat','generator','rag','embedding','eval')`,
+      sql`${t.feature} IN ('chat_general','chat_with_records','extract','understand','embedding','eval')`,
     ),
     index('idx_ai_usage_logs_created').on(t.createdAt),
     index('idx_ai_usage_logs_feature').on(t.feature, t.createdAt),

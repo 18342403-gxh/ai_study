@@ -23,8 +23,24 @@ import { desc, gte, sql } from 'drizzle-orm'
 
 import { logger } from './logger.js'
 import { getDb, getDriver, tables } from '../db/index.js'
+import { estimateCostYuan } from './llm/pricing.js'
 
-export type AiFeature = 'chat' | 'generator' | 'rag' | 'embedding' | 'eval'
+/**
+ * feature 词表（v5 阶段 11 normalize，与 ai_usage_logs CHECK 约束一致）：
+ *   chat_general       通用问答（未注入个人记录）
+ *   chat_with_records  带个人记录/资料片段的问答
+ *   extract            对话/文档录入抽取
+ *   understand         查询理解
+ *   embedding          向量化
+ *   eval               评测回归
+ */
+export type AiFeature =
+  | 'chat_general'
+  | 'chat_with_records'
+  | 'extract'
+  | 'understand'
+  | 'embedding'
+  | 'eval'
 
 export interface UsageInfo {
   feature: AiFeature
@@ -65,6 +81,13 @@ export const costTracker = new CostTrackerEmitter()
 costTracker.on('usage', async (info: UsageInfo) => {
   try {
     const db = getDb()
+    // 按单价表估算成本（元）；未知模型 → null（pricing 内保守视为付费）
+    const cost = estimateCostYuan(
+      info.provider || 'zhipu',
+      info.model,
+      info.promptTokens,
+      info.completionTokens,
+    )
     await db.insert(tables.aiUsageLogs).values({
       id: randomUUID(),
       feature: info.feature,
@@ -74,6 +97,7 @@ costTracker.on('usage', async (info: UsageInfo) => {
       completionTokens: info.completionTokens,
       totalTokens: info.totalTokens,
       costMs: info.costMs || 0,
+      cost,
       userId: info.userId || null,
       sessionId: info.sessionId || null,
       metadata: info.metadata ?? null,
@@ -156,6 +180,8 @@ export interface DailyAggregate {
   embeddingTokens: number
   callCount: number
   totalCostMs: number
+  /** 按单价表估算的金额（元），未知模型不计入 */
+  totalCostYuan: number
 }
 
 export async function getDailyStats(days = 7): Promise<DailyAggregate[]> {
@@ -173,11 +199,12 @@ export async function getDailyStats(days = 7): Promise<DailyAggregate[]> {
     .select({
       date: sql<string>`${dateExpr}`,
       totalTokens: sql<number>`SUM(${tables.aiUsageLogs.totalTokens})`,
-      chatTokens: sql<number>`SUM(CASE WHEN ${tables.aiUsageLogs.feature} = 'chat' THEN ${tables.aiUsageLogs.totalTokens} ELSE 0 END)`,
-      generatorTokens: sql<number>`SUM(CASE WHEN ${tables.aiUsageLogs.feature} = 'generator' THEN ${tables.aiUsageLogs.totalTokens} ELSE 0 END)`,
+      chatTokens: sql<number>`SUM(CASE WHEN ${tables.aiUsageLogs.feature} IN ('chat_general','chat_with_records') THEN ${tables.aiUsageLogs.totalTokens} ELSE 0 END)`,
+      generatorTokens: sql<number>`0`,
       embeddingTokens: sql<number>`SUM(CASE WHEN ${tables.aiUsageLogs.feature} = 'embedding' THEN ${tables.aiUsageLogs.totalTokens} ELSE 0 END)`,
       callCount: sql<number>`COUNT(*)`,
       totalCostMs: sql<number>`SUM(${tables.aiUsageLogs.costMs})`,
+      totalCostYuan: sql<number>`COALESCE(SUM(${tables.aiUsageLogs.cost}), 0)`,
     })
     .from(tables.aiUsageLogs)
     .where(gte(tables.aiUsageLogs.createdAt, new Date(Date.now() - days * 86_400_000)))
@@ -189,10 +216,11 @@ export async function getDailyStats(days = 7): Promise<DailyAggregate[]> {
     date: String(r.date),
     totalTokens: Number(r.totalTokens || 0),
     chatTokens: Number(r.chatTokens || 0),
-    generatorTokens: Number(r.generatorTokens || 0),
+    generatorTokens: 0,
     embeddingTokens: Number(r.embeddingTokens || 0),
     callCount: Number(r.callCount || 0),
     totalCostMs: Number(r.totalCostMs || 0),
+    totalCostYuan: Number(r.totalCostYuan || 0),
   }))
 }
 
@@ -258,4 +286,71 @@ export async function getTodayTotal(): Promise<{
     budget,
     pct: budget ? Math.round((total / budget) * 100) : null,
   }
+}
+
+// ── 月度金额预算（spec 10.4：单价表 × 用量 → 熔断依据） ────
+
+export interface MonthCost {
+  /** 本月累计估算花费（元） */
+  costYuan: number
+  /** 月度预算（元），默认 10；MONTHLY_COST_BUDGET 可配 */
+  budgetYuan: number
+  pct: number
+  /** ≥100% → 付费模型强制降级到免费档 */
+  blocked: boolean
+  /** ≥80% → 界面警告 */
+  warning: boolean
+}
+
+export const getMonthlyBudgetYuan = (): number => {
+  const parsed = parseFloat(process.env.MONTHLY_COST_BUDGET ?? '')
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10
+}
+
+export async function getMonthCost(): Promise<MonthCost> {
+  const db = getDb()
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  monthStart.setHours(0, 0, 0, 0)
+
+  const rows = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${tables.aiUsageLogs.cost}), 0)`,
+    })
+    .from(tables.aiUsageLogs)
+    .where(gte(tables.aiUsageLogs.createdAt, monthStart))
+
+  const costYuan = Number(rows[0]?.total || 0)
+  const budgetYuan = getMonthlyBudgetYuan()
+  const pct = budgetYuan > 0 ? (costYuan / budgetYuan) * 100 : 0
+  return { costYuan, budgetYuan, pct, blocked: pct >= 100, warning: pct >= 80 }
+}
+
+// 熔断检查走缓存：同一个月份窗口内 60s 查一次库，避免每次调用都 COUNT
+const MONTH_CHECK_INTERVAL_MS = 60_000
+let monthCache: { value: MonthCost; at: number } | null = null
+
+export async function checkMonthlyBudget(): Promise<MonthCost> {
+  const now = Date.now()
+  if (monthCache && now - monthCache.at < MONTH_CHECK_INTERVAL_MS) return monthCache.value
+  try {
+    const value = await getMonthCost()
+    monthCache = { value, at: now }
+    return value
+  } catch (err) {
+    // 查询失败不阻断调用（记账是异步旁路）
+    logger.debug('cost-tracker', '月度预算检查跳过', { error: (err as Error).message })
+    return {
+      costYuan: 0,
+      budgetYuan: getMonthlyBudgetYuan(),
+      pct: 0,
+      blocked: false,
+      warning: false,
+    }
+  }
+}
+
+/** 测试用：清除月度预算缓存 */
+export const resetMonthBudgetCache = (): void => {
+  monthCache = null
 }

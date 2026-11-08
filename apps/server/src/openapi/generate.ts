@@ -377,6 +377,13 @@ const PATHS: Record<string, PathItem[]> = {
   '/api/cost/today': [
     { method: 'get', summary: '今日用量速览', responses: { '200': { description: 'OK' } } },
   ],
+  '/api/cost/month': [
+    {
+      method: 'get',
+      summary: '本月估算花费与预算进度（熔断依据）',
+      responses: { '200': { description: 'OK' } },
+    },
+  ],
   '/api/cost/daily': [
     {
       method: 'get',

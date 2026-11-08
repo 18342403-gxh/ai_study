@@ -15,6 +15,7 @@ import {
   text,
   integer,
   real,
+  doublePrecision,
   jsonb,
   timestamp,
   check,
@@ -194,6 +195,7 @@ export const aiUsageLogs = app.table(
     completionTokens: integer('completion_tokens').notNull().default(0),
     totalTokens: integer('total_tokens').notNull().default(0),
     costMs: integer('cost_ms').notNull().default(0),
+    cost: doublePrecision('cost'),
     userId: varchar('user_id', { length: 64 }),
     sessionId: varchar('session_id', { length: 64 }),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
@@ -202,7 +204,7 @@ export const aiUsageLogs = app.table(
   (t) => ({
     featureCheck: check(
       'ai_usage_logs_feature_check',
-      sql`${t.feature} IN ('chat','generator','rag','embedding','eval')`,
+      sql`${t.feature} IN ('chat_general','chat_with_records','extract','understand','embedding','eval')`,
     ),
     idxCreated: index('idx_ai_usage_logs_created').on(t.createdAt),
     idxFeature: index('idx_ai_usage_logs_feature').on(t.feature, t.createdAt),

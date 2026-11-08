@@ -89,16 +89,18 @@ const initV5Schema = (db: Database.Database) => {
   `)
 
   // AI Token 用量日志表（成本控制核心）
+  // feature 词表（v5 阶段 11 normalize）：chat_general / chat_with_records / extract / understand / embedding / eval
   db.exec(`
     CREATE TABLE IF NOT EXISTS ai_usage_logs (
       id TEXT PRIMARY KEY,
-      feature TEXT NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
+      feature TEXT NOT NULL CHECK(feature IN ('chat_general','chat_with_records','extract','understand','embedding','eval')),
       model TEXT NOT NULL,
       provider TEXT NOT NULL DEFAULT 'zhipu',
       prompt_tokens INTEGER NOT NULL DEFAULT 0,
       completion_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_ms INTEGER NOT NULL DEFAULT 0,
+      cost REAL,
       user_id TEXT,
       session_id TEXT,
       metadata TEXT,
@@ -142,6 +144,49 @@ const alignSqliteSchema = (db: Database.Database) => {
 
   // messages：补 tool_call_id
   ensureColumn('messages', 'tool_call_id', 'tool_call_id TEXT')
+
+  // ai_usage_logs：feature 词表升级（阶段 11）需要重建表（SQLite CHECK 约束无法 ALTER）。
+  // 旧值映射：chat/generator → chat_general，rag → understand，embedding / eval 保留；并补 cost 列。
+  const usageTable = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'`)
+    .get() as { sql?: string } | undefined
+  if (usageTable?.sql) {
+    if (usageTable.sql.includes("'generator'")) {
+      db.exec(`
+        BEGIN;
+        ALTER TABLE ai_usage_logs RENAME TO ai_usage_logs_legacy;
+        CREATE TABLE ai_usage_logs (
+          id TEXT PRIMARY KEY,
+          feature TEXT NOT NULL CHECK(feature IN ('chat_general','chat_with_records','extract','understand','embedding','eval')),
+          model TEXT NOT NULL,
+          provider TEXT NOT NULL DEFAULT 'zhipu',
+          prompt_tokens INTEGER NOT NULL DEFAULT 0,
+          completion_tokens INTEGER NOT NULL DEFAULT 0,
+          total_tokens INTEGER NOT NULL DEFAULT 0,
+          cost_ms INTEGER NOT NULL DEFAULT 0,
+          cost REAL,
+          user_id TEXT,
+          session_id TEXT,
+          metadata TEXT,
+          created_at INTEGER NOT NULL
+        );
+        INSERT INTO ai_usage_logs (id, feature, model, provider, prompt_tokens, completion_tokens, total_tokens, cost_ms, user_id, session_id, metadata, created_at)
+          SELECT id,
+            CASE feature
+              WHEN 'embedding' THEN 'embedding'
+              WHEN 'eval' THEN 'eval'
+              WHEN 'rag' THEN 'understand'
+              ELSE 'chat_general'
+            END,
+            model, provider, prompt_tokens, completion_tokens, total_tokens, cost_ms, user_id, session_id, metadata, created_at
+          FROM ai_usage_logs_legacy;
+        DROP TABLE ai_usage_logs_legacy;
+        COMMIT;
+      `)
+      logger.info('db', 'ai_usage_logs feature 词表迁移完成（旧值已映射）')
+    }
+    ensureColumn('ai_usage_logs', 'cost', 'cost REAL')
+  }
 }
 
 const initSqlite = () => {
@@ -253,13 +298,14 @@ const initPostgres = () => {
       `
     CREATE TABLE IF NOT EXISTS app.ai_usage_logs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      feature VARCHAR(32) NOT NULL CHECK(feature IN ('chat','generator','rag','embedding','eval')),
+      feature VARCHAR(32) NOT NULL CHECK(feature IN ('chat_general','chat_with_records','extract','understand','embedding','eval')),
       model VARCHAR(128) NOT NULL,
       provider VARCHAR(32) NOT NULL DEFAULT 'zhipu',
       prompt_tokens INTEGER NOT NULL DEFAULT 0,
       completion_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_ms INTEGER NOT NULL DEFAULT 0,
+      cost DOUBLE PRECISION,
       user_id VARCHAR(64),
       session_id VARCHAR(64),
       metadata JSONB,
@@ -281,6 +327,29 @@ const initPostgres = () => {
   // v5：chunks 抽取标记（旧库幂等补列）
   pgClient
     .unsafe(`ALTER TABLE app.chunks ADD COLUMN IF NOT EXISTS extracted_at TIMESTAMPTZ`)
+    .catch(() => {})
+  // 阶段 11：cost 列 + feature 词表 normalize（旧库幂等升级）
+  pgClient
+    .unsafe(`ALTER TABLE app.ai_usage_logs ADD COLUMN IF NOT EXISTS cost DOUBLE PRECISION`)
+    .catch(() => {})
+  pgClient
+    .unsafe(`ALTER TABLE app.ai_usage_logs DROP CONSTRAINT IF EXISTS ai_usage_logs_feature_check`)
+    .catch(() => {})
+  pgClient
+    .unsafe(
+      `UPDATE app.ai_usage_logs SET feature = CASE feature
+        WHEN 'embedding' THEN 'embedding'
+        WHEN 'eval' THEN 'eval'
+        WHEN 'rag' THEN 'understand'
+        ELSE 'chat_general' END
+       WHERE feature NOT IN ('chat_general','chat_with_records','extract','understand','embedding','eval')`,
+    )
+    .catch(() => {})
+  pgClient
+    .unsafe(
+      `ALTER TABLE app.ai_usage_logs ADD CONSTRAINT ai_usage_logs_feature_check
+       CHECK (feature IN ('chat_general','chat_with_records','extract','understand','embedding','eval'))`,
+    )
     .catch(() => {})
 }
 

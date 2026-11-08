@@ -7,8 +7,8 @@
  *   - isMockMode()：测 mock 模式检测
  *   - getEmbedding() / getEmbeddings()：mock fetch，验证降级逻辑
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { hashVector, cosineSimilarity, isMockMode } from '../embeddingGateway.js'
+import { describe, it, expect, vi } from 'vitest'
+import { hashVector, cosineSimilarity, isMockMode, getEmbeddings } from '../embeddingGateway.js'
 
 describe('hashVector', () => {
   it('相同文本产生相同向量（幂等）', () => {
@@ -78,5 +78,59 @@ describe('isMockMode', () => {
   it('ENABLE_MOCK_EMBEDDING=1 → mock', () => {
     process.env.ENABLE_MOCK_EMBEDDING = '1'
     expect(isMockMode()).toBe(true)
+  })
+})
+
+describe('getEmbeddings 并发控制（worker pool，默认 4）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete process.env.ENABLE_MOCK_EMBEDDING
+    delete process.env.EMBEDDING_CONCURRENCY
+  })
+
+  const stubEmbeddingFetch = (delayMs: number) => {
+    let inflight = 0
+    let maxInflight = 0
+    const fn = vi.fn(async (_url: string, init: { body: string }) => {
+      const text = (JSON.parse(init.body) as { input: string }).input
+      inflight++
+      maxInflight = Math.max(maxInflight, inflight)
+      await new Promise((r) => setTimeout(r, delayMs))
+      inflight--
+      const idx = Number(text.replace('text-', ''))
+      return {
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: [idx] }],
+          usage: { prompt_tokens: 2, total_tokens: 2 },
+        }),
+      }
+    })
+    vi.stubGlobal('fetch', fn)
+    return { maxInflight: () => maxInflight, calls: () => fn.mock.calls.length }
+  }
+
+  it('默认并发上限 4，结果顺序与输入一致', async () => {
+    delete process.env.ENABLE_MOCK_EMBEDDING
+    const probe = stubEmbeddingFetch(15)
+    const texts = Array.from({ length: 12 }, (_, i) => `text-${i}`)
+    const results = await getEmbeddings(texts)
+
+    expect(results).toHaveLength(12)
+    expect(results[3]).toEqual([3])
+    expect(results[11]).toEqual([11])
+    expect(probe.calls()).toBe(12)
+    expect(probe.maxInflight()).toBeLessThanOrEqual(4)
+    expect(probe.maxInflight()).toBeGreaterThan(1)
+  })
+
+  it('EMBEDDING_CONCURRENCY=2 → 并发上限 2', async () => {
+    delete process.env.ENABLE_MOCK_EMBEDDING
+    process.env.EMBEDDING_CONCURRENCY = '2'
+    const probe = stubEmbeddingFetch(15)
+    const results = await getEmbeddings(Array.from({ length: 8 }, (_, i) => `text-${i}`))
+
+    expect(results).toHaveLength(8)
+    expect(probe.maxInflight()).toBeLessThanOrEqual(2)
   })
 })
