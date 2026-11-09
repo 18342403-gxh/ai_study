@@ -5,27 +5,12 @@
     >
       <div class="flex items-center gap-3">
         <h2 class="text-base font-semibold text-slate-800">日程</h2>
-        <span class="text-xs text-slate-400">{{ entries.length }} 项安排</span>
+        <span class="text-xs text-slate-400">{{ rangeLabel }} · {{ entries.length }} 项</span>
         <button
           class="text-xs text-slate-400 hover:text-primary-500 transition-colors"
           @click="factsOpen = !factsOpen"
         >
           长期事实 {{ facts.length }} {{ factsOpen ? '▴' : '▾' }}
-        </button>
-      </div>
-      <div class="flex items-center bg-slate-100 rounded-lg p-0.5 text-xs">
-        <button
-          v-for="tab in tabs"
-          :key="tab.value"
-          class="px-3 py-1 rounded-md transition-colors"
-          :class="
-            view === tab.value
-              ? 'bg-white text-slate-800 font-medium shadow-sm'
-              : 'text-slate-500 hover:text-slate-700'
-          "
-          @click="view = tab.value"
-        >
-          {{ tab.label }}
         </button>
       </div>
     </header>
@@ -49,144 +34,115 @@
     <div class="flex-1 overflow-auto light-scroll px-6 py-4">
       <p v-if="loading" class="text-sm text-slate-400">加载中…</p>
 
-      <div v-else-if="entries.length === 0" class="mt-20 text-center">
-        <Calendar class="w-10 h-10 mx-auto text-slate-300" />
-        <p class="mt-3 text-sm text-slate-500">
-          {{ view === '2weeks' ? '这两周还没有安排' : '本月还没有安排' }}
+      <template v-else>
+        <p v-if="entries.length === 0" class="mb-3 text-xs text-slate-400">
+          这段时间还没有安排，
+          <NuxtLink to="/chat" class="text-primary-500 hover:underline">去对话里记一条 →</NuxtLink>
         </p>
-        <NuxtLink to="/chat" class="mt-2 inline-block text-xs text-primary-500 hover:underline">
-          去对话里记一条 →
-        </NuxtLink>
-      </div>
 
-      <!-- 甘特图 -->
-      <div v-else class="select-none" :style="{ minWidth: `${176 + days.length * colMinWidth}px` }">
-        <!-- 表头：日期行 -->
-        <div class="flex border-b border-slate-200 sticky top-0 bg-white z-10">
-          <div class="w-44 flex-shrink-0 px-2 py-2 text-[11px] text-slate-400">安排</div>
-          <div class="flex-1 flex">
-            <div
-              v-for="d in days"
-              :key="d.ms"
-              class="border-l border-slate-100 text-center py-1"
-              :class="d.isToday ? 'bg-primary-50/60' : ''"
-              :style="{ width: `${colPct}%` }"
-            >
-              <p
-                class="text-[11px] leading-4"
-                :class="d.isToday ? 'text-primary-600 font-semibold' : 'text-slate-600'"
-              >
-                {{ d.dateNum }}
-              </p>
-              <p
-                class="text-[9px] leading-3"
-                :class="d.isToday ? 'text-primary-500' : 'text-slate-400'"
-              >
-                {{ d.weekday }}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 条目行 -->
+        <!-- 日历网格：周一到周日为列，每周一行 -->
         <div
-          v-for="item in entries"
-          :key="item.id"
-          class="flex items-stretch border-b border-slate-50 hover:bg-slate-50/50"
+          class="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden"
         >
-          <div class="w-44 flex-shrink-0 px-2 py-2 flex items-center gap-1.5 min-w-0">
-            <span
-              class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-              :class="isOverdue(item) ? 'bg-rose-400' : 'bg-primary-400'"
-            />
-            <p class="text-xs text-slate-700 truncate">{{ item.title }}</p>
+          <div
+            v-for="w in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']"
+            :key="w"
+            class="bg-slate-50 py-1.5 text-center text-[11px] text-slate-500"
+          >
+            {{ w }}
           </div>
 
-          <!-- 条区：背景网格 + 条 -->
-          <div class="flex-1 relative h-9">
-            <div class="absolute inset-0 flex">
-              <div
-                v-for="d in days"
-                :key="d.ms"
-                class="border-l border-slate-100 h-full"
-                :class="d.isToday ? 'bg-primary-50/40' : ''"
-                :style="{ width: `${colPct}%` }"
-              />
-            </div>
-            <!-- 当前时间竖线 -->
-            <div
-              v-if="nowPct !== null"
-              class="absolute top-0 bottom-0 w-px bg-primary-400/70 z-[5]"
-              :style="{ left: `${nowPct}%` }"
-            />
-
-            <div
-              class="absolute top-1/2 -translate-y-1/2 h-[22px] rounded-md text-[10px] leading-[22px] text-white px-1.5 truncate cursor-pointer z-[6]"
-              :class="
-                isOverdue(item)
-                  ? 'bg-rose-400 hover:bg-rose-500'
-                  : 'bg-primary-400 hover:bg-primary-500'
-              "
-              :style="barStyle(item)"
-              @click="editing = item"
+          <div
+            v-for="cell in cells"
+            :key="cell.ms"
+            class="bg-white min-h-[92px] p-1.5 align-top"
+            :class="[cell.isToday ? 'bg-primary-50/40' : '', cell.outside ? 'opacity-40' : '']"
+          >
+            <p
+              class="text-[11px] leading-4 mb-1"
+              :class="cell.isToday ? 'text-primary-600 font-semibold' : 'text-slate-500'"
             >
-              {{ item.title }}
-              <!-- 悬浮详情卡 -->
+              {{ cell.label }}
+            </p>
+
+            <div class="space-y-1">
               <div
-                class="hidden hover-detail absolute bottom-full mb-1.5 w-64 p-3 rounded-xl bg-white border border-slate-200 shadow-xl text-left z-20 cursor-default"
-                :class="barLeft(item) > 55 ? 'right-0' : 'left-0'"
-                @click.stop
+                v-for="item in visibleItems(cell)"
+                :key="item.id"
+                class="group relative px-1.5 py-0.5 rounded text-[10px] leading-4 text-white truncate cursor-pointer"
+                :class="
+                  isOverdue(item)
+                    ? 'bg-rose-400 hover:bg-rose-500'
+                    : 'bg-primary-400 hover:bg-primary-500'
+                "
+                @click="editing = item"
               >
-                <div class="flex items-center gap-2">
-                  <p class="text-xs font-semibold text-slate-800 truncate">{{ item.title }}</p>
-                  <span
-                    v-if="isOverdue(item)"
-                    class="flex-shrink-0 text-[9px] px-1 py-0.5 rounded bg-rose-50 text-rose-500"
-                  >
-                    已过期
-                  </span>
-                  <span
-                    v-if="item.recurrence"
-                    class="flex-shrink-0 text-[9px] px-1 py-0.5 rounded bg-slate-100 text-slate-500"
-                  >
-                    {{ recurrenceLabel(item) }}
-                  </span>
-                </div>
-                <p class="mt-1 text-[11px] text-slate-400">
-                  {{ item.startAt ? formatDateTime(item.startAt) : '未设时间' }}
-                  <template v-if="item.endAt"> — {{ formatDateTime(item.endAt) }}</template>
-                </p>
-                <p
-                  v-if="item.content && item.content !== item.title"
-                  class="mt-1.5 text-[11px] leading-4 text-slate-600 line-clamp-3 whitespace-pre-wrap"
+                {{ item.startAt ? formatTime(item.startAt) : '' }} {{ item.title }}
+
+                <!-- 悬浮详情卡 -->
+                <div
+                  class="hover-detail hidden absolute top-full mt-1 left-0 w-64 p-3 rounded-xl bg-white border border-slate-200 shadow-xl text-left z-30 cursor-default"
+                  @click.stop
                 >
-                  {{ item.content }}
-                </p>
-                <div class="mt-2 flex items-center gap-1 border-t border-slate-100 pt-2">
-                  <button
-                    class="px-2 py-1 text-[10px] rounded-md text-emerald-600 hover:bg-emerald-50"
-                    @click="complete(item)"
+                  <div class="flex items-center gap-2">
+                    <p class="text-xs font-semibold text-slate-800 truncate">{{ item.title }}</p>
+                    <span
+                      v-if="isOverdue(item)"
+                      class="flex-shrink-0 text-[9px] px-1 py-0.5 rounded bg-rose-50 text-rose-500"
+                    >
+                      已过期
+                    </span>
+                    <span
+                      v-if="item.recurrence"
+                      class="flex-shrink-0 text-[9px] px-1 py-0.5 rounded bg-slate-100 text-slate-500"
+                    >
+                      {{ recurrenceLabel(item) }}
+                    </span>
+                  </div>
+                  <p class="mt-1 text-[11px] text-slate-400">
+                    {{ item.startAt ? formatDateTime(item.startAt) : '未设时间' }}
+                    <template v-if="item.endAt"> — {{ formatDateTime(item.endAt) }}</template>
+                  </p>
+                  <p
+                    v-if="item.content && item.content !== item.title"
+                    class="mt-1.5 text-[11px] leading-4 text-slate-600 line-clamp-3 whitespace-pre-wrap"
                   >
-                    完成
-                  </button>
-                  <button
-                    class="px-2 py-1 text-[10px] rounded-md text-primary-600 hover:bg-primary-50"
-                    @click="editing = item"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    class="px-2 py-1 text-[10px] rounded-md text-rose-500 hover:bg-rose-50"
-                    @click="remove(item)"
-                  >
-                    删除
-                  </button>
+                    {{ item.content }}
+                  </p>
+                  <div class="mt-2 flex items-center gap-1 border-t border-slate-100 pt-2">
+                    <button
+                      class="px-2 py-1 text-[10px] rounded-md text-emerald-600 hover:bg-emerald-50"
+                      @click="complete(item)"
+                    >
+                      完成
+                    </button>
+                    <button
+                      class="px-2 py-1 text-[10px] rounded-md text-primary-600 hover:bg-primary-50"
+                      @click="editing = item"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      class="px-2 py-1 text-[10px] rounded-md text-rose-500 hover:bg-rose-50"
+                      @click="remove(item)"
+                    >
+                      删除
+                    </button>
+                  </div>
                 </div>
               </div>
+
+              <button
+                v-if="hiddenCount(cell) > 0 && expandedDay !== cell.ms"
+                class="block text-[10px] text-slate-400 hover:text-primary-500"
+                @click="expandedDay = cell.ms"
+              >
+                +{{ hiddenCount(cell) }} 更多
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      </template>
     </div>
 
     <EntryEditor :entry="editing" @close="editing = null" @saved="onSaved" />
@@ -194,67 +150,81 @@
 </template>
 
 <script setup lang="ts">
-import { Calendar } from 'lucide-vue-next'
 import { apiDelete, apiGet, apiPatch, type EntryRow } from '~/utils/api'
-import { formatDateTime, startOfDay, startOfWeek } from '~/utils/format'
+import { formatDateTime, formatTime, startOfDay, startOfWeek } from '~/utils/format'
 
-const tabs = [
-  { value: '2weeks', label: '双周' },
-  { value: 'month', label: '月度' },
-] as const
+const DAY = 86_400_000
 
-const view = ref<'2weeks' | 'month'>('2weeks')
 const entries = ref<EntryRow[]>([])
 const facts = ref<EntryRow[]>([])
 const factsOpen = ref(false)
 const loading = ref(true)
 const editing = ref<EntryRow | null>(null)
+const expandedDay = ref<number | null>(null)
 
-// ── 时间范围 ──
-const rangeStart = computed(() => {
-  const now = Date.now()
-  if (view.value === '2weeks') return startOfWeek(now)
-  const d = new Date(startOfDay(now))
-  d.setDate(1)
-  return d.getTime()
+const weekStart = startOfWeek(Date.now())
+
+// ── 自动选择视图：近两周内有安排 → 双周日历；有更远的安排 → 自然月日历 ──
+/** 先按宽范围（本周一起 6 周）拉取，再决定怎么展示 */
+const fetchFrom = weekStart
+const fetchTo = weekStart + 42 * DAY
+
+const useMonth = computed(() =>
+  entries.value.some((e) => e.startAt !== null && e.startAt >= weekStart + 14 * DAY),
+)
+
+const rangeLabel = computed(() => {
+  if (!useMonth.value) {
+    const end = new Date(weekStart + 13 * DAY)
+    return `${new Date(weekStart).getMonth() + 1}月${new Date(weekStart).getDate()}日 - ${end.getMonth() + 1}月${end.getDate()}日`
+  }
+  const d = new Date()
+  return `${d.getFullYear()}年${d.getMonth() + 1}月`
 })
 
-const rangeEnd = computed(() => {
-  if (view.value === '2weeks') return rangeStart.value + 14 * 86_400_000
-  const d = new Date(rangeStart.value)
-  d.setMonth(d.getMonth() + 1)
-  return d.getTime()
-})
+// ── 日历格子 ──
+interface Cell {
+  ms: number
+  label: string
+  isToday: boolean
+  /** 月度视图里不属于当月的日子（仅置灰展示） */
+  outside: boolean
+}
 
-const span = computed(() => rangeEnd.value - rangeStart.value)
-
-const days = computed(() => {
-  const count = Math.round(span.value / 86_400_000)
+const cells = computed<Cell[]>(() => {
   const todayKey = startOfDay(Date.now())
-  const result: Array<{ ms: number; dateNum: number; weekday: string; isToday: boolean }> = []
-  const weekdayNames = ['日', '一', '二', '三', '四', '五', '六']
-  for (let i = 0; i < count; i++) {
-    const ms = rangeStart.value + i * 86_400_000
-    const d = new Date(ms)
-    result.push({
-      ms,
-      dateNum: d.getDate(),
-      weekday: `周${weekdayNames[d.getDay()]}`,
-      isToday: ms === todayKey,
+  if (!useMonth.value) {
+    // 双周：从本周一起 14 天
+    return Array.from({ length: 14 }, (_, i) => {
+      const ms = weekStart + i * DAY
+      const d = new Date(ms)
+      return {
+        ms,
+        label: `${d.getMonth() + 1}/${d.getDate()}`,
+        isToday: ms === todayKey,
+        outside: false,
+      }
     })
   }
-  return result
-})
-
-const colPct = computed(() => 100 / days.value.length)
-/** 列最小宽度：月度视图保持可读 */
-const colMinWidth = computed(() => (view.value === 'month' ? 34 : 44))
-
-/** 当前时间在时间轴上的位置（不在范围内为 null） */
-const nowPct = computed(() => {
-  const now = Date.now()
-  if (now < rangeStart.value || now > rangeEnd.value) return null
-  return ((now - rangeStart.value) / span.value) * 100
+  // 月度：覆盖自然月的整周（周一为列首）
+  const first = new Date()
+  first.setDate(1)
+  const month = first.getMonth()
+  const gridStart = startOfWeek(first.getTime())
+  const last = new Date(first)
+  last.setMonth(month + 1)
+  last.setDate(0)
+  const weeks = Math.ceil((startOfDay(last.getTime()) - gridStart) / DAY / 7)
+  return Array.from({ length: weeks * 7 }, (_, i) => {
+    const ms = gridStart + i * DAY
+    const d = new Date(ms)
+    return {
+      ms,
+      label: `${d.getDate()}`,
+      isToday: ms === todayKey,
+      outside: d.getMonth() !== month,
+    }
+  })
 })
 
 // ── 数据 ──
@@ -262,14 +232,13 @@ const load = async () => {
   loading.value = true
   try {
     entries.value = await apiGet<EntryRow[]>(
-      `/api/entries?type=schedule&status=active&from=${rangeStart.value}&to=${rangeEnd.value}&limit=500`,
+      `/api/entries?type=schedule&status=active&from=${fetchFrom}&to=${fetchTo}&limit=500`,
     )
   } finally {
     loading.value = false
   }
 }
 
-watch(view, load)
 onMounted(async () => {
   await load()
   facts.value = await apiGet<EntryRow[]>('/api/entries?type=fact&status=active&limit=200').catch(
@@ -277,21 +246,33 @@ onMounted(async () => {
   )
 })
 
-// ── 条的定位：按真实起止时间占比 ──
-const pct = (ms: number): number =>
-  Math.min(100, Math.max(0, ((ms - rangeStart.value) / span.value) * 100))
+/** 按天分组（升序） */
+const byDay = computed(() => {
+  const map = new Map<number, EntryRow[]>()
+  for (const e of entries.value) {
+    if (e.startAt === null) continue
+    const key = startOfDay(e.startAt)
+    const list = map.get(key)
+    if (list) list.push(e)
+    else map.set(key, [e])
+  }
+  for (const list of map.values()) list.sort((a, b) => (a.startAt ?? 0) - (b.startAt ?? 0))
+  return map
+})
 
-const barLeft = (item: EntryRow): number => pct(item.startAt ?? rangeStart.value)
+const CELL_LIMIT = 3
 
-const barStyle = (item: EntryRow) => {
-  const start = item.startAt ?? rangeStart.value
-  // 无结束时间的点事件按 1 小时渲染，并保证最小可见宽度
-  const end = item.endAt ?? start + 3_600_000
-  const left = pct(start)
-  const width = Math.max(pct(end) - left, 1.4)
-  return { left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }
+const visibleItems = (cell: Cell): EntryRow[] => {
+  const list = byDay.value.get(cell.ms) ?? []
+  return expandedDay.value === cell.ms ? list : list.slice(0, CELL_LIMIT)
 }
 
+const hiddenCount = (cell: Cell): number => {
+  const list = byDay.value.get(cell.ms) ?? []
+  return Math.max(0, list.length - CELL_LIMIT)
+}
+
+// ── 展示辅助 ──
 const isOverdue = (item: EntryRow): boolean => {
   const end = item.endAt ?? (item.startAt === null ? null : item.startAt + 3_600_000)
   return end !== null && end < Date.now()
@@ -331,11 +312,11 @@ const onSaved = (updated: EntryRow) => {
 </script>
 
 <style scoped>
-/* 悬浮显示详情卡：放在条元素内部，鼠标移到详情卡上时仍保持展开 */
+/* 悬浮显示详情卡：放在 chip 内部，鼠标移到详情卡上时仍保持展开 */
 .hover-detail {
   pointer-events: none;
 }
-div:hover > .hover-detail,
+.group:hover > .hover-detail,
 .hover-detail:hover {
   display: block;
   pointer-events: auto;
