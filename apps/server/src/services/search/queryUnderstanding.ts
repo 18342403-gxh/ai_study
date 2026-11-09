@@ -47,7 +47,6 @@ const ALL_TYPES: EntryType[] = ['schedule', 'plan', 'fact', 'note']
 
 const PERSONAL_CUE =
   /我|咱|最近|近[0-9一二三四五六七八九十两]+[天日]|今天|今日|明天|后天|这周|本周|上周|下周|这个月|本月|上个月|上月|安排|日程|计划|提醒|记得|记录/
-const GENERIC_QUESTION = /^(什么是|什么叫|啥是|介绍一下|解释一下|解释下|如何|怎么|为什么|有哪些)/
 
 const CN_NUMBER: Record<string, number> = {
   一: 1,
@@ -128,8 +127,10 @@ export const detectTimeWindow = (query: string, nowMs: number): TimeWindow | nul
 /** 规则版降级：时间窗口 + 个人上下文判定 */
 export const ruleBasedUnderstanding = (query: string, nowMs: number): QueryUnderstanding => {
   const timeRange = detectTimeWindow(query, nowMs)
-  const hasCue = PERSONAL_CUE.test(query)
-  const needsPersonalContext = hasCue || timeRange !== null || !GENERIC_QUESTION.test(query)
+  // 默认「通用问题」：只有出现个人线索或明确时间语义时才查个人知识库。
+  // 反过来（默认查库）会让「您好」「今天天气怎么样」这类问题检索 0 命中后
+  // 直接回「你的记录里没有相关内容」，通用问答根本没机会执行。
+  const needsPersonalContext = PERSONAL_CUE.test(query) || timeRange !== null
 
   return {
     needsPersonalContext,

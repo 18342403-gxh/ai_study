@@ -45,6 +45,9 @@ export interface SearchAllOutcome {
   empty: boolean
 }
 
+/** 严格的个人归属线索：只认「我/咱」与个人知识库相关词（不含时间词），用于无命中时回退通用问答 */
+const OWNER_CUE_RE = /我|咱|安排|日程|进度|待办|提醒|记得|记录|计划/
+
 export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOutcome> => {
   const nowMs = options.now ?? Date.now()
 
@@ -108,11 +111,18 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
     }
   }
 
-  const resolved: QueryUnderstanding = needsPersonal
-    ? understanding
-    : { ...understanding, needsPersonalContext: true }
-
   const { results, summary } = mergeSearchSignals({ timeHits, entryHits, docHits })
+
+  // 三个通道全空，且问题不含个人归属线索（寒暄 / 常识，如「您好」「今天天气怎么样」）
+  // → 交回通用问答；否则会误回「你的记录里没有相关内容」，等于答不上话。
+  const fallbackToGeneral =
+    needsPersonal && results.length === 0 && !OWNER_CUE_RE.test(options.query)
+
+  const resolved: QueryUnderstanding = fallbackToGeneral
+    ? { ...understanding, needsPersonalContext: false }
+    : needsPersonal
+      ? understanding
+      : { ...understanding, needsPersonalContext: true }
 
   logger.info('search.all', '检索完成', {
     needsPersonalContext: resolved.needsPersonalContext,

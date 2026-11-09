@@ -714,8 +714,9 @@ const uploadFiles = async (files: File[]) => {
     }
 
     const sid = await ensureSession(file.name)
-    const chip: UploadChip = { id: uid(), name: file.name, status: 'uploading' }
-    uploads.value.push(chip)
+    uploads.value.push({ id: uid(), name: file.name, status: 'uploading' })
+    // 同 askAI：取回代理，否则后续改 status 不会触发进度更新
+    const chip = uploads.value[uploads.value.length - 1]
     messages.value.push({
       id: uid(),
       role: 'user',
@@ -792,8 +793,10 @@ const looksLikeStorage = (text: string): boolean =>
   )
 
 const askAI = async (text: string, sid: string) => {
-  const placeholder: UiMessage = { id: uid(), role: 'assistant', content: '', loading: true }
-  messages.value.push(placeholder)
+  messages.value.push({ id: uid(), role: 'assistant', content: '', loading: true })
+  // 必须取回数组里的响应式代理再改属性：直接改 push 进去的原始对象不会触发视图更新，
+  // 表现为「接口早已返回、页面却一直转圈，只有刷新后才看到结果」。
+  const placeholder = messages.value[messages.value.length - 1]
   await scrollToBottom()
 
   try {
