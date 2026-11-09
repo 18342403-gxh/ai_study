@@ -244,6 +244,27 @@ export interface RemindersResponse {
   tomorrow: ReminderItem[]
 }
 
+export interface EntryRow {
+  id: string
+  userId: string
+  libraryId: string
+  type: EntryType
+  title: string
+  content: string
+  status: EntryStatus
+  startAt: number | null
+  endAt: number | null
+  recurrence: Recurrence | null
+  recurrenceUntil: number | null
+  exceptions: unknown
+  sourceType: 'conversation' | 'document' | 'manual'
+  sourceRef: string | null
+  confidence: number
+  createdAt: number
+  updatedAt: number
+  archivedAt: number | null
+}
+
 export const TYPE_LABEL: Record<EntryType, string> = {
   schedule: '日程',
   plan: '规划',
