@@ -79,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { BookOpen, Calendar, CircleUser, MessageSquare, Target, UserRound } from 'lucide-vue-next'
+import { BookOpen, Calendar, CircleUser, MessageSquare, Target } from 'lucide-vue-next'
 import techCatLogo from '@brand/tech_cat.png'
 import { apiGet, type DocumentRow, type EntryRow, type RemindersResponse } from '~/utils/api'
 
@@ -89,7 +89,6 @@ const memoryNav = [
   { to: '/chat', label: '对话', icon: MessageSquare, key: 'chat' },
   { to: '/schedule', label: '日程', icon: Calendar, key: 'schedule' },
   { to: '/plans', label: '规划', icon: Target, key: 'plan' },
-  { to: '/facts', label: '事实', icon: UserRound, key: 'fact' },
 ] as const
 
 // ── 徽标：今日日程数 / 进行中规划数 / 可检索文档数（失败静默，不打扰导航） ──
