@@ -17,7 +17,7 @@ import type { ChatMessage } from '../chain/model.js'
 import { getLocalTimezone } from '../extract/timeParse.js'
 import { logger } from '../logger.js'
 import type { SearchAllOutcome } from '../search/searchAll.js'
-import { assembleContext, TYPE_LABEL, type AssembledContext } from './context.js'
+import { assembleContext, compressContext, TYPE_LABEL, type AssembledContext } from './context.js'
 import { buildCitations, type Citation } from './citations.js'
 
 /** 生成超时按 30s 控制（4.9：超时返回检索结果列表） */
@@ -43,6 +43,8 @@ export interface AnswerOutcome {
 
 export interface AnswerOptions {
   query: string
+  /** 查询凝练后的检索 query（多轮对话追问改写结果），用于在 prompt 中说明检索依据 */
+  condensedQuery?: string
   search: SearchAllOutcome
   /** 最近对话历史（旧→新），只取 user/assistant */
   history?: ChatMessage[]
@@ -103,9 +105,17 @@ export const buildAnswerMessages = (params: {
   contextText: string
   history: ChatMessage[]
   general: boolean
+  condensedQuery?: string
 }): ChatMessage[] => {
-  const { query, contextText, history, general } = params
-  const user = contextText ? `${contextText}\n\n[问题]\n${query}` : query
+  const { query, contextText, history, general, condensedQuery } = params
+  // 若有凝练后的检索 query，在问题前标注检索依据，让模型理解上下文来自哪个查询
+  const queryNote =
+    condensedQuery && condensedQuery !== query
+      ? `（注：以上检索结果基于改写后的问题「${condensedQuery}」获取，请回答用户原始问题）\n`
+      : ''
+  const user = contextText
+    ? `${contextText}\n\n${queryNote}[问题]\n${query}`
+    : `${queryNote}${query}`
   return [
     { role: 'system', content: general ? SYSTEM_GENERAL : SYSTEM_WITH_RECORDS },
     ...history,
@@ -171,6 +181,7 @@ export const generateAnswer = async (options: AnswerOptions): Promise<AnswerOutc
   if (!search.understanding.needsPersonalContext) {
     const messages = buildAnswerMessages({
       query,
+      condensedQuery: options.condensedQuery,
       contextText: '',
       history: trimHistory(options.history ?? []),
       general: true,
@@ -207,8 +218,14 @@ export const generateAnswer = async (options: AnswerOptions): Promise<AnswerOutc
       search.results.flatMap((item) => (item.kind === 'chunk' && item.docId ? [item.docId] : [])),
     ))
 
+  // ── query-conditioned 压缩（spec 1.6.2）：超预算条目 LLM 摘要，不硬截断 ──
+  let ctxResults = search.results
+  if (process.env.ENABLE_CONTEXT_COMPRESS === '1' && ctxResults.length > 0) {
+    ctxResults = await compressContext(query, ctxResults)
+  }
+
   const assembled = assembleContext({
-    results: search.results,
+    results: ctxResults,
     summary: search.summary,
     docNames,
     timezone,
@@ -217,6 +234,7 @@ export const generateAnswer = async (options: AnswerOptions): Promise<AnswerOutc
 
   const messages = buildAnswerMessages({
     query,
+    condensedQuery: options.condensedQuery,
     contextText: assembled.text,
     history: trimHistory(options.history ?? []),
     general: false,

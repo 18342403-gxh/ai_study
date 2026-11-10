@@ -11,6 +11,7 @@ import type { EntryType } from '../extract/extractor.js'
 import { searchDocumentsSemantic } from './docChannel.js'
 import { searchEntriesSemantic } from './entrySearch.js'
 import { mergeSearchSignals, type SearchResultItem, type SearchSummary } from './merge.js'
+import { rerankCandidates } from './rerank.js'
 import {
   ruleBasedUnderstanding,
   understandQuery,
@@ -73,7 +74,15 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
   const window = understanding.timeRange
   const needsPersonal = understanding.needsPersonalContext
 
-  // 文档通道始终跑一次（本地 BM25 + 向量，成本低）：
+  // ── decide 节点（spec 2.5.3 轻量实验）：通用问题跳过文档通道 ──
+  // 条件：needsPersonalContext=false && timeRange=null → 判定为通用知识问题
+  // 跳过文档通道可节省一次 embedding + 向量查询 + BM25
+  // 风险：「龚熙皓是谁」可能被误判为通用但答案在资料里 → 用 ENABLE_DECIDE_SKIP_DOC 开关控制
+  // 验证标准：miss 用例命中率下降 ≤ 2% 时固化
+  const enableDecideSkipDoc = process.env.ENABLE_DECIDE_SKIP_DOC === '1'
+  const skipDocChannel = enableDecideSkipDoc && !needsPersonal && window === null
+
+  // 文档通道默认始终跑一次（本地 BM25 + 向量，成本低）：
   // 「龚熙皓是谁」这类问法常被误判为通用问题，但答案就在刚上传的资料里；
   // 真正的通用问题会在下方「资料未命中」分支返回空。
   const [timeHits, entryHits, docHits] = await Promise.all([
@@ -89,12 +98,14 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
     needsPersonal
       ? searchEntriesSemantic({ query: options.query, libraryId: options.libraryId })
       : Promise.resolve([]),
-    searchDocumentsSemantic(options.query).catch((err: unknown) => {
-      logger.warn('search.all', '文档语义通道失败，已跳过', {
-        error: (err as Error).message,
-      })
-      return []
-    }),
+    skipDocChannel
+      ? Promise.resolve([])
+      : searchDocumentsSemantic(options.query).catch((err: unknown) => {
+          logger.warn('search.all', '文档语义通道失败，已跳过', {
+            error: (err as Error).message,
+          })
+          return []
+        }),
   ])
 
   // 模型判为通用问题、但确实命中了资料 → 按个人上下文回答（带引用）
@@ -111,7 +122,15 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
     }
   }
 
-  const { results, summary } = mergeSearchSignals({ timeHits, entryHits, docHits })
+  const merged = mergeSearchSignals({ timeHits, entryHits, docHits })
+  let results = merged.results
+  const summary = merged.summary
+
+  // ── rerank（spec 1.6）：merge 后 LLM 重排序 ──
+  // ENABLE_RERANK=1 开启；失败自动 fallback 到 merge 原顺序
+  if (process.env.ENABLE_RERANK === '1' && results.length > 1) {
+    results = await rerankCandidates(options.query, results)
+  }
 
   // 三个通道全空，且问题不含个人归属线索（寒暄 / 常识，如「您好」「今天天气怎么样」）
   // → 交回通用问答；否则会误回「你的记录里没有相关内容」，等于答不上话。

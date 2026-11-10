@@ -16,6 +16,7 @@ import { logger } from '../services/logger.js'
 import { generateAnswer } from '../services/answer/generate.js'
 import { getLocalTimezone } from '../services/extract/timeParse.js'
 import { searchAll } from '../services/search/searchAll.js'
+import { condensateQuery } from '../services/search/condensateQuery.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 
 const router = Router()
@@ -79,13 +80,35 @@ router.post(
           )
       : []
 
+    // ── Query Condensation：多轮对话查询凝练（spec 1.7）──
+    // 话题门控 + LLM 改写，把追问还原成独立问题用于检索
+    const enableCondensation = process.env.ENABLE_QUERY_CONDENSATION === '1'
+    const enableTopicGate = process.env.CONDENSATION_TOPIC_GATE !== '0'
+    let searchQuery = body.message
+    if (enableCondensation && history.length > 0) {
+      const result = await condensateQuery({
+        query: body.message,
+        history,
+        enableTopicGate,
+      })
+      searchQuery = result.condensed
+      if (result.rewritten) {
+        logger.info('chat.route', '查询凝练完成', {
+          original: body.message.slice(0, 60),
+          condensed: result.condensed.slice(0, 60),
+          topic: result.topic,
+        })
+      }
+    }
+
     const search = await searchAll({
-      query: body.message,
+      query: searchQuery,
       libraryId: body.libraryId,
       timezone,
     })
     const answer = await generateAnswer({
       query: body.message,
+      condensedQuery: searchQuery !== body.message ? searchQuery : undefined,
       search,
       history,
       timezone,

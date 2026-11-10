@@ -11,6 +11,8 @@
 
 import { formatClock, formatDate, formatDateTime } from '../extract/timeParse.js'
 import type { EntryType } from '../extract/extractor.js'
+import { createChatChain } from '../chain/chatChain.js'
+import { logger } from '../logger.js'
 import { MAX_TOTAL_RESULTS, type SearchResultItem, type SearchSummary } from '../search/merge.js'
 
 const ENTRY_LINE_MAX = 160
@@ -107,4 +109,81 @@ export const assembleContext = (params: {
   }
 
   return { text: sections.join('\n\n'), numbered, summaryNum }
+}
+
+/**
+ * Query-conditioned 压缩（spec 1.6.2）
+ *
+ * 对超过预算的条目/文档块，不直接硬截断，而是用 LLM 做 query-conditioned 摘要，
+ * 只保留与问题相关的部分。压缩失败时回退到硬截断（assembleContext 的默认行为）。
+ *
+ * 开关：ENABLE_CONTEXT_COMPRESS=1
+ * Fallback 链：LLM 摘要 → 硬截断（assembleContext 默认）
+ */
+export const compressContext = async (
+  query: string,
+  results: SearchResultItem[],
+): Promise<SearchResultItem[]> => {
+  // 找出超预算的条目（按 assembleContext 的截断阈值判断）
+  const overBudget = results.filter((r) => {
+    if (r.kind === 'entry') {
+      // entryLine 长度估算：label + title + content
+      const estLen = 30 + r.title.length + r.content.length
+      return estLen > ENTRY_LINE_MAX
+    }
+    return r.content.length > CHUNK_LINE_MAX
+  })
+
+  if (overBudget.length === 0) return results
+
+  const targetLen = 100
+  const itemsText = overBudget.map((r, i) => `[${i + 1}] ${r.content}`).join('\n---\n')
+
+  const prompt = `你是上下文压缩助手。根据用户问题，把以下内容压缩为只保留相关信息的简短摘要（每条不超过 ${targetLen} 字）。
+只输出 JSON，格式：{"summaries": [{"index": 1, "text": "..."}, ...]}
+
+问题：${query}
+
+内容：
+${itemsText}`
+
+  try {
+    const chain = createChatChain({ temperature: 0, feature: 'understand' })
+    const response = await chain.invoke({ messages: [{ role: 'user', content: prompt }] })
+    const parsed = JSON.parse(extractJson(response.content.trim())) as {
+      summaries: Array<{ index: number; text: string }>
+    }
+    if (!parsed.summaries || !Array.isArray(parsed.summaries)) return results
+
+    const summaryMap = new Map<number, string>()
+    for (const s of parsed.summaries) {
+      if (typeof s.index === 'number' && typeof s.text === 'string') {
+        summaryMap.set(s.index, s.text.slice(0, targetLen))
+      }
+    }
+
+    const compressed = results.map((r) => {
+      const idx = overBudget.indexOf(r)
+      if (idx >= 0 && summaryMap.has(idx + 1)) {
+        return { ...r, content: summaryMap.get(idx + 1)! }
+      }
+      return r
+    })
+
+    logger.debug('context', 'query-conditioned 压缩完成', {
+      overBudget: overBudget.length,
+      compressed: summaryMap.size,
+    })
+    return compressed
+  } catch (err) {
+    logger.warn('context', '压缩失败，回退硬截断', { error: (err as Error).message.slice(0, 100) })
+    return results
+  }
+}
+
+const extractJson = (text: string): string => {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start >= 0 && end > start) return text.slice(start, end + 1)
+  return text
 }
