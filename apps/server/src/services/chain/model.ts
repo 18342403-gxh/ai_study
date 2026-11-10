@@ -134,6 +134,16 @@ interface ChatCtx {
 
 type RawInput = Array<{ role: string; content: string }> | string
 
+/** 带工具调用的请求体（Function Calling） */
+interface ToolCallInput {
+  messages: Array<{ role: string; content: string }>
+  tools: Array<{
+    type: 'function'
+    function: { name: string; description: string; parameters: object }
+  }>
+  toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
+}
+
 /** 解析模型 + 预算熔断 + 组装请求参数 */
 const prepareCall = async (ctx: ChatCtx, input: RawInput) => {
   const messages = typeof input === 'string' ? [{ role: 'user', content: input }] : input
@@ -150,20 +160,28 @@ interface PostChatOpts {
   messages: { role: string; content: string }[]
   stream: boolean
   signal?: AbortSignal
+  tools?: ToolCallInput['tools']
+  toolChoice?: ToolCallInput['toolChoice']
 }
 
-const postChat = (ctx: ChatCtx, opts: PostChatOpts) =>
-  fetch(`${ctx.env.apiUrl}/chat/completions`, {
+const postChat = (ctx: ChatCtx, opts: PostChatOpts) => {
+  const body: Record<string, unknown> = {
+    model: opts.model,
+    messages: opts.messages,
+    temperature: ctx.temperature,
+    stream: opts.stream,
+  }
+  if (opts.tools) {
+    body.tools = opts.tools
+    if (opts.toolChoice) body.tool_choice = opts.toolChoice
+  }
+  return fetch(`${ctx.env.apiUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.env.apiKey}` },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: opts.messages,
-      temperature: ctx.temperature,
-      stream: opts.stream,
-    }),
+    body: JSON.stringify(body),
     signal: opts.signal ?? AbortSignal.timeout(LLM_TIMEOUT_MS),
   })
+}
 
 /** 非 2xx 统一处理：日志 + 429/余额不足标记 + throw */
 const throwHttpError = async (
@@ -254,6 +272,71 @@ const invokeChat = async (ctx: ChatCtx, input: RawInput): Promise<string> => {
     })
     throw err
   }
+}
+
+/**
+ * Function Calling 调用：让模型通过工具调用返回结构化 JSON。
+ * 返回 tool_calls[0].function.arguments（JSON 字符串），供调用方 parseLooseJson 解析。
+ * 若模型未触发工具调用，则回退返回 message.content（兼容 JSON Mode 输出）。
+ */
+export const invokeChatWithTools = async (
+  config: ModelConfig,
+  messages: Array<{ role: string; content: string }>,
+  tools: ToolCallInput['tools'],
+  toolChoice: ToolCallInput['toolChoice'] = 'auto',
+): Promise<string> => {
+  const ctx: ChatCtx = {
+    env: getEnv(),
+    provider: config.provider || 'zhipu',
+    temperature: config.temperature ?? 0.1,
+    feature: config.feature || 'extract',
+    config,
+  }
+  const { model, downgradedFrom } = await applyBudgetCircuit(
+    ctx.provider,
+    resolveModelName(ctx.config, ctx.env),
+    ctx.env,
+  )
+  const t0 = Date.now()
+
+  logger.info('llm.invoke', 'Function Calling 调用开始', {
+    model,
+    messageCount: messages.length,
+    toolCount: tools.length,
+    toolChoice,
+  })
+
+  const response = await postChat(ctx, { model, messages, stream: false, tools, toolChoice })
+  if (!response.ok) {
+    await throwHttpError('llm.invoke', model, response, Date.now() - t0)
+  }
+
+  const data = (await response.json()) as {
+    choices: Array<{
+      message: {
+        content: string | null
+        tool_calls?: Array<{ function: { name: string; arguments: string } }>
+      }
+    }>
+    usage?: any
+  }
+  const cost = Date.now() - t0
+  logger.info('llm.invoke', 'Function Calling 调用完成', { model, costMs: cost })
+  clearChatDegraded()
+  if (data.usage) trackUsage(ctx, { model, usage: data.usage, costMs: cost, downgradedFrom })
+
+  const msg = data.choices[0]?.message
+  // 优先取工具调用的 arguments；若模型未触发工具则回退到 content
+  const toolArgs = msg?.tool_calls?.[0]?.function?.arguments
+  if (toolArgs) {
+    logger.debug('llm.invoke', 'Function Calling 返回 tool arguments', {
+      toolName: msg!.tool_calls![0].function.name,
+      argsLen: toolArgs.length,
+    })
+    return toolArgs
+  }
+  logger.warn('llm.invoke', '模型未触发工具调用，回退到 content 解析')
+  return msg?.content || ''
 }
 
 /** 模型调用（流式） */

@@ -20,6 +20,16 @@ import Database from 'better-sqlite3'
 import { drizzle as drizzleSqlite, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { drizzle as drizzlePg, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import pg from 'postgres'
+// sqlite-vec 扩展（KNN 向量检索，可选）。加载失败时自动 fallback 到全表扫描。
+let loadVecExtension: ((db: Database.Database) => void) | null = null
+try {
+  // 动态导入，避免无此依赖时直接 crash
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sqliteVec = require('sqlite-vec')
+  loadVecExtension = sqliteVec.load || sqliteVec.loadVectorExtension || null
+} catch {
+  loadVecExtension = null
+}
 
 import * as sqliteSchema from '../../drizzle/schema.sqlite.js'
 import * as pgSchema from '../../drizzle/schema.js'
@@ -45,6 +55,8 @@ export const tables = (DRIVER === 'postgres'
 
 let sqliteDb: Database.Database | null = null
 let sqliteDrizzle: BetterSQLite3Database<typeof sqliteSchema> | null = null
+/** sqlite-vec 扩展是否加载成功（控制 vectorStore 走 vec0 还是全表扫描 fallback） */
+let vecExtensionLoaded = false
 
 /** v5 个人记忆系统建表：entries / entry_embeddings / ai_usage_logs（幂等） */
 const initV5Schema = (db: Database.Database) => {
@@ -234,6 +246,29 @@ const initSqlite = () => {
   `)
   sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)`)
 
+  // ── sqlite-vec 扩展加载 + chunks_vec 虚拟表（KNN 向量检索）─────
+  // 环境变量开关：USE_SQLITE_VEC=1 启用；默认关闭以保证兼容性。
+  // 加载失败自动 fallback 到全表扫描，不影响主流程。
+  if (process.env.USE_SQLITE_VEC === '1' && loadVecExtension) {
+    try {
+      loadVecExtension(sqliteDb)
+      // 1536 维对应智谱 embedding-3；float32 暴力扫描，K=10 下 recall 100%
+      sqliteDb.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
+          chunk_id TEXT PRIMARY KEY,
+          embedding FLOAT[1536]
+        )
+      `)
+      vecExtensionLoaded = true
+      logger.info('db', 'sqlite-vec 扩展加载成功，chunks_vec 虚拟表已就绪')
+    } catch (e) {
+      vecExtensionLoaded = false
+      logger.warn('db', 'sqlite-vec 扩展加载失败，向量检索回退到全表扫描', {
+        error: (e as Error).message.slice(0, 120),
+      })
+    }
+  }
+
   // 会话表
   sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -381,6 +416,17 @@ export const getDb = (): AppDb => {
 }
 
 export const getDriver = () => DRIVER as 'sqlite' | 'postgres'
+
+/**
+ * 获取 SQLite 原生实例（逃生舱：vec0 MATCH 等 drizzle 表达不了的操作）
+ */
+export const getSqliteRaw = () => {
+  if (DRIVER !== 'sqlite') return null
+  return sqliteDb
+}
+
+/** sqlite-vec 扩展是否已成功加载（供 vectorStore 判断走 vec0 还是全表扫描） */
+export const isVecExtensionLoaded = () => vecExtensionLoaded
 
 /**
  * 获取 PG 原生客户端（逃生舱：pgvector `<=>` 等 drizzle 表达不了的操作）

@@ -8,11 +8,11 @@
  *   - 模型调用通过 invoke 注入，便于单测不依赖真实 LLM
  */
 
-import { createChatChain } from '../chain/chatChain.js'
-import type { ChatMessage } from '../chain/model.js'
+import { invokeChatWithTools, type ChatMessage } from '../chain/model.js'
 import { logger } from '../logger.js'
 import {
   firstRecurrenceDay,
+  formatDate,
   formatDateTime,
   formatRecurrenceText,
   getLocalTimezone,
@@ -88,7 +88,7 @@ export interface ExtractOptions {
   existingEntries?: PromptEntry[]
   /** 单次最多返回条数：对话 5，文档 10 */
   maxEntries?: number
-  /** 测试注入；默认走 createChatChain */
+  /** 测试注入；默认走 Function Calling（invokeChatWithTools） */
   invoke?: (messages: ChatMessage[]) => Promise<string>
   timeoutMs?: number
 }
@@ -123,6 +123,71 @@ const OUTPUT_SCHEMA = `{
   ],
   "reply": "给用户的自然语言反馈"
 }`
+
+/**
+ * Function Calling 工具定义（spec 1.4）。
+ * 让模型通过 extract_entries 工具返回结构化 JSON，而非依赖 prompt 约束 + 重试。
+ * tool_choice: 'auto' + system prompt 强指令"必须调用此工具"。
+ * 若模型未触发工具，invokeChatWithTools 自动回退到 content 解析。
+ */
+const EXTRACT_ENTRIES_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'extract_entries',
+    description: '从用户文本中提取需要长期记住的信息，返回结构化的条目列表。',
+    parameters: {
+      type: 'object',
+      required: ['intent', 'entries', 'reply'],
+      properties: {
+        intent: {
+          type: 'string',
+          enum: ['record', 'query', 'chat'],
+          description: '用户意图：record=记录、query=查询、chat=闲聊',
+        },
+        entries: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['title', 'type', 'content', 'time', 'confidence'],
+            properties: {
+              title: { type: 'string', description: '条目标题，简短概括' },
+              type: {
+                type: 'string',
+                enum: ['schedule', 'plan', 'fact', 'note'],
+                description: '条目类型：日程/规划/事实/笔记',
+              },
+              content: { type: 'string', description: '条目详细内容' },
+              time: {
+                type: 'object',
+                description: '时间信息；无法确定时所有字段为 null',
+                properties: {
+                  raw: { type: ['string', 'null'] },
+                  start: { type: ['string', 'null'], description: 'ISO 8601 带时区' },
+                  end: { type: ['string', 'null'], description: 'ISO 8601 带时区' },
+                  allDay: { type: 'boolean' },
+                  confidence: { type: 'number', minimum: 0, maximum: 1 },
+                },
+              },
+              recurrence: {
+                type: ['object', 'null'],
+                description: '重复规则；不重复为 null',
+                properties: {
+                  freq: { type: 'string', enum: ['daily', 'weekly', 'monthly'] },
+                  byWeekday: { type: 'array', items: { type: 'integer' } },
+                  byMonthDay: { type: 'integer' },
+                  until: { type: ['string', 'null'] },
+                },
+              },
+              confidence: { type: 'number', minimum: 0, maximum: 1 },
+              duplicateHint: { type: ['string', 'null'] },
+            },
+          },
+        },
+        reply: { type: 'string', description: '给用户的自然语言反馈' },
+      },
+    },
+  },
+}
 
 const SECURITY_RULES = `规则：
 1. 只提取与用户本人相关的事实、日程、规划。
@@ -175,7 +240,9 @@ ${existing}
 ${SECURITY_RULES}
 
 输出结构：
-${OUTPUT_SCHEMA}`
+${OUTPUT_SCHEMA}
+
+重要：你必须调用 extract_entries 工具来返回结果，不要直接回复文本。`
 
   return [
     { role: 'system', content: system },
@@ -310,12 +377,14 @@ function buildEntry(
 
   // 模型没给出可用开始时间时，用原文相对时间兜底
   let fallbackRecurrence: RelativeRecurrence | null = null
+  let timeExplicit = true // 模型给的 ISO 时间视为明确指定
   if (start === null && rawTimeText) {
     const relative = parseRelativeTime(rawTimeText, nowMs)
     if (relative && relative.start !== null) {
       start = relative.start
       end = relative.end ?? end
       fallbackRecurrence = relative.recurrence
+      timeExplicit = relative.timeExplicit
       if (timeConfidence === null) timeConfidence = relative.confidence
       warnings.push(...relative.warnings)
     }
@@ -329,6 +398,7 @@ function buildEntry(
       end = shiftEnd(start, relative.start, end)
       start = relative.start
       fallbackRecurrence = relative.recurrence ?? fallbackRecurrence
+      timeExplicit = relative.timeExplicit
       warnings.push('时间与原文不一致，已按原文校正')
     }
   }
@@ -375,11 +445,12 @@ function buildEntry(
   const time: ExtractedTime | null =
     start !== null
       ? {
-          raw: rawTimeText || formatDateTime(start),
+          raw: rawTimeText || (timeExplicit ? formatDateTime(start) : formatDate(start)),
           start,
           end,
           confidence: clamp01(timeConfidence ?? confidence),
-          startText: formatDateTime(start),
+          // 时间未明确指定时只显示日期，避免展示臆造的 00:00
+          startText: timeExplicit ? formatDateTime(start) : formatDate(start),
           endText: end !== null ? formatDateTime(end) : null,
         }
       : null
@@ -517,9 +588,16 @@ const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> =>
   })
 
 const defaultInvoke = async (messages: ChatMessage[]): Promise<string> => {
-  const chain = createChatChain({ temperature: 0.1, feature: 'extract' })
-  const response = await chain.invoke({ messages })
-  return response.content
+  // Function Calling：让模型通过 extract_entries 工具返回结构化 JSON
+  // tool_choice: 'auto' + system prompt 强指令"必须调用工具"
+  // 若模型未触发工具，invokeChatWithTools 自动回退到 content 解析
+  const response = await invokeChatWithTools(
+    { temperature: 0.1, feature: 'extract' },
+    messages,
+    [EXTRACT_ENTRIES_TOOL],
+    'auto',
+  )
+  return response
 }
 
 const retryMessages = (messages: ChatMessage[], feedback?: string[]): ChatMessage[] => {

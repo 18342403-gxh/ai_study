@@ -8,11 +8,11 @@
 
 import { Router } from 'express'
 import { z } from 'zod'
-import { and, eq, inArray, isNotNull } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
-import { getEmbedding, cosineSimilarity } from '../services/rag/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { searchAll } from '../services/search/searchAll.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler } from '../middleware/index.js'
 
@@ -25,32 +25,17 @@ const querySchema = z.object({
   stream: z.boolean().default(true),
 })
 
-type ChunkRow = typeof tables.chunks.$inferSelect
-
 /**
- * RAG 检索：向量相似度搜索 Top-K
+ * RAG 检索：统一走 searchAll 三通道编排（与 /api/chat 共享同一套检索路径）
+ * 仅取文档块（chunk）结果，documentIds 在后处理阶段过滤
  */
 async function retrieveTopChunks(query: string, documentIds?: string[]) {
-  const db = getDb()
-  const queryEmbedding = await getEmbedding(query)
-
-  const conds = [isNotNull(tables.chunks.embedding)]
+  const outcome = await searchAll({ query })
+  let chunks = outcome.results.filter((r) => r.kind === 'chunk')
   if (documentIds && documentIds.length > 0) {
-    conds.push(inArray(tables.chunks.docId, documentIds))
+    chunks = chunks.filter((r) => r.docId && documentIds.includes(r.docId))
   }
-  const chunks: ChunkRow[] = await db
-    .select()
-    .from(tables.chunks)
-    .where(and(...conds))
-
-  const scored = chunks.map((chunk) => {
-    const embedding = JSON.parse(chunk.embedding!) as number[]
-    const score = cosineSimilarity(queryEmbedding, embedding)
-    return { ...chunk, score }
-  })
-
-  scored.sort((a, b) => b.score - a.score)
-  return scored.slice(0, TOP_K)
+  return chunks.slice(0, TOP_K)
 }
 
 /**
@@ -80,15 +65,19 @@ router.post(
     const db = getDb()
     const citations = await Promise.all(
       topChunks.map(async (c, i) => {
-        const docs = await db
-          .select({ name: tables.documents.name })
-          .from(tables.documents)
-          .where(eq(tables.documents.id, c.docId))
-          .limit(1)
+        let source = '未知文档'
+        if (c.docId) {
+          const docs = await db
+            .select({ name: tables.documents.name })
+            .from(tables.documents)
+            .where(eq(tables.documents.id, c.docId))
+            .limit(1)
+          source = docs[0]?.name || '未知文档'
+        }
         return {
           index: i + 1,
           content: c.content.slice(0, 200),
-          source: docs[0]?.name || '未知文档',
+          source,
           score: Math.round(c.score * 100) / 100,
         }
       }),

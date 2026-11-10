@@ -20,6 +20,7 @@ import { isSupportedExtension } from '../services/rag/fileText.js'
 import { getDb, tables } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { searchAll } from '../services/search/searchAll.js'
 import { logger } from '../services/logger.js'
 
 const router = Router()
@@ -63,11 +64,20 @@ const rowToDocument = (row: DocumentRow) => ({
   library_id: row.libraryId,
 })
 
-/** POST /api/rag/documents — 上传入库 */
+/** POST /api/rag/documents — 上传入库（已废弃，请改用 /api/documents 异步上传） */
 router.post(
   '/documents',
   upload.single('file'),
   asyncHandler(async (req, res) => {
+    res.set('Deprecation', 'true')
+    res.set('Sunset', '2026-12-31')
+    logger.warn(
+      'rag.route',
+      '⚠️  使用已废弃的同步上传路由 /api/rag/documents，请改用 /api/documents',
+      {
+        file: req.file?.originalname,
+      },
+    )
     const file = req.file
     if (!file) throw createError('未提供文件', 400)
 
@@ -129,6 +139,15 @@ router.post(
   '/documents/url',
   validate({ body: urlImportSchema }),
   asyncHandler(async (req, res) => {
+    res.set('Deprecation', 'true')
+    res.set('Sunset', '2026-12-31')
+    logger.warn(
+      'rag.route',
+      '⚠️  使用已废弃的 URL 导入路由 /api/rag/documents/url，请改用 /api/documents',
+      {
+        url: req.body.url,
+      },
+    )
     const { url, name: providedName } = req.body
 
     // 安全校验：只允许 http/https，禁止 file:// / ftp:// 等
@@ -223,15 +242,26 @@ router.post(
 
     logger.info('rag.route', 'POST /query 开始', { topK, stream, queryLen: query.length })
 
-    const results = await ragService.search(query, topK, documentIds?.[0])
-    logger.info('rag.route', '检索完成', { referenceCount: results.length })
+    // 统一走 searchAll 三通道编排（与 /api/chat 共享同一套检索路径）
+    // documentIds 在后处理阶段过滤（searchAll 不支持按文档过滤）
+    const outcome = await searchAll({ query })
+    let results = outcome.results.filter((r) => r.kind === 'chunk')
+    if (documentIds && documentIds.length > 0) {
+      results = results.filter((r) => r.docId && documentIds.includes(r.docId))
+    }
+    results = results.slice(0, topK)
+
+    logger.info('rag.route', '检索完成', {
+      referenceCount: results.length,
+      channels: outcome.channels,
+    })
 
     const defaultSystem = `你是一个 RAG 问答助手。根据检索到的上下文回答问题。
 如果上下文包含答案，基于内容回答并在相关句末标注 [1][2] 等引用编号。
 如果上下文没有相关信息，诚实告知用户。
 
 上下文：
-${results.map((r, i) => `[${i + 1}] ${r.doc.content}`).join('\n\n')}`
+${results.map((r, i) => `[${i + 1}] ${r.content}`).join('\n\n')}`
 
     const chain = createChatChain({ temperature: 0.3, feature: 'chat_general' })
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -250,9 +280,9 @@ ${results.map((r, i) => `[${i + 1}] ${r.doc.content}`).join('\n\n')}`
           type: 'retrieval',
           sources: results.map((r, i) => ({
             index: i + 1,
-            content: r.doc.content.slice(0, 200),
+            content: r.content.slice(0, 200),
             score: Math.round(r.score * 1000) / 1000,
-            metadata: r.doc.metadata,
+            metadata: { docId: r.docId, chunkIndex: r.chunkIndex },
           })),
         })}\n\n`,
       )
@@ -278,7 +308,7 @@ ${results.map((r, i) => `[${i + 1}] ${r.doc.content}`).join('\n\n')}`
         answer: answer.content,
         sources: results.map((r, i) => ({
           index: i + 1,
-          content: r.doc.content,
+          content: r.content,
           score: r.score,
         })),
       })
