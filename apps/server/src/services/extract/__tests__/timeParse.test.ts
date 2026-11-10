@@ -105,6 +105,22 @@ describe('parseRelativeTime', () => {
     expect(result?.confidence).toBeLessThan(0.6)
   })
 
+  it('周五（只有日期无时间）：timeExplicit=false 并提示未指定具体时间', () => {
+    const result = parseRelativeTime('周五', NOW)
+    // 2026-11-07 是周六，下一个周五是 11-13
+    expect(result?.start).toBe(at(13))
+    expect(result?.timeExplicit).toBe(false)
+    expect(result?.warnings.join()).toContain('未指定具体时间')
+    expect(result?.confidence).toBeLessThanOrEqual(0.6)
+  })
+
+  it('周五下午三点：timeExplicit=true', () => {
+    const result = parseRelativeTime('周五下午三点', NOW)
+    expect(result?.start).toBe(at(13, 15))
+    expect(result?.timeExplicit).toBe(true)
+    expect(result?.warnings.join()).not.toContain('未指定具体时间')
+  })
+
   it('无法识别时返回 null', () => {
     expect(parseRelativeTime('你好', NOW)).toBeNull()
     expect(parseRelativeTime('最近', NOW)).toBeNull()

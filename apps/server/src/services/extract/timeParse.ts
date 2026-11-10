@@ -191,6 +191,8 @@ export interface RelativeTimeResult {
   recurrence: RelativeRecurrence | null
   confidence: number
   warnings: string[]
+  /** 用户是否明确说了具体时间点（如"下午3点"）。只有日期没有时间时为 false。 */
+  timeExplicit: boolean
 }
 
 const CN_DIGITS: Record<string, number> = {
@@ -355,14 +357,15 @@ export const parseRelativeTime = (raw: string, nowMs: number): RelativeTimeResul
   }
 
   if (recurrence) {
-    if (!clock) warnings.push('未指定具体时间')
+    if (!clock) warnings.push('未指定具体时间，已按 00:00 处理')
     const firstDay = firstRecurrenceDay(recurrence, nowMs)
     return {
       start: atClock(firstDay, clock),
       end: null,
       recurrence,
-      confidence: clock ? 0.75 : 0.7,
+      confidence: clock ? 0.75 : 0.6,
       warnings,
+      timeExplicit: clock !== null,
     }
   }
 
@@ -382,12 +385,14 @@ export const parseRelativeTime = (raw: string, nowMs: number): RelativeTimeResul
       if (n !== null) {
         // 同时刻：原文另给时间点则按今天该时间点顺延
         const base = clock ? atClock(nowMs, clock) : nowMs
+        if (!clock) warnings.push('未指定具体时间，已按当前时刻顺延')
         return {
           start: addLocalDays(base, n),
           end: null,
           recurrence: null,
-          confidence: 0.8,
+          confidence: clock ? 0.8 : 0.6,
           warnings,
+          timeExplicit: clock !== null,
         }
       }
     }
@@ -404,6 +409,7 @@ export const parseRelativeTime = (raw: string, nowMs: number): RelativeTimeResul
           recurrence: null,
           confidence: 0.8,
           warnings,
+          timeExplicit: true,
         }
       }
     }
@@ -460,13 +466,20 @@ export const parseRelativeTime = (raw: string, nowMs: number): RelativeTimeResul
 
   if (day === null) return null
 
+  const timeExplicit = clock !== null
+  // 只有日期没有具体时间时，提醒用户并降低置信度
+  if (!timeExplicit) {
+    warnings.push('未指定具体时间，已按 00:00 处理')
+    confidence = Math.min(confidence, 0.6)
+  }
+
   const start = atClock(day, clock)
   if (clock && !clock.explicit && clock.hour <= 6) {
     confidence = Math.min(confidence, 0.6)
     warnings.push('时间点不确定是上午还是下午，请核对')
   }
 
-  return { start, end: null, recurrence: null, confidence, warnings }
+  return { start, end: null, recurrence: null, confidence, warnings, timeExplicit }
 }
 
 /** 重复规则的首个发生日（本地 00:00） */
