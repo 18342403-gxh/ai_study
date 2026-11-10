@@ -192,6 +192,7 @@ export interface ExtractResponse {
   remaining: number
   failed: Record<string, unknown> | null
   rawText: string
+  draftEntryId: string | null
   source: { sessionId: string | null; libraryId: string }
 }
 

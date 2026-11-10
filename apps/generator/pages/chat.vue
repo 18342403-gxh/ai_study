@@ -861,10 +861,15 @@ const send = async () => {
       })
     } else if (extracted.failed) {
       // 抽取降级：直接展示后端降级话术，不再二次调用问答（避免重复等待）
+      // 若后端已将原文落库为 draft 草稿，追加草稿链接方便用户后续处理
+      let content = extracted.reply || '整理失败了，请稍后重试'
+      if (extracted.draftEntryId) {
+        content += `\n\n原文已保存为草稿，可在「记忆」中查看编辑。`
+      }
       messages.value.push({
         id: uid(),
         role: 'assistant',
-        content: extracted.reply || '整理失败了，请稍后重试',
+        content,
       })
     } else {
       await askAI(text, sid)

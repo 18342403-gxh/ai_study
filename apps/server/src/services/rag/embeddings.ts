@@ -37,4 +37,5 @@ export {
   cosineSimilarity,
   hashVector,
   isMockMode,
+  getEmbeddingMockState,
 } from './embeddingGateway.js'

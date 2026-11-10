@@ -16,6 +16,7 @@ import {
   getMonthCost,
 } from '../services/costTracker.js'
 import { getChatDegradedState } from '../services/chain/model.js'
+import { getEmbeddingMockState } from '../services/rag/index.js'
 import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
@@ -76,6 +77,7 @@ router.get(
         largeModel: process.env.AI_MODEL_LARGE || null,
         chatDegraded: getChatDegradedState(),
         embeddingMockEnabled: process.env.ENABLE_MOCK_EMBEDDING === '1',
+        embeddingMockState: getEmbeddingMockState(),
         embeddingFallbackDisabled: process.env.DISABLE_EMBEDDING_FALLBACK === '1',
         embeddingConcurrency: parseInt(process.env.EMBEDDING_CONCURRENCY || '4', 10) || 4,
       },

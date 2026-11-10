@@ -23,6 +23,7 @@ export {
   cosineSimilarity,
   hashVector,
   isMockMode,
+  getEmbeddingMockState,
   type Embeddings,
 } from './embeddings.js'
 export { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from './loader.js'

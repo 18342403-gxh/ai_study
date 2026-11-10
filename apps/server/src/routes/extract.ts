@@ -12,6 +12,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { and, desc, eq } from 'drizzle-orm'
+import { randomUUID } from 'crypto'
 
 import { getDb, tables } from '../db/index.js'
 import { asyncHandler, validate } from '../middleware/index.js'
@@ -69,16 +70,57 @@ router.post(
     const existing = rows.map(rowToExisting)
     const entries = await buildEntryCards(outcome.entries, existing, nowMs, timezone)
 
+    // ── 抽取失败时把原文落库为 draft 草稿，避免用户输入丢失 ──
+    let draftEntryId: string | null = null
+    if (outcome.failed !== null) {
+      draftEntryId = randomUUID()
+      const draftTitle = body.text.slice(0, 30).trim() || '抽取失败草稿'
+      try {
+        await db.insert(tables.entries).values({
+          id: draftEntryId,
+          userId: 'local',
+          libraryId: body.libraryId,
+          type: 'note',
+          title: draftTitle,
+          content: body.text,
+          status: 'draft',
+          startAt: null,
+          endAt: null,
+          recurrence: null,
+          recurrenceUntil: null,
+          exceptions: null,
+          sourceType: 'conversation',
+          sourceRef: body.sessionId ?? null,
+          confidence: 0,
+          createdAt: new Date(nowMs),
+          updatedAt: new Date(nowMs),
+          archivedAt: null,
+        })
+        logger.info('extract.route', '抽取失败，原文已落库为 draft 草稿', {
+          draftEntryId,
+          libraryId: body.libraryId,
+          failed: outcome.failed,
+        })
+      } catch (dbErr) {
+        logger.error('extract.route', 'draft 草稿落库失败（不影响响应）', {
+          error: (dbErr as Error).message,
+        })
+        draftEntryId = null
+      }
+    }
+
     logger.info('extract.route', 'POST / 完成', {
       libraryId: body.libraryId,
       intent: outcome.intent,
       entryCount: entries.length,
       failed: outcome.failed,
+      draftEntryId,
     })
 
     res.json({
       ...outcome,
       entries,
+      draftEntryId,
       source: {
         sessionId: body.sessionId ?? null,
         libraryId: body.libraryId,

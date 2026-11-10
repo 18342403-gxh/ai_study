@@ -26,6 +26,20 @@ const EMBEDDING_TIMEOUT_MS = Math.max(
   parseInt(process.env.EMBEDDING_TIMEOUT_MS || '15000', 10) || 15_000,
 )
 
+/**
+ * mock 模式 TTL（毫秒）。
+ * 当 Embedding API 失败时，进入 mock 模式但只持续 MOCK_TTL_MS，
+ * 过期后下次调用会主动探测一次真实 API，成功则清除 mock 标记（自愈）。
+ * 默认 5 分钟，可通过 EMBEDDING_MOCK_TTL_MS 调整。
+ */
+const MOCK_TTL_MS = Math.max(
+  5_000,
+  parseInt(process.env.EMBEDDING_MOCK_TTL_MS || '300000', 10) || 300_000,
+)
+
+/** 探测用的短文本（embedding-3 要求 input 非空且有最小长度） */
+const PROBE_TEXT = 'probe'
+
 function getEnv() {
   return {
     apiUrl: process.env.AI_API_URL || 'https://open.bigmodel.cn/api/paas/v4',
@@ -93,10 +107,50 @@ export function hashVector(text: string, dim = EMBEDDING_DIM): number[] {
   return vec
 }
 
-/** 全局 mock 模式状态（用于日志只打一次） */
-let mockModeActivated = false
+/**
+ * mock 模式过期时间戳（ms）。
+ * 0 = 不在 mock 模式；> 0 且 Date.now() < mockUntil = 处于 mock 模式（TTL 内）。
+ * 过期后下次 getEmbedding 会主动探测一次真实 API，成功则清零（自愈）。
+ */
+let mockUntil = 0
 
-/** 将单段文本转为向量（自动降级） */
+/** 是否正在探测真实 API（避免并发重复探测） */
+let probing = false
+
+/**
+ * 主动探测真实 Embedding API 是否恢复。
+ * 成功 → 清除 mockUntil（自愈）；失败 → 续期 TTL。
+ * 探测本身不计入成本追踪（避免 mock 期间产生无意义记账）。
+ */
+async function probeRealEmbedding(): Promise<boolean> {
+  const { apiUrl, apiKey, model } = getEnv()
+  try {
+    const response = await fetch(`${apiUrl}/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ model, input: PROBE_TEXT }),
+      signal: AbortSignal.timeout(Math.min(EMBEDDING_TIMEOUT_MS, 5_000)),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    // 成功：清除 mock 标记
+    mockUntil = 0
+    logger.warn('embedding.service', '✅ Embedding API 已恢复，退出 hash 降级')
+    return true
+  } catch (err) {
+    // 失败：续期 TTL
+    mockUntil = Date.now() + MOCK_TTL_MS
+    logger.warn('embedding.service', '🔄 Embedding API 仍不可用，续期 mock TTL', {
+      error: (err as Error).message.slice(0, 100),
+      ttlMs: MOCK_TTL_MS,
+    })
+    return false
+  }
+}
+
+/** 将单段文本转为向量（自动降级 + TTL 自愈） */
 export const getEmbedding = async (text: string): Promise<number[]> => {
   const { apiUrl, apiKey, model, forceMock, disableFallback } = getEnv()
 
@@ -111,6 +165,30 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
       totalTokens: 0,
       costMs: 0,
       metadata: { mock: true, forceMock: true },
+    })
+    return hashVector(text)
+  }
+
+  // ── TTL 过期 → 主动探测真实 API（自愈）─────────────
+  if (mockUntil > 0 && Date.now() >= mockUntil && !probing) {
+    probing = true
+    // 不 await 探测结果对调用方透明：探测失败续期 TTL，本次仍走 mock；
+    // 探测成功则清零，后续调用走真实 API。
+    void probeRealEmbedding().finally(() => {
+      probing = false
+    })
+  }
+
+  // ── mock TTL 内 → 直接返回 hash 向量（跳过网络调用）──
+  if (mockUntil > 0 && Date.now() < mockUntil) {
+    costTracker.track({
+      feature: 'embedding',
+      model,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      costMs: 0,
+      metadata: { mock: true, ttlRemainingMs: mockUntil - Date.now() },
     })
     return hashVector(text)
   }
@@ -141,6 +219,12 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
     const costMs = Date.now() - start
     logger.info('embedding.service', 'getEmbedding — 成功', { costMs })
 
+    // ── 成功：清除 mock 标记（自愈）──────────────────
+    if (mockUntil !== 0) {
+      mockUntil = 0
+      logger.warn('embedding.service', '✅ Embedding API 已恢复，退出 hash 降级')
+    }
+
     // ── 成本追踪 ──────────────────────────────────
     if (data.usage) {
       costTracker.track({
@@ -155,7 +239,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
 
     return data.data[0].embedding
   } catch (err) {
-    // ── 降级：hash 向量 ───────────────────────────────
+    // ── 降级：hash 向量 + 启动 TTL ──────────────────
     if (disableFallback) {
       logger.error('embedding.service', 'getEmbedding — 失败（fallback 已禁用）', {
         error: (err as Error).message,
@@ -163,18 +247,17 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
       throw err
     }
 
-    if (!mockModeActivated) {
-      logger.warn('embedding.service', '⚠️  Embedding API 不可用，启用 hash 向量降级', {
-        error: (err as Error).message,
-        hint: '充值 API Key 或设 ENABLE_MOCK_EMBEDDING=1 强制 mock',
-      })
-      mockModeActivated = true // 只打一次 warn
-    }
+    // 进入 mock 模式并设置 TTL（5 分钟后自动探测恢复）
+    mockUntil = Date.now() + MOCK_TTL_MS
+    logger.warn('embedding.service', '⚠️  Embedding API 不可用，启用 hash 向量降级（TTL 自愈）', {
+      error: (err as Error).message,
+      hint: 'TTL 到期后自动探测恢复，无需重启进程',
+      ttlMs: MOCK_TTL_MS,
+    })
 
     const costMs = Date.now() - start
     logger.debug('embedding.service', 'getEmbedding — hash 降级', { costMs, textLen: text.length })
 
-    // 降级也记一笔（total_tokens=0，metadata 带 mock 标记）
     costTracker.track({
       feature: 'embedding',
       model,
@@ -242,5 +325,24 @@ export const cosineSimilarity = (a: number[], b: number[]): number => {
 /** 🔍 当前是否在 mock 模式（诊断用） */
 export const isMockMode = (): boolean => {
   const { forceMock } = getEnv()
-  return forceMock || mockModeActivated
+  return forceMock || (mockUntil > 0 && Date.now() < mockUntil)
+}
+
+/** embedding mock 状态详情（供 /api/cost 查询展示） */
+export const getEmbeddingMockState = (): {
+  active: boolean
+  forceMock: boolean
+  mockUntil: number
+  ttlRemainingMs: number
+  ttlMs: number
+} => {
+  const { forceMock } = getEnv()
+  const active = forceMock || (mockUntil > 0 && Date.now() < mockUntil)
+  return {
+    active,
+    forceMock,
+    mockUntil,
+    ttlRemainingMs: mockUntil > 0 ? Math.max(0, mockUntil - Date.now()) : 0,
+    ttlMs: MOCK_TTL_MS,
+  }
 }
