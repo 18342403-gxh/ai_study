@@ -12,7 +12,8 @@
     "eval": "tsx tests/eval/run.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:db-wrap": "node scripts/test-db-wrap.mjs"
+    "test:db-wrap": "node scripts/test-db-wrap.mjs",
+    "clear:kb": "tsx scripts/clear-knowledge.mts"
   },
   "dependencies": {
     "@ai-study/shared": "workspace:*",

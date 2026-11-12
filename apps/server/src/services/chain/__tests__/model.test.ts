@@ -6,6 +6,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   createChatModel,
+  invokeChatWithToolCalls,
   resolveModelName,
   isChatDegraded,
   getChatDegradedState,
@@ -106,3 +107,48 @@ async function markDegradedExternally(): Promise<void> {
   await m.invoke('x').catch(() => {})
   expect(isChatDegraded()).toBe(true)
 }
+
+describe('invokeChatWithToolCalls', () => {
+  it('保留全部工具调用及其 id / arguments', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'a',
+                    type: 'function',
+                    function: { name: 'get_weather', arguments: '{"location":"北京"}' },
+                  },
+                  {
+                    id: 'b',
+                    type: 'function',
+                    function: { name: 'get_news', arguments: '{"topic":"科技"}' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      })),
+    )
+    const result = await invokeChatWithToolCalls(
+      { model: 'glm-4-flash', feature: 'chat_general' },
+      [{ role: 'user', content: '北京天气和科技新闻' }],
+      [
+        {
+          type: 'function',
+          function: { name: 'get_weather', description: '天气', parameters: { type: 'object' } },
+        },
+      ],
+    )
+    expect(result.content).toBe('')
+    expect(result.toolCalls.map((item) => item.id)).toEqual(['a', 'b'])
+    expect(result.toolCalls[0].function.arguments).toContain('北京')
+  })
+})

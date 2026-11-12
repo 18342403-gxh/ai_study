@@ -219,4 +219,24 @@ describe('generateAnswer', () => {
     expect(outcome.degradedReason).toBe('llm_error')
     expect(outcome.reply).toContain('回答生成超时')
   })
+
+  it('明确的天气问题不被个人知识库空结果拦截', async () => {
+    process.env.ENABLE_TOOLS = '1'
+    try {
+      const outcome = await generateAnswer({
+        query: '今天天气怎么样',
+        search: makeSearch({ results: [], empty: true }),
+        invoke: async (messages) => {
+          expect(messages[0].content).not.toContain('必须标注编号')
+          return '北京今天晴，气温 1～10°C。'
+        },
+      })
+      expect(outcome.reply).toContain('气温')
+      expect(outcome.general).toBe(true)
+      expect(outcome.empty).toBe(false)
+      expect(outcome.degradedReason).not.toBe('not_found')
+    } finally {
+      delete process.env.ENABLE_TOOLS
+    }
+  })
 })

@@ -168,6 +168,28 @@ export const formatDate = (ms: number, tz = getLocalTimezone()): string => {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
+/** 2026-11-07 周六（只日期+星期，不含具体时间；用于用户只说日期没说时间的场景） */
+export const formatDateWeekday = (ms: number, tz = getLocalTimezone()): string => {
+  const { get } = collectParts(ms, tz, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  })
+  return `${get('year')}-${get('month')}-${get('day')} ${get('weekday')}`
+}
+
+/**
+ * ISO 时间字符串是否包含具体时间部分（小时:分钟）。
+ * 纯日期 "2026-11-13" → false；"2026-11-13T14:00:00" → true。
+ * 用于判断模型是否明确给出了时间点，避免展示臆造的 00:00。
+ */
+export const isoHasTime = (value: unknown): boolean => {
+  if (typeof value !== 'string') return false
+  const m = ISO_RE.exec(value.trim())
+  return !!m && !!m[4]
+}
+
 /** 09:00 */
 export const formatClock = (ms: number, tz = getLocalTimezone()): string => {
   const { get } = collectParts(ms, tz, { hour: '2-digit', minute: '2-digit' })

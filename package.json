@@ -6,6 +6,7 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "pnpm --parallel --filter @ai-study/server --filter @ai-study/generator dev",
+    "start": "pnpm dev",
     "dev:server": "pnpm --filter @ai-study/server dev",
     "dev:generator": "pnpm --filter @ai-study/generator dev",
     "build": "pnpm -r --filter @ai-study/shared --filter @ai-study/server build",

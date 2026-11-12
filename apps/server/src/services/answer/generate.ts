@@ -17,6 +17,7 @@ import type { ChatMessage } from '../chain/model.js'
 import { getLocalTimezone } from '../extract/timeParse.js'
 import { logger } from '../logger.js'
 import type { SearchAllOutcome } from '../search/searchAll.js'
+import { areToolsEnabled, isExplicitToolQuery, runToolAgent } from '../tools/agent.js'
 import { assembleContext, compressContext, TYPE_LABEL, type AssembledContext } from './context.js'
 import { buildCitations, type Citation } from './citations.js'
 
@@ -157,6 +158,10 @@ const defaultInvoke = async (
   messages: ChatMessage[],
   feature: 'chat_general' | 'chat_with_records',
 ): Promise<string> => {
+  if (areToolsEnabled()) {
+    const outcome = await runToolAgent({ messages, feature })
+    return outcome.content
+  }
   const chain = createChatChain({ temperature: 0.7, feature })
   const response = await chain.invoke({ messages })
   return response.content
@@ -177,8 +182,9 @@ export const generateAnswer = async (options: AnswerOptions): Promise<AnswerOutc
   const timezone = options.timezone ?? getLocalTimezone()
   const timeoutMs = options.timeoutMs ?? DEFAULT_ANSWER_TIMEOUT_MS
 
-  // ── 通用问题：不注入个人记录，正常回答（4.7.2 通用问题行） ──
-  if (!search.understanding.needsPersonalContext) {
+  // 通用问题与明确的外部实时问题进入工具 Agent；后者不能被个人检索空结果拦截。
+  const explicitToolQuery = areToolsEnabled() && isExplicitToolQuery(query)
+  if (!search.understanding.needsPersonalContext || explicitToolQuery) {
     const messages = buildAnswerMessages({
       query,
       condensedQuery: options.condensedQuery,

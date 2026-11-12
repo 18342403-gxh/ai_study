@@ -14,8 +14,10 @@ import {
   firstRecurrenceDay,
   formatDate,
   formatDateTime,
+  formatDateWeekday,
   formatRecurrenceText,
   getLocalTimezone,
+  isoHasTime,
   parseIsoTime,
   parseRelativeTime,
   parseStatedWeekday,
@@ -377,7 +379,12 @@ function buildEntry(
 
   // 模型没给出可用开始时间时，用原文相对时间兜底
   let fallbackRecurrence: RelativeRecurrence | null = null
-  let timeExplicit = true // 模型给的 ISO 时间视为明确指定
+  // 模型只给了日期没给时间时，不视为明确指定时间，避免展示臆造的 00:00
+  let timeExplicit = start !== null ? isoHasTime(timeRecord?.start) : true
+  if (start !== null && !timeExplicit) {
+    warnings.push('未指定具体时间，已按 00:00 处理')
+    timeConfidence = timeConfidence === null ? 0.6 : Math.min(timeConfidence, 0.6)
+  }
   if (start === null && rawTimeText) {
     const relative = parseRelativeTime(rawTimeText, nowMs)
     if (relative && relative.start !== null) {
@@ -449,8 +456,8 @@ function buildEntry(
           start,
           end,
           confidence: clamp01(timeConfidence ?? confidence),
-          // 时间未明确指定时只显示日期，避免展示臆造的 00:00
-          startText: timeExplicit ? formatDateTime(start) : formatDate(start),
+          // 时间未明确指定时只显示日期+星期，避免展示臆造的 00:00
+          startText: timeExplicit ? formatDateTime(start) : formatDateWeekday(start),
           endText: end !== null ? formatDateTime(end) : null,
         }
       : null

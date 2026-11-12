@@ -1,4 +1,4 @@
-﻿import { logger } from '../logger.js'
+import { logger } from '../logger.js'
 import { costTracker, checkMonthlyBudget, type AiFeature } from '../costTracker.js'
 import { isFreeModel } from '../llm/pricing.js'
 
@@ -132,21 +132,44 @@ interface ChatCtx {
   config: ModelConfig
 }
 
-type RawInput = Array<{ role: string; content: string }> | string
+type RawInput = ChatMessage[] | string
 
 /** 带工具调用的请求体（Function Calling） */
+export interface FunctionToolDefinition {
+  type: 'function'
+  function: { name: string; description: string; parameters: object }
+}
+
+export interface ModelToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+/** Agent 循环消息：assistant 可携带工具调用，tool 消息用 tool_call_id 关联。 */
+export interface ToolCallMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool'
+  content: string
+  tool_calls?: ModelToolCall[]
+  tool_call_id?: string
+  name?: string
+}
+
+export interface ToolCallResult {
+  content: string
+  toolCalls: ModelToolCall[]
+}
+
 interface ToolCallInput {
-  messages: Array<{ role: string; content: string }>
-  tools: Array<{
-    type: 'function'
-    function: { name: string; description: string; parameters: object }
-  }>
+  messages: ToolCallMessage[]
+  tools: FunctionToolDefinition[]
   toolChoice?: 'auto' | 'none' | { type: 'function'; function: { name: string } }
 }
 
 /** 解析模型 + 预算熔断 + 组装请求参数 */
 const prepareCall = async (ctx: ChatCtx, input: RawInput) => {
-  const messages = typeof input === 'string' ? [{ role: 'user', content: input }] : input
+  const messages: ChatMessage[] =
+    typeof input === 'string' ? [{ role: 'user', content: input }] : input
   const { model, downgradedFrom } = await applyBudgetCircuit(
     ctx.provider,
     resolveModelName(ctx.config, ctx.env),
@@ -157,7 +180,7 @@ const prepareCall = async (ctx: ChatCtx, input: RawInput) => {
 
 interface PostChatOpts {
   model: string
-  messages: { role: string; content: string }[]
+  messages: ToolCallMessage[]
   stream: boolean
   signal?: AbortSignal
   tools?: ToolCallInput['tools']
@@ -275,21 +298,20 @@ const invokeChat = async (ctx: ChatCtx, input: RawInput): Promise<string> => {
 }
 
 /**
- * Function Calling 调用：让模型通过工具调用返回结构化 JSON。
- * 返回 tool_calls[0].function.arguments（JSON 字符串），供调用方 parseLooseJson 解析。
- * 若模型未触发工具调用，则回退返回 message.content（兼容 JSON Mode 输出）。
+ * 返回完整 Function Calling 结果，供 Agent 执行工具后把 tool 消息回注模型。
+ * 与 invokeChatWithTools 的“只取第一个参数 JSON”用途不同，这里保留全部 tool_calls。
  */
-export const invokeChatWithTools = async (
+export const invokeChatWithToolCalls = async (
   config: ModelConfig,
-  messages: Array<{ role: string; content: string }>,
-  tools: ToolCallInput['tools'],
+  messages: ToolCallMessage[],
+  tools: FunctionToolDefinition[],
   toolChoice: ToolCallInput['toolChoice'] = 'auto',
-): Promise<string> => {
+): Promise<ToolCallResult> => {
   const ctx: ChatCtx = {
     env: getEnv(),
     provider: config.provider || 'zhipu',
-    temperature: config.temperature ?? 0.1,
-    feature: config.feature || 'extract',
+    temperature: config.temperature ?? 0.2,
+    feature: config.feature || 'chat_general',
     config,
   }
   const { model, downgradedFrom } = await applyBudgetCircuit(
@@ -315,7 +337,11 @@ export const invokeChatWithTools = async (
     choices: Array<{
       message: {
         content: string | null
-        tool_calls?: Array<{ function: { name: string; arguments: string } }>
+        tool_calls?: Array<{
+          id?: string
+          type?: 'function'
+          function: { name: string; arguments: string }
+        }>
       }
     }>
     usage?: any
@@ -326,17 +352,43 @@ export const invokeChatWithTools = async (
   if (data.usage) trackUsage(ctx, { model, usage: data.usage, costMs: cost, downgradedFrom })
 
   const msg = data.choices[0]?.message
-  // 优先取工具调用的 arguments；若模型未触发工具则回退到 content
-  const toolArgs = msg?.tool_calls?.[0]?.function?.arguments
+  const toolCalls = (msg?.tool_calls ?? []).map((call, index) => ({
+    id: call.id || `call_${index}`,
+    type: 'function' as const,
+    function: {
+      name: call.function.name,
+      arguments: call.function.arguments || '{}',
+    },
+  }))
+  return { content: msg?.content || '', toolCalls }
+}
+
+/**
+ * 结构化抽取兼容接口：只返回第一个工具调用的 arguments。
+ * 若模型未触发工具调用，则回退返回 message.content（兼容 JSON Mode 输出）。
+ */
+export const invokeChatWithTools = async (
+  config: ModelConfig,
+  messages: ChatMessage[],
+  tools: FunctionToolDefinition[],
+  toolChoice: ToolCallInput['toolChoice'] = 'auto',
+): Promise<string> => {
+  const result = await invokeChatWithToolCalls(
+    { ...config, feature: config.feature ?? 'extract' },
+    messages,
+    tools,
+    toolChoice,
+  )
+  const toolArgs = result.toolCalls[0]?.function.arguments
   if (toolArgs) {
     logger.debug('llm.invoke', 'Function Calling 返回 tool arguments', {
-      toolName: msg!.tool_calls![0].function.name,
+      toolName: result.toolCalls[0].function.name,
       argsLen: toolArgs.length,
     })
     return toolArgs
   }
   logger.warn('llm.invoke', '模型未触发工具调用，回退到 content 解析')
-  return msg?.content || ''
+  return result.content
 }
 
 /** 模型调用（流式） */
