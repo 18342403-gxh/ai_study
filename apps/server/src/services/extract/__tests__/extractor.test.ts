@@ -69,6 +69,86 @@ describe('extractEntries', () => {
     expect(entry.needsReview).toBe(false)
   })
 
+  it('update 模型漏填 updates 时，从原文兜底识别改内容', async () => {
+    const outcome = await extractEntries({
+      text: '把技术终面的内容改成讨论职级和年终奖',
+      now: NOW,
+      invoke: async () =>
+        json({
+          intent: 'update',
+          entries: [
+            {
+              type: 'schedule',
+              title: '技术终面',
+              content: '讨论薪资和职级，需要带身份证',
+              time: { raw: '2026-11-24 15:00', start: '2026-11-24T15:00:00+08:00' },
+              confidence: 0.9,
+              updates: null,
+            },
+          ],
+          reply: '已更新',
+        }),
+    })
+
+    expect(outcome.intent).toBe('update')
+    expect(outcome.entries[0].title).toBe('技术终面')
+    expect(outcome.entries[0].updates?.content).toBe('讨论职级和年终奖')
+  })
+
+  it('update 模型漏填 updates 时，从原文兜底识别改标题', async () => {
+    const outcome = await extractEntries({
+      text: '把面试的标题改成技术终面',
+      now: NOW,
+      invoke: async () =>
+        json({
+          intent: 'update',
+          entries: [
+            {
+              type: 'schedule',
+              title: '面试',
+              content: '讨论薪资和职级',
+              time: null,
+              confidence: 0.9,
+            },
+          ],
+          reply: '已更新',
+        }),
+    })
+
+    expect(outcome.entries[0].title).toBe('面试')
+    expect(outcome.entries[0].updates?.title).toBe('技术终面')
+  })
+
+  it('纯改期以原文相对时间为准，并保留原时长', async () => {
+    const outcome = await extractEntries({
+      text: '把技术终面改到下周三下午四点',
+      now: NOW,
+      invoke: async () =>
+        json({
+          intent: 'update',
+          entries: [
+            {
+              type: 'schedule',
+              title: '技术终面',
+              content: '讨论职级和年终奖',
+              time: {
+                raw: '2026-11-24 15:00',
+                start: '2026-11-24T15:00:00+08:00',
+                end: '2026-11-24T16:00:00+08:00',
+              },
+              confidence: 0.9,
+              updates: null,
+            },
+          ],
+          reply: '已更新',
+        }),
+    })
+
+    expect(outcome.entries[0].time?.start).toBe(at(11, 16))
+    expect(outcome.entries[0].time?.end).toBe(at(11, 17))
+    expect(outcome.entries[0].updates).toBeNull()
+  })
+
   it('每周一早上九点 → WEEKLY + MO + 09:00', async () => {
     const outcome = await extractEntries({
       text: '每周一早上九点开周会',

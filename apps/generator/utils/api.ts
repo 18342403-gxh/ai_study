@@ -178,10 +178,23 @@ export interface ExtractedEntry {
   warnings: string[]
 }
 
+export type DuplicateLevel = 'exact' | 'similar' | 'related'
+/** skip=已存在无需操作；merge=更新已有；create=仍新建（仅提示） */
+export type DuplicateAction = 'skip' | 'merge' | 'create'
+
+export interface DuplicateInfo {
+  entryId: string
+  title: string
+  similarity: number
+  level: DuplicateLevel
+  action: DuplicateAction
+  reason: string
+}
+
 export interface EntryCard extends ExtractedEntry {
-  duplicate: { id?: string; title?: string; similarity?: number } | null
+  duplicate: DuplicateInfo | null
   conflicts: Array<{
-    id?: string
+    entryId?: string
     title?: string
     start: number
     end: number | null
@@ -192,7 +205,7 @@ export interface EntryCard extends ExtractedEntry {
 
 export interface ExtractResponse {
   ok: boolean
-  intent: 'record' | 'query' | 'chat'
+  intent: 'record' | 'query' | 'chat' | 'cancel' | 'delete' | 'update'
   reply: string
   entries: EntryCard[]
   truncated: boolean
@@ -236,6 +249,8 @@ export interface CreateEntryPayload {
   recurrence?: Recurrence | null
   sourceType: 'conversation' | 'document' | 'manual'
   confidence?: number
+  /** 创建端兜底判重策略，默认 merge；force 强制新建；error 重复时返回 409 */
+  onDuplicate?: 'merge' | 'force' | 'error'
 }
 
 export interface ReminderItem {

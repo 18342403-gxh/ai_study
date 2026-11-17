@@ -1,9 +1,19 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+// mock embedding：让「标题/时间」信号路径的判定稳定可控。
+// cosineSimilarity 固定返回 0.5（不高不低），这样只有标题/时间信号能决定档位。
+vi.mock('../../rag/embeddings.js', () => ({
+  getEmbedding: vi.fn(async () => [1, 0, 0]),
+  cosineSimilarity: vi.fn(() => 0.5),
+}))
+
 import {
   buildDedupeInfo,
+  findBestDuplicate,
   findExactDuplicate,
   findTimeConflicts,
   intervalsOverlap,
+  bigramSimilarity,
   type ExistingEntry,
 } from '../dedupe.js'
 import type { ExtractedEntry } from '../extractor.js'
@@ -57,6 +67,20 @@ describe('intervalsOverlap', () => {
   it('无结束时间按 1 小时估算', () => {
     expect(intervalsOverlap(at(8, 14), null, at(8, 14, 30), null)).toBe(true)
     expect(intervalsOverlap(at(8, 14), null, at(8, 16), null)).toBe(false)
+  })
+})
+
+describe('bigramSimilarity', () => {
+  it('完全相同为 1', () => {
+    expect(bigramSimilarity('面试', '面试')).toBe(1)
+  })
+  it('完全不相关为 0', () => {
+    expect(bigramSimilarity('面试', '跑步')).toBe(0)
+  })
+  it('部分重叠在 0-1 之间', () => {
+    const s = bigramSimilarity('明天下午面试', '下午面试')
+    expect(s).toBeGreaterThan(0)
+    expect(s).toBeLessThan(1)
   })
 })
 
@@ -133,10 +157,78 @@ describe('findTimeConflicts', () => {
   })
 })
 
+describe('findBestDuplicate — 三档判重', () => {
+  it('exact：标题 + 内容完全一致（走 identical 捷径，不调 embedding）', async () => {
+    const dup = await findBestDuplicate(makeEntry(), [makeExisting()])
+    expect(dup).toEqual({
+      entryId: 'e1',
+      title: '开会',
+      similarity: 1,
+      level: 'exact',
+      action: 'skip',
+      reason: '标题和内容完全一致',
+    })
+  })
+
+  it('similar：标题相同 + 时间重叠（内容不同也合并）', async () => {
+    const candidate = makeEntry({ content: '明天下午两点开会讨论新项目排期' })
+    const existing = makeExisting({ content: '明天下午两点开会' })
+    const dup = await findBestDuplicate(candidate, [existing])
+    expect(dup?.level).toBe('similar')
+    expect(dup?.action).toBe('merge')
+    expect(dup?.entryId).toBe('e1')
+  })
+
+  it('similar：标题互相包含 + 时间重叠（「面试」vs「明天下午面试」）', async () => {
+    const candidate = makeEntry({ title: '明天下午面试', content: '明天下午有个面试' })
+    const existing = makeExisting({ title: '面试', content: '后天面试', id: 'e2' })
+    const dup = await findBestDuplicate(candidate, [existing])
+    expect(dup?.level).toBe('similar')
+    expect(dup?.action).toBe('merge')
+    expect(dup?.entryId).toBe('e2')
+  })
+
+  it('不判重：标题相同但 schedule 时间不重叠、内容相似度低', async () => {
+    // 同名但不同时段的会议是不同会议，不应误判
+    const candidate = makeEntry({ content: '完全不一样的另一场讨论' })
+    const existing = makeExisting({ startAt: at(20, 14), endAt: at(20, 15), content: '别的内容' })
+    const dup = await findBestDuplicate(candidate, [existing])
+    expect(dup).toBeNull()
+  })
+
+  it('类型不同直接跳过', async () => {
+    const candidate = makeEntry({ type: 'note' })
+    const dup = await findBestDuplicate(candidate, [makeExisting()])
+    expect(dup).toBeNull()
+  })
+
+  it('无候选时返回 null', async () => {
+    const dup = await findBestDuplicate(makeEntry({ title: '健身' }), [
+      makeExisting({ title: '跑步', content: '晨跑', startAt: at(1, 7), endAt: at(1, 8) }),
+    ])
+    expect(dup).toBeNull()
+  })
+})
+
 describe('buildDedupeInfo', () => {
-  it('内容完全一致时直接判为重复（不调用 embedding）', async () => {
+  it('内容完全一致时判为 exact（不调用 embedding）', async () => {
     const info = await buildDedupeInfo(makeEntry(), [makeExisting()], NOW)
-    expect(info.duplicate).toEqual({ entryId: 'e1', title: '开会', similarity: 1 })
+    expect(info.duplicate).toEqual({
+      entryId: 'e1',
+      title: '开会',
+      similarity: 1,
+      level: 'exact',
+      action: 'skip',
+      reason: '标题和内容完全一致',
+    })
+    expect(info.conflicts).toHaveLength(1)
+  })
+
+  it('相似日程同时返回 duplicate 与 conflicts', async () => {
+    const candidate = makeEntry({ content: '明天下午两点开会讨论新项目' })
+    const existing = makeExisting({ content: '明天下午两点开会' })
+    const info = await buildDedupeInfo(candidate, [existing], NOW)
+    expect(info.duplicate?.action).toBe('merge')
     expect(info.conflicts).toHaveLength(1)
   })
 })

@@ -99,9 +99,16 @@
       </div>
     </div>
 
-    <!-- 提示条 -->
-    <div v-if="hints.length > 0" class="px-4 py-2 bg-amber-50/70 border-b border-amber-100">
-      <p v-for="(hint, i) in hints" :key="i" class="text-[11px] text-amber-700 leading-5">
+    <!-- 判重提示条：按档位着色（exact=绿 / similar=蓝 / related=黄） -->
+    <div v-if="card.duplicate" class="px-4 py-2 border-b" :class="duplicateBannerClass">
+      <p class="text-[11px] leading-5" :class="duplicateTextClass">
+        {{ duplicateBannerText }}
+      </p>
+    </div>
+
+    <!-- 其它提示（冲突 / 警告） -->
+    <div v-if="otherHints.length > 0" class="px-4 py-2 bg-amber-50/70 border-b border-amber-100">
+      <p v-for="(hint, i) in otherHints" :key="i" class="text-[11px] text-amber-700 leading-5">
         {{ hint }}
       </p>
     </div>
@@ -128,11 +135,12 @@
       <template v-else>
         <button
           type="button"
-          class="px-3 py-1.5 bg-primary-500 text-white text-xs rounded-lg hover:bg-primary-600 disabled:opacity-40 transition-colors"
+          class="px-3 py-1.5 text-white text-xs rounded-lg disabled:opacity-40 transition-colors"
+          :class="confirmButtonClass"
           :disabled="saving"
           @click="confirm"
         >
-          {{ saving ? '保存中…' : '确认入库' }}
+          {{ saving ? '保存中…' : confirmButtonText }}
         </button>
         <button
           type="button"
@@ -233,13 +241,66 @@ const timeLabel = computed(() => {
   return time.endText ? `${time.startText} - ${time.endText}` : time.startText
 })
 
-const hints = computed(() => {
-  const list: string[] = []
-  if (props.card.duplicate) {
-    list.push(
-      `已有相同记录${props.card.duplicate.title ? `「${props.card.duplicate.title}」` : ''}，确认后将重复保存`,
-    )
+const dup = computed(() => props.card.duplicate ?? null)
+
+/** 判重提示条文案：exact/similar 自动合并，related 仍新建 */
+const duplicateBannerText = computed(() => {
+  const d = dup.value
+  if (!d) return ''
+  const name = d.title ? `「${d.title}」` : '已有记录'
+  if (d.action === 'skip') return `该记录已存在：${name}（${d.reason}），无需重复创建。`
+  if (d.action === 'merge')
+    return `与已有记录${name}相近（${d.reason}），确认后将更新该记录，不会重复新建。`
+  return `与已有记录${name}可能相关（${d.reason}），确认后仍将新建一条。`
+})
+
+const duplicateBannerClass = computed(() => {
+  switch (dup.value?.level) {
+    case 'exact':
+      return 'bg-emerald-50/70 border-emerald-100'
+    case 'similar':
+      return 'bg-sky-50/70 border-sky-100'
+    default:
+      return 'bg-amber-50/70 border-amber-100'
   }
+})
+
+const duplicateTextClass = computed(() => {
+  switch (dup.value?.level) {
+    case 'exact':
+      return 'text-emerald-700'
+    case 'similar':
+      return 'text-sky-700'
+    default:
+      return 'text-amber-700'
+  }
+})
+
+const confirmButtonText = computed(() => {
+  switch (dup.value?.action) {
+    case 'skip':
+      return '已存在'
+    case 'merge':
+      return '更新已有记录'
+    default:
+      return '确认入库'
+  }
+})
+
+const confirmButtonClass = computed(() => {
+  switch (dup.value?.action) {
+    case 'skip':
+      return 'bg-emerald-500 hover:bg-emerald-600'
+    case 'merge':
+      return 'bg-sky-500 hover:bg-sky-600'
+    default:
+      return 'bg-primary-500 hover:bg-primary-600'
+  }
+})
+
+/** 冲突 / 警告 / 模型提示（判重提示单独展示） */
+const otherHints = computed(() => {
+  const list: string[] = []
   for (const conflict of props.card.conflicts) {
     list.push(`与「${conflict.title ?? '已有日程'}」（${conflict.startText}）时间冲突`)
   }

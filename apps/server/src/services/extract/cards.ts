@@ -5,6 +5,7 @@
  */
 
 import {
+  bigramSimilarity,
   buildDedupeInfo,
   type ConflictInfo,
   type DuplicateInfo,
@@ -53,22 +54,6 @@ export const rowTimeText = (row: EntryRowLike): string | undefined => {
   const recurrence = toRecurrence(row.recurrence)
   if (recurrence && row.startAt) return formatRecurrenceText(recurrence, row.startAt.getTime())
   return row.startAt ? formatDateTime(row.startAt.getTime()) : undefined
-}
-
-/** 字符二元组相似度 — 用于挑出最相关的已有记录（避免为 Prompt 额外调用 embedding） */
-const bigramSimilarity = (a: string, b: string): number => {
-  const grams = (text: string) => {
-    const clean = text.replace(/\s+/g, '').toLowerCase()
-    const set = new Set<string>()
-    for (let i = 0; i < clean.length - 1; i++) set.add(clean.slice(i, i + 2))
-    return set
-  }
-  const ga = grams(a)
-  const gb = grams(b)
-  if (ga.size === 0 || gb.size === 0) return 0
-  let shared = 0
-  for (const gram of ga) if (gb.has(gram)) shared++
-  return shared / Math.max(ga.size, gb.size)
 }
 
 /** 从已有记录中挑出最相关的若干条，注入 Prompt（spec 4.3.5：最多 5 条） */

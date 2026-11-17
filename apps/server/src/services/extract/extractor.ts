@@ -29,7 +29,7 @@ import {
 import { alignRecurrenceStart, normalizeRecurrence, type Recurrence } from './recurrence.js'
 
 export type EntryType = 'schedule' | 'plan' | 'fact' | 'note'
-export type Intent = 'record' | 'query' | 'chat'
+export type Intent = 'record' | 'query' | 'chat' | 'cancel' | 'delete' | 'update'
 export type ExtractFailure = 'non_json' | 'timeout' | 'llm_error' | null
 
 /** 单次最多展示 5 条（spec 4.3.6） */
@@ -60,6 +60,11 @@ export interface ExtractedEntry {
   needsReview: boolean
   duplicateHint: string | null
   warnings: string[]
+  /**
+   * 仅 update 意图使用：要写回的新值（区别于 title/content/time 这些「匹配目标的线索」）。
+   * 改标题 → updates.title；改内容 → updates.content；改期仍用 time。
+   */
+  updates?: { title?: string; content?: string } | null
 }
 
 export interface ExtractOutcome {
@@ -101,7 +106,7 @@ export interface ExtractOptions {
 // ─────────────────────────────────────────────
 
 const OUTPUT_SCHEMA = `{
-  "intent": "record | query | chat",
+  "intent": "record | query | chat | cancel | delete | update",
   "entries": [
     {
       "type": "schedule | plan | fact | note",
@@ -121,7 +126,8 @@ const OUTPUT_SCHEMA = `{
         "until": "2027-11-06T00:00:00+08:00"
       },
       "confidence": 0.9,
-      "duplicateHint": "可能与已有记录重复时的说明，否则为 null"
+      "duplicateHint": "可能与已有记录重复时的说明，否则为 null",
+      "updates": "仅 update 意图使用：{ "title": 新标题, "content": 新内容 }；改期用 time，其它意图为 null"
     }
   ],
   "reply": "给用户的自然语言反馈"
@@ -144,8 +150,9 @@ const EXTRACT_ENTRIES_TOOL = {
       properties: {
         intent: {
           type: 'string',
-          enum: ['record', 'query', 'chat'],
-          description: '用户意图：record=记录、query=查询、chat=闲聊',
+          enum: ['record', 'query', 'chat', 'cancel', 'delete', 'update'],
+          description:
+            '用户意图：record=记录新信息、query=查询、chat=闲聊、cancel=取消已有日程/安排、delete=删除已有记录、update=修改已有记录的时间、标题或内容',
         },
         entries: {
           type: 'array',
@@ -183,6 +190,15 @@ const EXTRACT_ENTRIES_TOOL = {
               },
               confidence: { type: 'number', minimum: 0, maximum: 1 },
               duplicateHint: { type: ['string', 'null'] },
+              updates: {
+                type: ['object', 'null'],
+                description:
+                  '仅 update 意图使用：要写回的新值。改标题填 title，改内容填 content；改期用 time 字段。其它意图一律为 null',
+                properties: {
+                  title: { type: ['string', 'null'], description: '修改后的新标题' },
+                  content: { type: ['string', 'null'], description: '修改后的新内容' },
+                },
+              },
             },
           },
         },
@@ -203,10 +219,21 @@ const SECURITY_RULES = `规则：
 6. 重复规则只支持：DAILY（可带 interval）、WEEKLY（可带 byWeekday）、MONTHLY（可带 byMonthDay）。
    其他重复方式（每年、每月第 N 个周几等）请按单次事件输出，并在 content 里说明。
 7. 时间无法解析时 time 为 null，此时 type 不能是 schedule。
-8. intent 判别：疑问句 → query；纯寒暄 → chat；含时间/自我描述/未来意图 → record；
-   同时含提问与陈述时 intent 用 record，并在 reply 中回答用户的问题。
+8. intent 判别：
+   - 疑问句 → query；纯寒暄 → chat；含时间/自我描述/未来意图 → record；
+   - 同时含提问与陈述时 intent 用 record，并在 reply 中回答用户的问题。
+   - 句中出现「取消 / 不去了 / 改期不了 / 不用了 / 作罢」等表达，且指向已有日程/安排 → cancel；
+     entries 里写要取消的条目（标题 + 时间，用于匹配已有记录）。
+   - 句中出现「删除 / 删掉 / 移除 / 忘了 / 不要这条」等表达，且指向已有记录 → delete；
+     entries 里写要删除的条目（标题 + 时间，用于匹配已有记录）。
+   - 句中出现「改到 / 改期 / 改成 / 改为 / 推迟 / 提前 / 换到 / 挪到 / 调整到」等表达，且指向已有日程/安排 → update；
+     entries 里写要修改的条目：title 用于定位已有记录，time 填修改后的新时间（不是原时间）。
+     若要改标题或内容，把新值放进 updates（如 updates.title=新标题、updates.content=新内容），
+     此时 title 仍写用于定位的原标题，不要把新标题写进 title。
+     仅当用户明确提出新时间时才填 time；只改标题/内容、未提新时间时，time 必须填 null。
 9. 句中出现「什么 / 怎么 / 为什么 / 哪些 / 哪个 / 多少 / 如何 / 是否 / 有没有」等疑问词时，
-   即使句子里带「我」，也判为 query，不要抽取成条目。`
+   即使句子里带「我」，也判为 query，不要抽取成条目。
+10. cancel / delete / update 时，entries 只写用户明确要操作的对象，不要新增记录。`
 
 /** 组装抽取 Prompt（spec 4.3.5） */
 export const buildExtractMessages = (params: {
@@ -258,7 +285,7 @@ ${OUTPUT_SCHEMA}
 // ─────────────────────────────────────────────
 
 const ENTRY_TYPES: EntryType[] = ['schedule', 'plan', 'fact', 'note']
-const INTENTS: Intent[] = ['record', 'query', 'chat']
+const INTENTS: Intent[] = ['record', 'query', 'chat', 'cancel', 'delete', 'update']
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -467,6 +494,12 @@ function buildEntry(
 
   const duplicateHint = asString(record.duplicateHint)?.trim() || null
 
+  // update 意图专用：解析要写回的新标题/新内容（两个都为空则视为无）
+  const updatesRaw = asRecord(record.updates)
+  const newTitle = asString(updatesRaw?.title)?.trim() || undefined
+  const newContent = asString(updatesRaw?.content)?.trim() || undefined
+  const updates = newTitle || newContent ? { title: newTitle, content: newContent } : null
+
   // 只有「不确定」类提醒才需要用户核对；确定性的校正（如按原文对齐时间）不打扰用户
   const reviewHints = [
     '不完整',
@@ -494,7 +527,21 @@ function buildEntry(
     needsReview,
     duplicateHint,
     warnings,
+    updates,
   }
+}
+
+/** 从明确的「把 X 的标题/内容改成 Y」指令中提取写回值，兜底模型漏填 updates */
+const parseExplicitFieldUpdate = (
+  sourceText: string,
+): { field: 'title' | 'content'; value: string } | null => {
+  const match = sourceText.match(
+    /(?:把|将)\s*.+?\s*的?\s*(标题|内容)\s*(?:改成|改为|换成|修改为|调整为)\s*[:：]?\s*(\S[\s\S]*)/,
+  )
+  if (!match) return null
+  const value = match[2]?.trim()
+  const field = match[1] === '标题' ? 'title' : 'content'
+  return value ? { field, value } : null
 }
 
 /** 把模型 JSON 响应规范化为可展示条目 */
@@ -515,8 +562,48 @@ export const normalizeExtractResponse = (
   let intent: Intent = (INTENTS as string[]).includes(rawIntent ?? '')
     ? (rawIntent as Intent)
     : 'chat'
-  // 有抽取结果时，intent 一律视为录入（4.3.1：先抽取再回答）
-  if (entries.length > 0) intent = 'record'
+  // 有抽取结果时默认视为录入；但 cancel/delete/update 语义优先，entries 表示要操作的目标
+  if (entries.length > 0 && intent !== 'cancel' && intent !== 'delete' && intent !== 'update')
+    intent = 'record'
+
+  // 明确的单条改标题/内容指令不依赖模型是否遵循 updates 嵌套结构，避免随机漏更新
+  if (intent === 'update' && entries.length === 1) {
+    const explicit = parseExplicitFieldUpdate(sourceText)
+    const currentUpdates = entries[0].updates ?? {}
+    if (explicit && !currentUpdates[explicit.field]) {
+      entries[0] = {
+        ...entries[0],
+        updates: { ...currentUpdates, [explicit.field]: explicit.value },
+      }
+    }
+
+    // 纯改期时，明确的相对时间以原文解析为准，避免模型照抄 Prompt 里的旧时间
+    const hasFieldUpdates = Boolean(entries[0].updates?.title || entries[0].updates?.content)
+    const hasRelativeTimeCue =
+      /大后天|后天|明天|明日|今天|今日|今晚|下(?:个)?(?:周|星期|礼拜)|本(?:周|星期|礼拜)|这(?:周|星期|礼拜)|(?:周|星期|礼拜)[一二三四五六日天]/.test(
+        sourceText,
+      )
+    const explicitTime =
+      !hasFieldUpdates && hasRelativeTimeCue ? parseRelativeTime(sourceText, nowMs) : null
+    if (explicitTime?.start) {
+      const previousTime = entries[0].time
+      const duration =
+        previousTime?.end && previousTime.start ? previousTime.end - previousTime.start : null
+      const start = explicitTime.start
+      const end = explicitTime.end ?? (duration !== null ? start + duration : null)
+      entries[0] = {
+        ...entries[0],
+        time: {
+          raw: sourceText,
+          start,
+          end,
+          confidence: explicitTime.confidence,
+          startText: explicitTime.timeExplicit ? formatDateTime(start) : formatDateWeekday(start),
+          endText: end !== null ? formatDateTime(end) : null,
+        },
+      }
+    }
+  }
 
   const reply =
     asString(record.reply)?.trim() ||

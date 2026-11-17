@@ -1,11 +1,13 @@
 /**
  * 抽取链路 — 去重与时间冲突检测（spec 4.3.4）
  *
- * 两道检查：
- *   1. 完全重复：标题 + 类型相同，且内容 cosine > 0.9
- *   2. 时间冲突：新日程与已有 active 日程时间段重叠（重复事件按窗口展开）
+ * 判重分三档，配合前端「自动合并」闭环：
+ *   - exact   完全重复：标题+内容一致          → action=skip（已存在，幂等返回）
+ *   - similar 高度相似：标题相近 + 时间/内容重叠 → action=merge（更新已有条目）
+ *   - related 可能相关：单一信号命中            → action=create（仍新建，仅提示）
  *
- * 只提示，不自动合并、不自动覆盖。
+ * 原则：宁多勿漏（用户明确选择），similar 及以上由前端自动走合并路径。
+ * 只检测与给建议，不在本模块写库；真正的合并动作由调用方（extract/entries 路由）执行。
  */
 
 import { cosineSimilarity, getEmbedding } from '../rag/embeddings.js'
@@ -28,10 +30,19 @@ export interface ExistingEntry {
   recurrenceUntil: number | null
 }
 
+export type DuplicateLevel = 'exact' | 'similar' | 'related'
+/** skip=已存在无需操作；merge=更新已有；create=仍新建（仅提示） */
+export type DuplicateAction = 'skip' | 'merge' | 'create'
+
 export interface DuplicateInfo {
   entryId: string
   title: string
+  /** 综合相似度 0-1，用于排序与展示 */
   similarity: number
+  level: DuplicateLevel
+  action: DuplicateAction
+  /** 判重依据（给用户看的人话） */
+  reason: string
 }
 
 export interface ConflictInfo {
@@ -71,12 +82,59 @@ const normalizeContent = (content: string): string =>
     .replace(/\s+/g, '')
     .replace(/[，。！？,.!?]/g, '')
 
-/** 完全重复：类型 + 标题一致，内容相似度 > 0.9 */
+/** 字符二元组相似度（不依赖 embedding，快速粗筛） */
+export const bigramSimilarity = (a: string, b: string): number => {
+  const grams = (text: string) => {
+    const clean = text.replace(/\s+/g, '').toLowerCase()
+    const set = new Set<string>()
+    for (let i = 0; i < clean.length - 1; i++) set.add(clean.slice(i, i + 2))
+    return set
+  }
+  const ga = grams(a)
+  const gb = grams(b)
+  if (ga.size === 0 || gb.size === 0) return 0
+  let shared = 0
+  for (const gram of ga) if (gb.has(gram)) shared++
+  return shared / Math.max(ga.size, gb.size)
+}
+
+/** 标题是否互相包含（归一化后）：「面试」vs「明天下午面试」 */
+const titleContains = (a: string, b: string): boolean => {
+  const na = normalizeTitle(a)
+  const nb = normalizeTitle(b)
+  if (na.length < 2 || nb.length < 2) return false
+  return na.includes(nb) || nb.includes(na)
+}
+
+/** 候选与已有条目的时间是否重叠（仅 schedule 有意义） */
+const candidateTimeOverlap = (candidate: ExtractedEntry, entry: ExistingEntry): boolean => {
+  if (candidate.type !== 'schedule' || !candidate.time) return false
+  if (entry.type !== 'schedule' || entry.startAt === null) return false
+  const newStart = candidate.time.start
+  const newEnd = candidate.time.end ?? newStart + DEFAULT_EVENT_MS
+  if (!entry.recurrence) {
+    return intervalsOverlap(newStart, newEnd, entry.startAt, entry.endAt)
+  }
+  // 重复事件：只要新时间落在任意一次发生窗口内即算重叠
+  const until = entry.recurrenceUntil ?? entry.recurrence.until ?? addLocalDays(Date.now(), 365)
+  const duration = Math.max(DEFAULT_EVENT_MS, (entry.endAt ?? 0) - entry.startAt)
+  const occurrences = expandOccurrences({
+    startAt: entry.startAt,
+    endAt: entry.endAt,
+    recurrence: { ...entry.recurrence, until },
+    windowStart: newStart - duration,
+    windowEnd: newEnd,
+    limit: 60,
+  })
+  return occurrences.some((occ) => intervalsOverlap(newStart, newEnd, occ.start, occ.end))
+}
+
+/** 完全重复（旧版严格判定，保留供精确比较场景使用）：类型 + 标题相同且相似度 > 0.9 */
 export const findExactDuplicate = (
   candidate: ExtractedEntry,
   existing: ExistingEntry[],
   similarityOf: (entry: ExistingEntry) => number,
-): DuplicateInfo | null => {
+): { entryId: string; title: string; similarity: number } | null => {
   for (const entry of existing) {
     if (entry.type !== candidate.type) continue
     if (normalizeTitle(entry.title) !== normalizeTitle(candidate.title)) continue
@@ -144,9 +202,177 @@ export const findTimeConflicts = (
 const entryText = (entry: { title: string; content: string }): string =>
   [entry.title, entry.content].filter(Boolean).join('\n')
 
+/** 单条候选 vs 单条已有：基于标题/时间/内容相似度给出档位 */
+const gradePair = (
+  candidate: ExtractedEntry,
+  entry: ExistingEntry,
+  contentSim: number,
+): DuplicateInfo | null => {
+  const titleExact = normalizeTitle(candidate.title) === normalizeTitle(entry.title)
+  const contain = titleContains(candidate.title, entry.title)
+  const titleSim = bigramSimilarity(candidate.title, entry.title)
+  const contentExact =
+    normalizeContent(candidate.content) !== '' &&
+    normalizeContent(candidate.content) === normalizeContent(entry.content)
+  const timeHit = candidateTimeOverlap(candidate, entry)
+
+  // exact：标题相同 + 内容一致（或几乎一致）
+  if (titleExact && (contentExact || contentSim > 0.9)) {
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: 1,
+      level: 'exact',
+      action: 'skip',
+      reason: '标题和内容完全一致',
+    }
+  }
+
+  // similar：多信号叠加，前端自动走「更新已有」
+  if (titleExact && timeHit) {
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: 0.95,
+      level: 'similar',
+      action: 'merge',
+      reason: '标题相同且时间重叠',
+    }
+  }
+  if (titleExact && contentSim > 0.7) {
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: contentSim,
+      level: 'similar',
+      action: 'merge',
+      reason: '标题相同，内容相近',
+    }
+  }
+  if ((contain || titleSim > 0.6) && timeHit) {
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: 0.85,
+      level: 'similar',
+      action: 'merge',
+      reason: '标题相近且时间重叠',
+    }
+  }
+  if ((contain || titleSim > 0.6) && contentSim > 0.75) {
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: contentSim,
+      level: 'similar',
+      action: 'merge',
+      reason: '标题和内容都相近',
+    }
+  }
+
+  // related：单一信号命中，仅提示，不合并
+  if (timeHit && contentSim > 0.6) {
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: contentSim,
+      level: 'related',
+      action: 'create',
+      reason: '时间重叠且内容相关',
+    }
+  }
+  if (titleSim > 0.4 && contentSim > 0.6) {
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: contentSim,
+      level: 'related',
+      action: 'create',
+      reason: '标题与内容可能相关',
+    }
+  }
+
+  return null
+}
+
+/** 是否需要为该已有条目计算 embedding（有标题或时间信号才算，省 API） */
+const needEmbedding = (candidate: ExtractedEntry, entry: ExistingEntry): boolean => {
+  if (entry.type !== candidate.type) return false
+  if (normalizeTitle(candidate.title) === normalizeTitle(entry.title)) return true
+  if (titleContains(candidate.title, entry.title)) return true
+  if (bigramSimilarity(candidate.title, entry.title) > 0.4) return true
+  if (candidateTimeOverlap(candidate, entry)) return true
+  return false
+}
+
 /**
- * 计算单条候选的去重信息。
- * 只有「类型 + 标题」相同才计算 embedding，避免无谓的 API 调用。
+ * 综合判重：找出与候选最相似的一条已有记录。
+ * 性能：先用标题/时间粗筛，仅对候选计算 embedding（最多 3 条）。
+ */
+export const findBestDuplicate = async (
+  candidate: ExtractedEntry,
+  existing: ExistingEntry[],
+): Promise<DuplicateInfo | null> => {
+  const candidates = existing.filter((entry) => entry.type === candidate.type)
+  if (candidates.length === 0) return null
+
+  // 完全内容一致（同标题）的捷径，省掉 embedding
+  const identical = candidates.find(
+    (entry) =>
+      normalizeTitle(entry.title) === normalizeTitle(candidate.title) &&
+      normalizeContent(entry.content) !== '' &&
+      normalizeContent(entry.content) === normalizeContent(candidate.content),
+  )
+  if (identical) {
+    return {
+      entryId: identical.id,
+      title: identical.title,
+      similarity: 1,
+      level: 'exact',
+      action: 'skip',
+      reason: '标题和内容完全一致',
+    }
+  }
+
+  const pool = candidates.filter((entry) => needEmbedding(candidate, entry)).slice(0, 3)
+  if (pool.length === 0) return null
+
+  let candidateVector: number[]
+  try {
+    candidateVector = await getEmbedding(entryText(candidate))
+  } catch (err) {
+    logger.warn('extract', '去重向量计算失败，退化为仅标题/时间判重', {
+      error: (err as Error).message,
+    })
+    // 向量失败时用 contentSim=0 跑一遍，纯标题/时间信号仍能出 similar（标题+时间）
+    candidateVector = []
+  }
+
+  let best: DuplicateInfo | null = null
+  for (const entry of pool) {
+    let contentSim = 0
+    if (candidateVector.length > 0) {
+      try {
+        const vector = await getEmbedding(entryText(entry))
+        contentSim = cosineSimilarity(candidateVector, vector)
+      } catch (err) {
+        logger.warn('extract', '已有条目向量计算失败，跳过该条内容比对', {
+          entryId: entry.id,
+          error: (err as Error).message,
+        })
+      }
+    }
+    const info = gradePair(candidate, entry, contentSim)
+    if (info && (!best || info.similarity > best.similarity)) best = info
+    // exact 已是最高档，提前退出
+    if (best?.level === 'exact') break
+  }
+  return best
+}
+
+/**
+ * 计算单条候选的去重信息（主入口）。
+ * 返回三档判重 + 时间冲突，供前端做「自动合并」决策。
  */
 export const buildDedupeInfo = async (
   candidate: ExtractedEntry,
@@ -154,43 +380,6 @@ export const buildDedupeInfo = async (
   nowMs: number,
 ): Promise<DedupeInfo> => {
   const conflicts = findTimeConflicts(candidate, existing, nowMs)
-
-  const sameShape = existing.filter(
-    (entry) =>
-      entry.type === candidate.type &&
-      normalizeTitle(entry.title) === normalizeTitle(candidate.title),
-  )
-
-  let duplicate: DuplicateInfo | null = null
-  if (sameShape.length > 0) {
-    // 内容完全一致时直接判定重复，省掉一次 embedding 调用
-    const identical = sameShape.find(
-      (entry) =>
-        normalizeContent(entry.content) !== '' &&
-        normalizeContent(entry.content) === normalizeContent(candidate.content),
-    )
-    if (identical) {
-      duplicate = { entryId: identical.id, title: identical.title, similarity: 1 }
-    } else {
-      try {
-        const candidateVector = await getEmbedding(entryText(candidate))
-        const similarities = new Map<string, number>()
-        for (const entry of sameShape.slice(0, 5)) {
-          const vector = await getEmbedding(entryText(entry))
-          similarities.set(entry.id, cosineSimilarity(candidateVector, vector))
-        }
-        duplicate = findExactDuplicate(
-          candidate,
-          sameShape,
-          (entry) => similarities.get(entry.id) ?? 0,
-        )
-      } catch (err) {
-        logger.warn('extract', '去重向量计算失败，跳过重复检测', {
-          error: (err as Error).message,
-        })
-      }
-    }
-  }
-
+  const duplicate = await findBestDuplicate(candidate, existing)
   return { duplicate, conflicts }
 }

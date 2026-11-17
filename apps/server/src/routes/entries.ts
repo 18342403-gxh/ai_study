@@ -21,6 +21,7 @@ import { getDb, tables } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
 import { removeEntryEmbedding, syncEntryEmbedding } from '../services/search/entryIndex.js'
+import { DEFAULT_EVENT_MS, intervalsOverlap } from '../services/extract/dedupe.js'
 
 const router = Router()
 
@@ -84,6 +85,13 @@ const createEntrySchema = z
     confidence: z.number().min(0).max(1).default(1),
     userId: z.string().max(64).default('local'),
     libraryId: z.string().max(64).default('default'),
+    /**
+     * 创建端兜底判重策略：
+     *   merge  默认。exact 幂等返回已有；similar（同标题 + 时间重叠/内容一致）自动合并进已有条目
+     *   force  跳过判重，强制新建
+     *   error  发现重复返回 409 + 已有条目
+     */
+    onDuplicate: z.enum(['merge', 'force', 'error']).default('merge'),
   })
   .superRefine(timeRule)
 
@@ -149,6 +157,56 @@ const findEntry = async (id: string): Promise<EntryRow | undefined> => {
   return rows[0]
 }
 
+// ── 创建端兜底判重（确定性信号，不调 embedding，保证快） ──
+
+const normalizeForDup = (text: string): string =>
+  text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s，。！？,.!?]/g, '')
+
+interface CreateDupHit {
+  kind: 'exact' | 'similar'
+  row: EntryRow
+}
+
+/**
+ * 创建端兜底：只拦「明显重复」。
+ *   exact   标题归一化相同 + 内容归一化相同 → 幂等返回
+ *   similar 标题归一化相同 +（schedule 时间重叠 / 非 schedule）→ 可合并
+ * 标题相同但 schedule 时间不重叠 → 视为不同时段的同名事件，放行新建。
+ */
+const findCreateDuplicate = (
+  body: {
+    type: string
+    title: string
+    content: string
+    startAt?: number | null
+    endAt?: number | null
+  },
+  rows: EntryRow[],
+): CreateDupHit | null => {
+  const title = normalizeForDup(body.title)
+  const content = normalizeForDup(body.content)
+  for (const row of rows) {
+    if (row.type !== body.type) continue
+    if (normalizeForDup(row.title) !== title) continue
+    // exact：标题 + 内容一致
+    if (content !== '' && normalizeForDup(row.content) === content) {
+      return { kind: 'exact', row }
+    }
+    // similar：非 schedule 同标题即相似；schedule 需时间重叠
+    if (body.type !== 'schedule') return { kind: 'similar', row }
+    if (body.startAt !== null && body.startAt !== undefined && row.startAt) {
+      const newEnd = body.endAt ?? body.startAt + DEFAULT_EVENT_MS
+      if (intervalsOverlap(body.startAt, newEnd, row.startAt.getTime(), toMs(row.endAt))) {
+        return { kind: 'similar', row }
+      }
+    }
+  }
+  return null
+}
+
 // ── 路由 ─────────────────────────────────────────────
 
 /** GET /api/entries — 列表查询 */
@@ -179,7 +237,7 @@ router.get(
   }),
 )
 
-/** POST /api/entries — 新建条目 */
+/** POST /api/entries — 新建条目（含创建端兜底判重） */
 router.post(
   '/',
   validate({ body: createEntrySchema }),
@@ -189,6 +247,76 @@ router.post(
     const now = new Date()
     // 再 parse 一次以应用 Zod default（中间件只校验不回写）
     const body = createEntrySchema.parse(req.body)
+
+    // ── 创建端兜底判重：防止绕过前端的重复创建 ──
+    if (body.onDuplicate !== 'force') {
+      const candidates = await db
+        .select()
+        .from(tables.entries)
+        .where(
+          and(
+            eq(tables.entries.libraryId, body.libraryId),
+            eq(tables.entries.type, body.type),
+            // 只跟「活着的」条目比：active / draft；archived / done 不再挡新建
+            // 用 status 字段逐个过滤见下，这里先按 library+type 缩小范围
+          ),
+        )
+        .limit(100)
+      const alive = candidates.filter((r) => r.status === 'active' || r.status === 'draft')
+      const hit = findCreateDuplicate(body, alive)
+
+      if (hit) {
+        // exact：幂等返回已有，不新建
+        if (hit.kind === 'exact') {
+          logger.info('entries.route', 'POST / 命中完全重复，幂等返回已有条目', {
+            entryId: hit.row.id,
+            title: hit.row.title,
+          })
+          res.status(200).json({ ...rowToEntry(hit.row), deduped: 'exact' })
+          return
+        }
+        // similar + error：明确拒绝，返回已有条目
+        if (body.onDuplicate === 'error') {
+          logger.info('entries.route', 'POST / 命中相似且 onDuplicate=error，返回 409', {
+            entryId: hit.row.id,
+            title: hit.row.title,
+          })
+          res.status(409).json({
+            error: '检测到相似记录',
+            code: 'DUPLICATE_ENTRY',
+            duplicate: rowToEntry(hit.row),
+          })
+          return
+        }
+        // similar + merge：把新信息合并进已有条目，不新建
+        const mergedContent =
+          body.content.length > hit.row.content.length ? body.content : hit.row.content
+        const mergedStartAt =
+          body.startAt !== null && body.startAt !== undefined
+            ? toDate(body.startAt)
+            : hit.row.startAt
+        const mergedEndAt =
+          body.endAt !== null && body.endAt !== undefined ? toDate(body.endAt) : hit.row.endAt
+        await db
+          .update(tables.entries)
+          .set({
+            content: mergedContent,
+            startAt: mergedStartAt,
+            endAt: mergedEndAt,
+            updatedAt: now,
+          })
+          .where(eq(tables.entries.id, hit.row.id))
+        // 内容/时间可能变化，重建向量
+        await syncEntryEmbedding(hit.row.id, hit.row.title, mergedContent)
+        const merged = await findEntry(hit.row.id)
+        logger.info('entries.route', 'POST / 命中相似，已合并进已有条目', {
+          entryId: hit.row.id,
+          title: hit.row.title,
+        })
+        res.status(200).json({ ...rowToEntry(merged!), deduped: 'merged' })
+        return
+      }
+    }
 
     await db.insert(tables.entries).values({
       id,

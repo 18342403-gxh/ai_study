@@ -25,6 +25,93 @@ import {
   rowToExisting,
 } from '../services/extract/cards.js'
 import { getLocalTimezone } from '../services/extract/timeParse.js'
+import { removeEntryEmbedding, syncEntryEmbedding } from '../services/search/entryIndex.js'
+
+// ── 取消/删除：把抽取到的「目标条目」匹配到已有记录 ──
+
+type EntryRow = typeof tables.entries.$inferSelect
+
+/** 提取用于匹配的关键词（去标点，按单字+中文词切分） */
+const keywords = (text: string): string[] =>
+  text
+    .replace(/[\s，。、,.!?！？；;:："'""''（）()【】[\]《》<>]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+
+/** 标题相似度：关键词交集占比 + 单字 Jaccard */
+const titleSimilarity = (a: string, b: string): number => {
+  if (!a || !b) return 0
+  if (a === b) return 1
+  const ka = keywords(a)
+  const kb = keywords(b)
+  const setA = new Set(ka)
+  const setB = new Set(kb)
+  const inter = [...setA].filter((k) => setB.has(k)).length
+  const union = new Set([...setA, ...setB]).size
+  const kwScore = union === 0 ? 0 : inter / union
+  // 单字级别再算一次，补全中文短词匹配
+  const ca = new Set(a.split(''))
+  const cb = new Set(b.split(''))
+  const cInter = [...ca].filter((c) => cb.has(c)).length
+  const cUnion = new Set([...ca, ...cb]).size
+  const charScore = cUnion === 0 ? 0 : cInter / cUnion
+  return Math.max(kwScore, charScore * 0.8)
+}
+
+/** 时间段是否重叠（含相邻）；任一方无时间则跳过时间判定 */
+const timeOverlap = (
+  aStart: number | null,
+  aEnd: number | null,
+  bStart: number | null,
+  bEnd: number | null,
+): number => {
+  if (!aStart || !bStart) return 0
+  const aE = aEnd ?? aStart
+  const bE = bEnd ?? bStart
+  const overlap = Math.max(0, Math.min(aE, bE) - Math.max(aStart, bStart))
+  const span = Math.max(1, Math.max(aE, bE) - Math.min(aStart, bStart))
+  return overlap / span
+}
+
+type ExtractedTarget = Awaited<ReturnType<typeof extractEntries>>['entries'][number]
+
+interface MatchedTarget {
+  id: string
+  /** 命中的抽取目标（update 时从中取新时间） */
+  target: ExtractedTarget
+}
+
+/** 从已有记录里为每个抽取目标找最佳匹配，返回 { id, target } 映射 */
+const matchExistingEntries = (
+  targets: Awaited<ReturnType<typeof extractEntries>>['entries'],
+  rows: EntryRow[],
+): MatchedTarget[] => {
+  const matched = new Map<string, ExtractedTarget>()
+  for (const target of targets) {
+    let bestId: string | null = null
+    let bestScore = 0
+    for (const row of rows) {
+      if (matched.has(row.id)) continue
+      const ts =
+        titleSimilarity(target.title, row.title) || titleSimilarity(target.title, row.content)
+      const timeScore = timeOverlap(
+        target.time?.start ?? null,
+        target.time?.end ?? null,
+        row.startAt ? row.startAt.getTime() : null,
+        row.endAt ? row.endAt.getTime() : null,
+      )
+      const typeBonus = target.type === row.type ? 0.1 : 0
+      const score = ts * 0.6 + timeScore * 0.3 + typeBonus
+      if (score > bestScore) {
+        bestScore = score
+        bestId = row.id
+      }
+    }
+    // 低于阈值认为没找到对应记录
+    if (bestId && bestScore >= 0.35) matched.set(bestId, target)
+  }
+  return [...matched].map(([id, target]) => ({ id, target }))
+}
 
 const router = Router()
 
@@ -66,6 +153,105 @@ router.post(
       timezone,
       existingEntries: promptEntries,
     })
+
+    // ── 取消 / 删除 / 改期：把抽取到的目标条目匹配到已有记录并执行操作 ──
+    if (outcome.intent === 'cancel' || outcome.intent === 'delete' || outcome.intent === 'update') {
+      const matched = matchExistingEntries(outcome.entries, rows)
+      const now = new Date(nowMs)
+      let affected = 0
+      for (const { id, target } of matched) {
+        if (outcome.intent === 'cancel') {
+          await db
+            .update(tables.entries)
+            .set({ status: 'archived', archivedAt: now, updatedAt: now })
+            .where(eq(tables.entries.id, id))
+          affected++
+        } else if (outcome.intent === 'delete') {
+          await removeEntryEmbedding(id)
+          await db.delete(tables.entries).where(eq(tables.entries.id, id))
+          affected++
+        } else {
+          // update：改期（time）/ 改标题（updates.title）/ 改内容（updates.content）
+          const row = rows.find((r) => r.id === id)
+          const newStart = target.time?.start
+          const newTitle = target.updates?.title
+          const newContent = target.updates?.content
+          const patch: {
+            startAt?: Date | null
+            endAt?: Date | null
+            title?: string
+            content?: string
+            updatedAt: Date
+          } = { updatedAt: now }
+          let changed = false
+          const hasFieldUpdates = Boolean(newTitle || newContent)
+          // 改期：仅在「纯改期」（无标题/内容更新）时采信 time。
+          // 改标题/内容时 LLM 常顺带填入时间（甚至是猜测的），采信会误改日程时间。
+          if (!hasFieldUpdates && newStart && newStart !== row?.startAt?.getTime()) {
+            const previousStart = row?.startAt?.getTime()
+            const previousEnd = row?.endAt?.getTime()
+            const duration =
+              previousStart !== null &&
+              previousStart !== undefined &&
+              previousEnd !== null &&
+              previousEnd !== undefined
+                ? previousEnd - previousStart
+                : null
+            patch.startAt = new Date(newStart)
+            patch.endAt = target.time?.end
+              ? new Date(target.time.end)
+              : duration !== null
+                ? new Date(newStart + duration)
+                : null
+            changed = true
+          }
+          if (newTitle && newTitle !== row?.title) {
+            patch.title = newTitle
+            changed = true
+          }
+          if (newContent && newContent !== row?.content) {
+            patch.content = newContent
+            changed = true
+          }
+          if (!changed) continue
+          await db.update(tables.entries).set(patch).where(eq(tables.entries.id, id))
+          // 标题或内容变化会影响向量，需重建（仅改期不用）
+          if (row && (newTitle || newContent)) {
+            await syncEntryEmbedding(id, newTitle ?? row.title, newContent ?? row.content)
+          }
+          affected++
+        }
+      }
+
+      const actionText =
+        outcome.intent === 'cancel' ? '已取消' : outcome.intent === 'delete' ? '已删除' : '已更新'
+      const reply =
+        affected > 0
+          ? `${actionText} ${affected} 条记录。`
+          : outcome.intent === 'update'
+            ? '没有找到对应的记录，或没能识别出要修改的内容。'
+            : '没有找到对应的记录，可能已被处理或不存在。'
+
+      logger.info('extract.route', `${outcome.intent} 操作完成`, {
+        libraryId: body.libraryId,
+        intent: outcome.intent,
+        matchedIds: matched.map((m) => m.id),
+        affected,
+        targetCount: outcome.entries.length,
+      })
+
+      res.json({
+        ...outcome,
+        entries: [],
+        reply,
+        draftEntryId: null,
+        source: {
+          sessionId: body.sessionId ?? null,
+          libraryId: body.libraryId,
+        },
+      })
+      return
+    }
 
     const existing = rows.map(rowToExisting)
     const entries = await buildEntryCards(outcome.entries, existing, nowMs, timezone)

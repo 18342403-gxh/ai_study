@@ -158,6 +158,7 @@ import { BookOpen, Trash2, Upload } from 'lucide-vue-next'
 import {
   apiDelete,
   apiGet,
+  apiPatch,
   apiPost,
   apiUpload,
   type CreateEntryPayload,
@@ -400,7 +401,26 @@ const extract = async (doc: DocumentRow) => {
 const confirmCard = async (item: CardItem, payload: CreateEntryPayload) => {
   item.saving = true
   try {
-    await apiPost('/api/entries', payload)
+    const dup = item.card.duplicate
+    const isEditing = item.state === 'editing'
+
+    // exact：已存在，无需写操作
+    if (!isEditing && dup?.action === 'skip') {
+      item.state = 'confirmed'
+      return
+    }
+    // similar：更新已有条目，不新建
+    if (!isEditing && dup?.action === 'merge' && dup.entryId) {
+      await apiPatch(`/api/entries/${dup.entryId}`, {
+        content: payload.content,
+        startAt: payload.startAt ?? null,
+        endAt: payload.endAt ?? null,
+      })
+      item.state = 'confirmed'
+      return
+    }
+    // create / 编辑态 / 无判重：POST + merge 兜底
+    await apiPost('/api/entries', { ...payload, onDuplicate: 'merge' })
     item.state = 'confirmed'
   } catch (e) {
     setNotice(`入库失败：${(e as Error).message}`, true)

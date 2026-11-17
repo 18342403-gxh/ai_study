@@ -452,6 +452,7 @@ import {
 } from 'lucide-vue-next'
 import {
   apiGet,
+  apiPatch,
   apiPost,
   apiUpload,
   type ChatAnswer,
@@ -819,7 +820,7 @@ const onDrop = (event: DragEvent) => {
  * 默认问答是安全选择——把问题误判成存储会生成空卡片，反过来只是少一次主动整理。
  */
 const looksLikeStorage = (text: string): boolean =>
-  /记住|帮我记|记一下|记下来|记一条|记录一下|存一下|存一条|提醒我|别忘了|备忘|收藏一下|加个日程|帮我安排/.test(
+  /记住|帮我记|记一下|记下来|记一条|记录一下|存一下|存一条|提醒我|别忘了|备忘|收藏一下|加个日程|帮我安排|取消|不去了|删掉|删除|移除|忘了|不要这条|改期不了|不用了|作罢|改到|改期|改成|改为|推迟|提前|换到|挪到|调整到/.test(
     text,
   )
 
@@ -926,6 +927,27 @@ const send = async () => {
           saving: false,
         })),
       })
+    } else if (
+      extracted.intent === 'cancel' ||
+      extracted.intent === 'delete' ||
+      extracted.intent === 'update'
+    ) {
+      // 取消/删除/改期：直接展示后端返回的操作结果摘要
+      await persistMessage(sid, 'user', text)
+      const fallback =
+        extracted.intent === 'cancel'
+          ? '已取消。'
+          : extracted.intent === 'delete'
+            ? '已删除。'
+            : '已更新。'
+      const reply = extracted.reply || fallback
+      await persistMessage(sid, 'assistant', reply)
+      messages.value.push({
+        id: uid(),
+        role: 'assistant',
+        content: reply,
+      })
+      void fetchReminders()
     } else if (extracted.failed) {
       // 抽取降级：直接展示后端降级话术，不再二次调用问答（避免重复等待）
       // 若后端已将原文落库为 draft 草稿，追加草稿链接方便用户后续处理
@@ -962,7 +984,30 @@ const pendingCount = (message: UiMessage): number =>
 const confirmCard = async (message: UiMessage, item: UiCard, payload: CreateEntryPayload) => {
   item.saving = true
   try {
-    await apiPost('/api/entries', payload)
+    const dup = item.card.duplicate
+    // 编辑态保存：用户可能改了标题/内容，前端判重已失效，交给后端兜底重新判重
+    const isEditing = item.state === 'editing'
+
+    // exact：记录已存在，无需任何写操作
+    if (!isEditing && dup?.action === 'skip') {
+      item.state = 'confirmed'
+      return
+    }
+
+    // similar：把新信息合并进已有条目（更新，不新建）
+    if (!isEditing && dup?.action === 'merge' && dup.entryId) {
+      await apiPatch(`/api/entries/${dup.entryId}`, {
+        content: payload.content,
+        startAt: payload.startAt ?? null,
+        endAt: payload.endAt ?? null,
+      })
+      item.state = 'confirmed'
+      void fetchReminders()
+      return
+    }
+
+    // create / 编辑态保存 / 无判重：走 POST，带 merge 兜底防重复
+    await apiPost('/api/entries', { ...payload, onDuplicate: 'merge' })
     item.card = { ...item.card, ...payload } as EntryCardData
     item.state = 'confirmed'
     void fetchReminders()
