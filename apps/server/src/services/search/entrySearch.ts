@@ -108,11 +108,18 @@ export const searchEntriesSemantic = async (
     .slice(0, k * 3)
     .map(([id]) => id)
 
-  // BM25 路（标题 + 内容）
+  // BM25 路（标题 + 内容分字段，标题 boost 3.0）
   const bm25Scores = new Map<string, number>()
   for (const hit of bm25Rank(
     options.query,
-    rows.map((r) => ({ id: r.id, text: entryEmbeddingText(r.title, r.content) })),
+    rows.map((r) => ({
+      id: r.id,
+      text: '',
+      fields: [
+        { text: r.title, boost: 3.0 },
+        { text: r.content, boost: 1.0 },
+      ],
+    })),
     k * 3,
   )) {
     if (hit.score > 0) bm25Scores.set(hit.id, hit.score)

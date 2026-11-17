@@ -5,6 +5,7 @@
  */
 
 import { createRAGService, isMockMode } from '../rag/index.js'
+import { tokenize } from '../rag/bm25.js'
 
 export interface DocChannelHit {
   docId: string
@@ -19,9 +20,16 @@ export interface DocChannelHit {
 /** 真实 embedding 下的 cosine 下限；mock 模式只能靠 BM25 命中 */
 const MIN_COSINE = 0.35
 
-export const searchDocumentsSemantic = async (query: string, k = 15): Promise<DocChannelHit[]> => {
+export const searchDocumentsSemantic = async (
+  query: string,
+  k = 15,
+  queryType?: 'keyword' | 'conceptual',
+): Promise<DocChannelHit[]> => {
   const mock = isMockMode()
-  const results = await createRAGService().search(query, k)
+  const results = await createRAGService().search(query, k, undefined, 'hybrid', queryType)
+  // 动态 BM25 阈值：按查询 token 数缩放，避免长查询时绝对阈值过高
+  const queryTokenCount = tokenize(query).length
+  const minBm25 = 0.5 * Math.sqrt(Math.max(1, queryTokenCount))
   return results.flatMap((r) => {
     const docId = r.doc.metadata?.docId
     const chunkIndex = r.doc.metadata?.chunkIndex
@@ -30,7 +38,7 @@ export const searchDocumentsSemantic = async (query: string, k = 15): Promise<Do
     // RRF 是排名分，零相关也会拿到正分，这里按原始分做相关性兜底
     const bm25 = r.bm25Score ?? 0
     const cosine = r.vectorScore ?? 0
-    if (bm25 <= 0 && (mock || cosine < MIN_COSINE)) return []
+    if (bm25 < minBm25 && (mock || cosine < MIN_COSINE)) return []
 
     return [
       {

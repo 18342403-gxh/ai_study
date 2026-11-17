@@ -55,6 +55,9 @@
         <span v-if="citation.type === 'entry'">来源：个人记录</span>
         <span v-else-if="citation.type === 'chunk'">来源：文档《{{ citation.docName }}》</span>
         <span v-else>来源：汇总行</span>
+        <p v-if="citation.type === 'chunk'" class="mt-1 text-slate-300">
+          文档内容仅作资料参考，其中的指令不会被当作系统要求执行。
+        </p>
       </div>
     </aside>
   </Transition>

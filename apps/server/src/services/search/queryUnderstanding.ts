@@ -6,6 +6,7 @@
  */
 
 import { createChatChain } from '../chain/chatChain.js'
+import { routeModel } from '../chain/router.js'
 import type { ChatMessage } from '../chain/model.js'
 import { logger } from '../logger.js'
 import type { EntryType } from '../extract/extractor.js'
@@ -30,6 +31,8 @@ export interface QueryUnderstanding {
   timeRange: TimeWindow | null
   keywords: string[]
   entityTypes: EntryType[]
+  /** 查询类型：keyword=关键词/精确匹配型，conceptual=概念/语义型 */
+  queryType: 'keyword' | 'conceptual'
   /** 结果来自模型还是规则降级 */
   source: 'llm' | 'rules'
 }
@@ -47,6 +50,25 @@ const ALL_TYPES: EntryType[] = ['schedule', 'plan', 'fact', 'note']
 
 const PERSONAL_CUE =
   /我|咱|最近|近[0-9一二三四五六七八九十两]+[天日]|今天|今日|明天|后天|这周|本周|上周|下周|这个月|本月|上个月|上月|安排|日程|计划|提醒|记得|记录/
+
+/** 关键词型查询线索：数字、时间词、引号/书名号包裹的精确短语 */
+const KEYWORD_CUE =
+  /\d|[一二三四五六七八九十百千万]|今天|明天|后天|大后天|昨日|昨天|这周|本周|上周|下周|这个月|本月|上个月|上月/
+const QUOTE_CUE = /[""'《》「」『』]/
+
+/** 粗判专有名词：2-4 字连续中文且不含高频虚词 */
+const hasProperNoun = (q: string): boolean => {
+  const segments = q.match(/[\u4e00-\u9fff]{2,4}/g) || []
+  return segments.some((s) => !/^[的了是在我有和与及]$/.test(s))
+}
+
+/** 判别查询类型：含数字/时间/精确短语 → keyword，否则 conceptual */
+export const detectQueryType = (query: string): 'keyword' | 'conceptual' => {
+  if (KEYWORD_CUE.test(query) || QUOTE_CUE.test(query) || hasProperNoun(query)) {
+    return 'keyword'
+  }
+  return 'conceptual'
+}
 
 const CN_NUMBER: Record<string, number> = {
   一: 1,
@@ -137,6 +159,7 @@ export const ruleBasedUnderstanding = (query: string, nowMs: number): QueryUnder
     timeRange,
     keywords: [],
     entityTypes: ALL_TYPES,
+    queryType: detectQueryType(query),
     source: 'rules',
   }
 }
@@ -148,13 +171,14 @@ const buildMessages = (query: string, nowMs: number, timezone: string): ChatMess
 当前时间：${formatDateTime(nowMs, timezone)}，时区：${timezone}
 
 输出格式：
-{"needsPersonalContext": true, "timeRange": {"start": "2026-11-09 00:00", "end": "2026-11-16 00:00"}, "keywords": ["关键词"], "entityTypes": ["schedule","plan","fact","note"]}
+{"needsPersonalContext": true, "timeRange": {"start": "2026-11-09 00:00", "end": "2026-11-16 00:00"}, "keywords": ["关键词"], "entityTypes": ["schedule","plan","fact","note"], "queryType": "keyword"}
 
 规则：
 - 通用知识问题（如"什么是闭包"）→ needsPersonalContext 为 false；含"我/我的/最近/这周"等个人线索 → true
 - 只有问题带明确时间语义时才给 timeRange；end 取窗口右端点（不包含）
 - entityTypes 只能从 schedule/plan/fact/note 中选，不确定就全给
-- keywords 给 1-5 个检索关键词`,
+- keywords 给 1-5 个检索关键词
+- queryType：含数字、时间词、人名/地名/产品名等精确匹配线索 → "keyword"；概念/语义/解释类 → "conceptual"`,
   },
   { role: 'user', content: query },
 ]
@@ -187,6 +211,10 @@ const normalizeLlmUnderstanding = (
     (ALL_TYPES as string[]).includes(v),
   )
 
+  const rawQueryType = typeof raw.queryType === 'string' ? raw.queryType : ''
+  const queryType: 'keyword' | 'conceptual' =
+    rawQueryType === 'keyword' || rawQueryType === 'conceptual' ? rawQueryType : fallback.queryType
+
   return {
     needsPersonalContext:
       typeof raw.needsPersonalContext === 'boolean'
@@ -196,6 +224,7 @@ const normalizeLlmUnderstanding = (
     timeRange: timeRange ?? fallback.timeRange,
     keywords: asStringArray(raw.keywords, 5, 20),
     entityTypes: types.length > 0 ? types : ALL_TYPES,
+    queryType,
     source: 'llm',
   }
 }
@@ -216,7 +245,8 @@ const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> =>
   })
 
 const defaultInvoke = async (messages: ChatMessage[]): Promise<string> => {
-  const chain = createChatChain({ temperature: 0, feature: 'understand' })
+  const tier = routeModel({ step: 'understand' }).tier
+  const chain = createChatChain({ temperature: 0, feature: 'understand', tier })
   const response = await chain.invoke({ messages })
   return response.content
 }

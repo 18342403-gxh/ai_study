@@ -11,6 +11,7 @@ import { desc, eq } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { routeModel } from '../services/chain/router.js'
 import type { ChatMessage } from '../services/chain/model.js'
 import { logger } from '../services/logger.js'
 import { generateAnswer } from '../services/answer/generate.js'
@@ -184,7 +185,13 @@ router.post(
     >
     logger.info('chat.route', 'POST /completions — 入口', { stream, msgCount: messages.length })
 
-    const chain = createChatChain({ model, temperature })
+    // 显式指定 model 时尊重调用方选择；否则按路由档位选择
+    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content ?? ''
+    const chain = createChatChain({
+      model,
+      temperature,
+      tier: model ? undefined : routeModel({ step: 'chat', query: lastUserMessage }).tier,
+    })
 
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream')

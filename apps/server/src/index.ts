@@ -41,16 +41,39 @@ import ragRouter from './routes/rag.js'
 import logsRouter from './routes/logs.js'
 import costRouter from './routes/cost.js'
 import { getOpenApiSpec } from './openapi/generate.js'
+import { initTracing } from './observability/tracing.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 dotenv.config()
 
+// 追踪是旁路能力：未开启 OTEL_ENABLED=1 时为 no-op
+await initTracing()
+
 const app = express()
 const PORT = process.env.PORT || 3001
+/** 默认只监听回环地址；需要对外提供服务时显式设置 HOST。 */
+const HOST = process.env.HOST || '127.0.0.1'
 
 // ── 中间件管线 ──────────────────────────────────────
-app.use(cors())
+// CORS：CORS_ORIGINS 配置逗号分隔白名单；未配置时只允许本机开发端口（同源/桌面端无 Origin 放行）
+const corsWhitelist = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean)
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true)
+      const allowed =
+        corsWhitelist.length > 0
+          ? corsWhitelist.includes(origin)
+          : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      // 不在白名单时直接不返回 CORS 头，由浏览器拦截，避免把错误抛进 500 管线
+      callback(null, allowed)
+    },
+  }),
+)
 
 // 安全头（helmet）
 // CSP 先开 report-only 模式，观察 Nuxt 页面是否有 inline script 被拦
@@ -116,8 +139,8 @@ app.get('/api/logs-view', (_req, res) => {
 app.use(notFoundHandler)
 app.use(errorHandler)
 
-const server = app.listen(PORT, () => {
-  const base = `http://localhost:${PORT}`
+const server = app.listen(Number(PORT), HOST, () => {
+  const base = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`
   process.stdout.write(`\n╔══════════════════════════════════════╗\n`)
   process.stdout.write(`║  [BFF]  Express Server Running        ║\n`)
   process.stdout.write(`║  ${base.padEnd(36)}║\n`)

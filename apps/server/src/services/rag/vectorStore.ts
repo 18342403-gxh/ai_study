@@ -19,6 +19,10 @@ export interface VectorDoc {
   content: string
   metadata?: Record<string, unknown>
   embedding?: number[]
+  /** 向量血缘：real=真实 API，hash=降级伪向量 */
+  embeddingType?: 'real' | 'hash'
+  /** 生成该向量的模型名 */
+  embeddingModel?: string
 }
 
 export interface VectorSearchResult {
@@ -60,7 +64,10 @@ export function createSqliteVectorStore(_config: VectorStoreConfig = {}) {
           docId: docId || id,
           content: doc.content,
           chunkIndex: i,
+          tokenCount: (doc.metadata?.tokenCount as number | undefined) ?? undefined,
           embedding: JSON.stringify(embedding),
+          embeddingType: doc.embeddingType ?? 'real',
+          embeddingModel: doc.embeddingModel ?? 'embedding-3',
           createdAt: now,
         })
         if (useVec && embedding.length === EMBEDDING_DIM) {

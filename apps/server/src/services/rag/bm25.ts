@@ -24,6 +24,25 @@ import { getDb, tables } from '../../db/index.js'
 const K1 = 1.2
 const B = 0.75
 
+/**
+ * CJK 统一区间（含扩展 A / 兼容表意 / 假名 / 韩文）。
+ * PDF 文字层常把中文拆成「龚 熙 皓」这种单字加空格的形式，
+ * 直接 2-gram 会得到单字 token，与连续 query「龚熙皓」匹配不上。
+ * 入库与查询前先把 CJK 之间的空白折叠掉，保证分词一致。
+ */
+const CJK = '[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]'
+const CJK_SPACE_RE = new RegExp(`(${CJK})[ \\t]+(${CJK})`)
+
+const collapseCjkSpaces = (text: string): string => {
+  let result = text
+  let prev: string
+  do {
+    prev = result
+    result = result.replace(CJK_SPACE_RE, '$1$2')
+  } while (prev !== result)
+  return result
+}
+
 export interface BM25Result {
   id: string
   doc_id: string
@@ -36,8 +55,11 @@ export interface BM25Result {
 export function tokenize(text: string): string[] {
   const tokens: string[] = []
 
+  // 先折叠 CJK 之间的空白（PDF 提取常产生「龚 熙 皓」），保证分词与查询一致
+  const normalized = collapseCjkSpaces(text)
+
   // 先按非字母数字字符（含全角标点）切成候选
-  const segments = text
+  const segments = normalized
     .toLowerCase()
     .split(
       /[\s,.;:!?()[\]{}<>'"\\/|@#$%^&*+=`~\-_—…·，。；：？！、「」『』《》（）【】＋＝＊＜＞～￥]+/,
@@ -72,9 +94,16 @@ export function tokenize(text: string): string[] {
   return tokens
 }
 
+export interface BM25TextField {
+  text: string
+  boost: number
+}
+
 export interface BM25TextDoc {
   id: string
   text: string
+  /** 多字段 BM25：每个字段独立计算并按 boost 加权求和（向后兼容，可选） */
+  fields?: BM25TextField[]
 }
 
 /**
@@ -92,6 +121,59 @@ export function bm25Rank(
   if (queryTokens.length === 0) return []
 
   const N = docs.length
+
+  // 多字段模式：每个字段独立计算 BM25 子分，按 boost 加权求和
+  if (docs.some((d) => d.fields && d.fields.length > 0)) {
+    // 把每个字段当作独立文档计算 df（保证 IDF 语义一致）
+    const fieldDocs: Array<{ text: string; boost: number; docIdx: number }> = []
+    for (let i = 0; i < N; i++) {
+      const fields = docs[i].fields ?? [{ text: docs[i].text, boost: 1 }]
+      for (const f of fields) {
+        fieldDocs.push({ text: f.text, boost: f.boost, docIdx: i })
+      }
+    }
+    const M = fieldDocs.length
+    const fieldTokens = fieldDocs.map((d) => tokenize(d.text))
+    const fieldLens = fieldTokens.map((t) => t.length)
+    const avgdl = fieldLens.reduce((a, b) => a + b, 0) / M
+
+    // df 跨所有字段计算
+    const df: Record<string, number> = {}
+    for (const qt of queryTokens) {
+      if (df[qt] !== undefined) continue
+      let cnt = 0
+      for (const tokens of fieldTokens) {
+        if (tokens.includes(qt)) cnt++
+      }
+      df[qt] = cnt
+    }
+
+    const scores: number[] = new Array(N).fill(0)
+    for (let fi = 0; fi < M; fi++) {
+      const docIdx = fieldDocs[fi].docIdx
+      const boost = fieldDocs[fi].boost
+      const tokens = fieldTokens[fi]
+      const tf: Record<string, number> = {}
+      for (const t of tokens) tf[t] = (tf[t] || 0) + 1
+      const dl = tokens.length
+      let fieldScore = 0
+      for (const qt of queryTokens) {
+        const tfVal = tf[qt] || 0
+        if (tfVal === 0) continue
+        const dfVal = df[qt]
+        const idf = Math.log((M - dfVal + 0.5) / (dfVal + 0.5) + 1)
+        const denom = tfVal + K1 * (1 - B + B * (dl / avgdl))
+        fieldScore += (idf * (tfVal * (K1 + 1))) / denom
+      }
+      scores[docIdx] += boost * fieldScore
+    }
+
+    const indexed = scores.map((s, i) => ({ score: s, idx: i }))
+    indexed.sort((a, b) => b.score - a.score)
+    return indexed.slice(0, k).map(({ score, idx }) => ({ id: docs[idx].id, score }))
+  }
+
+  // ── 单字段模式（向后兼容）─────────────────────────
   const docTokens: string[][] = docs.map((d) => tokenize(d.text))
   const docLens = docTokens.map((t) => t.length)
   const avgdl = docLens.reduce((a, b) => a + b, 0) / N

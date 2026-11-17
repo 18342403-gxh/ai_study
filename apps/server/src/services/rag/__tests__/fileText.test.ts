@@ -42,14 +42,12 @@ describe('extractTextFromBuffer', () => {
   })
 
   it('不支持的扩展名直接报错', async () => {
-    await expect(extractTextFromBuffer(Buffer.from('x'), 'a.pptx')).rejects.toThrow(
-      '不支持的文件类型',
-    )
+    await expect(extractTextFromBuffer(Buffer.from('x'), 'a.pptx')).rejects.toThrow('PowerPoint')
   })
 
   it('空内容报错，避免被静默标记为 ready', async () => {
     await expect(extractTextFromBuffer(Buffer.from('   \n\n'), 'empty.md')).rejects.toThrow(
-      '没有提取到文本内容',
+      '没有可提取的内容',
     )
   })
 

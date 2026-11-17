@@ -13,15 +13,9 @@
         @click="fileInput?.click()"
       >
         <Upload class="w-3.5 h-3.5" />
-        {{ uploading ? '上传中…' : '上传文档' }}
+        {{ uploading ? `上传中…` : '上传文档' }}
       </button>
-      <input
-        ref="fileInput"
-        type="file"
-        class="hidden"
-        accept=".txt,.md,.json,.pdf,.doc,.docx"
-        @change="onPick"
-      />
+      <input ref="fileInput" type="file" class="hidden" :accept="DOC_ACCEPT" @change="onPick" />
     </header>
 
     <div class="flex-1 overflow-y-auto light-scroll px-6 py-5">
@@ -37,8 +31,22 @@
       >
         <p class="text-sm text-slate-600">把文件拖到这里，或点击右上角上传</p>
         <p class="mt-1 text-[11px] text-slate-400">
-          支持 txt / md / json / pdf / doc / docx，单个不超过 10MB
+          支持 {{ DOC_LIST_HINT }}，单个不超过 10MB；PDF 需带文字层
         </p>
+      </div>
+
+      <!-- 各格式的解析能力说明 -->
+      <div class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div
+          v-for="format in DOCUMENT_FORMATS"
+          :key="format.key"
+          class="px-3 py-2 rounded-lg bg-slate-50 text-[11px] text-slate-500"
+        >
+          <span class="mr-1.5 px-1 rounded text-[10px] font-medium" :class="format.badgeClass">{{
+            format.badge
+          }}</span>
+          {{ format.hint }}
+        </div>
       </div>
 
       <p
@@ -63,13 +71,25 @@
           :key="doc.id"
           class="group flex items-center gap-3 px-3.5 py-3 rounded-xl border border-slate-100 bg-white hover:border-slate-200 transition-colors"
         >
-          <FileText class="w-4 h-4 text-slate-400 flex-shrink-0" />
-
           <div class="flex-1 min-w-0">
-            <p class="text-sm text-slate-800 truncate">{{ doc.name }}</p>
+            <div class="flex items-center gap-1.5">
+              <span
+                class="px-1 py-0.5 rounded text-[10px] font-medium flex-shrink-0"
+                :class="documentBadgeClass(doc)"
+                >{{ documentBadge(doc) }}</span
+              >
+              <p class="text-sm text-slate-800 truncate">{{ doc.name }}</p>
+            </div>
             <p class="mt-0.5 text-[11px] text-slate-400">
               {{ formatSize(doc.size) }} · {{ doc.chunk_count }} 片段 ·
               {{ formatDay(doc.created_at) }}
+            </p>
+            <p v-if="doc.error" class="mt-1 text-[11px] text-rose-500">{{ doc.error }}</p>
+            <p
+              v-else-if="doc.warnings && doc.warnings.length > 0"
+              class="mt-1 text-[11px] text-amber-600"
+            >
+              {{ doc.warnings[0] }}
             </p>
           </div>
 
@@ -85,6 +105,14 @@
               @click="extract(doc)"
             >
               {{ extracting === doc.id ? '提取中…' : '提取为记录' }}
+            </button>
+            <button
+              v-if="doc.status === 'failed'"
+              class="px-2 py-1 text-[11px] text-amber-600 rounded-lg hover:bg-amber-50 transition-colors"
+              :disabled="reprocessing === doc.id"
+              @click="retry(doc)"
+            >
+              {{ reprocessing === doc.id ? '重新解析中…' : '重新解析' }}
             </button>
             <button
               class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
@@ -126,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { BookOpen, FileText, Trash2, Upload } from 'lucide-vue-next'
+import { BookOpen, Trash2, Upload } from 'lucide-vue-next'
 import {
   apiDelete,
   apiGet,
@@ -136,6 +164,16 @@ import {
   type DocumentRow,
   type EntryCard as EntryCardData,
 } from '~/utils/api'
+import {
+  checkFile,
+  DOCUMENT_FORMATS,
+  DOC_ACCEPT,
+  DOC_LIST_HINT,
+  documentBadge,
+  documentBadgeClass,
+  type DocumentFormat,
+} from '~/utils/documents'
+import { extractPdfText, wrapAsTextFile, type PdfExtractProgress } from '~/utils/pdfExtract'
 import { formatDay } from '~/utils/format'
 
 interface DocExtractResponse {
@@ -157,6 +195,8 @@ const loading = ref(true)
 const dragging = ref(false)
 const uploading = ref(false)
 const extracting = ref<string | null>(null)
+const reprocessing = ref<string | null>(null)
+const pdfProgress = ref<PdfExtractProgress | null>(null)
 const notice = ref('')
 const noticeError = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -212,9 +252,9 @@ const onDrop = (e: DragEvent) => {
   if (file) upload(file)
 }
 
-/** 上传后轮询列表，直到该文档离开 processing（最多约 60s） */
-const waitProcessed = async (docId: string) => {
-  for (let i = 0; i < 30; i++) {
+/** 上传后轮询列表，直到该文档离开 processing（最多约 150s，覆盖服务端 120s 超时） */
+const waitProcessed = async (docId: string): Promise<DocumentRow | undefined> => {
+  for (let i = 0; i < 75; i++) {
     await new Promise((r) => setTimeout(r, 2000))
     await load()
     const doc = rows.value.find((d) => d.id === docId)
@@ -223,26 +263,117 @@ const waitProcessed = async (docId: string) => {
   return rows.value.find((d) => d.id === docId)
 }
 
+/** 根据最终状态给出具体结论，失败时直接展示服务端解析错误 */
+const reportResult = (fileName: string, doc?: DocumentRow) => {
+  if (doc?.status === 'ready') {
+    const warning = doc.warnings?.[0]
+    setNotice(
+      `《${fileName}》解析成功，共 ${doc.chunk_count} 个片段。${warning ? `提示：${warning}` : ''}`,
+      Boolean(warning),
+    )
+  } else if (doc?.status === 'failed') {
+    setNotice(`《${fileName}》解析失败：${doc.error ?? '未知原因'}`, true)
+  } else {
+    setNotice(`《${fileName}》仍在解析，可稍后刷新或点击“重新解析”。`, true)
+  }
+}
+
+/** 直接上传：txt / md / json / docx / doc 无需前端预处理，原样交给后端 */
+const uploadRaw = async (file: File): Promise<{ id: string; name: string }> => {
+  const form = new FormData()
+  form.append('file', file)
+  return apiUpload<{ id: string; name: string }>('/api/documents/upload', form)
+}
+
+/**
+ * PDF：在浏览器里先提取文字（文字层 / OCR），再以 .txt 形式走后端文本链路。
+ * 同时附带原始 PDF 文件名与 kind=pdf，让后端列表仍展示为 PDF，而非 .txt。
+ */
+const uploadPdf = async (file: File): Promise<{ id: string; name: string }> => {
+  setNotice('正在解析 PDF 文字…')
+  const extracted = await extractPdfText(file, (p) => {
+    pdfProgress.value = p
+    const stage =
+      p.stage === 'loading'
+        ? '加载 PDF'
+        : p.stage === 'text'
+          ? '提取文字层'
+          : p.stage === 'ocr'
+            ? 'OCR 识别扫描件'
+            : '完成'
+    const pct = p.total ? Math.round((p.current / p.total) * 100) : 0
+    setNotice(`正在解析 PDF 文字… ${stage} ${p.current}/${p.total}（${pct}%）`)
+  })
+
+  const txtFile = wrapAsTextFile(file.name, extracted.text)
+  setNotice(
+    extracted.method === 'ocr'
+      ? `已通过 OCR 识别 ${extracted.pageCount} 页扫描件，正在上传文本…`
+      : `已提取 ${extracted.pageCount} 页文字，正在上传文本…`,
+  )
+
+  const form = new FormData()
+  form.append('file', txtFile)
+  // 展示用原始 PDF 名与类型，避免列表里退化成 .txt / TXT
+  form.append('name', file.name)
+  form.append('kind', 'pdf')
+  return apiUpload<{ id: string; name: string }>('/api/documents/upload', form)
+}
+
+/** 按格式分派到对应的上传方法，后续新增格式只需加一条 case */
+const uploadByFormat = (file: File, format: DocumentFormat) => {
+  switch (format.key) {
+    case 'pdf':
+      return uploadPdf(file)
+    case 'txt':
+    case 'md':
+    case 'json':
+    case 'docx':
+    case 'doc':
+      return uploadRaw(file)
+    default:
+      return uploadRaw(file)
+  }
+}
+
 const upload = async (file: File) => {
   uploading.value = true
+  pdfProgress.value = null
   setNotice('')
   try {
-    const form = new FormData()
-    form.append('file', file)
-    const created = await apiUpload<{ id: string; name: string }>('/api/documents/upload', form)
+    // 前端按格式校验：扩展名、体积、文件头，避免无意义的服务端往返
+    const check = await checkFile(file)
+    if (!check.ok || !check.format) {
+      setNotice(check.message ?? '文件校验失败', true)
+      return
+    }
+    if (check.warning) setNotice(check.warning)
+
+    const created = await uploadByFormat(file, check.format)
     await load()
     const doc = await waitProcessed(created.id)
-    if (doc?.status === 'ready') {
-      setNotice(`《${file.name}》解析成功，共 ${doc.chunk_count} 个片段。`)
-    } else if (doc?.status === 'failed') {
-      setNotice(`《${file.name}》解析失败，可能是空文档、扫描件或格式不支持。`, true)
-    } else {
-      setNotice(`《${file.name}》仍在解析，稍后刷新查看。`, true)
-    }
+    reportResult(created.name, doc)
   } catch (e) {
-    setNotice(`上传失败：${(e as Error).message}`, true)
+    setNotice(`处理失败：${(e as Error).message}`, true)
   } finally {
     uploading.value = false
+    pdfProgress.value = null
+  }
+}
+
+/** 失败或中断后重新解析 */
+const retry = async (doc: DocumentRow) => {
+  reprocessing.value = doc.id
+  setNotice('')
+  try {
+    await apiPost(`/api/documents/${doc.id}/reprocess`, {})
+    await load()
+    const updated = await waitProcessed(doc.id)
+    reportResult(doc.name, updated)
+  } catch (e) {
+    setNotice(`重新解析失败：${(e as Error).message}`, true)
+  } finally {
+    reprocessing.value = null
   }
 }
 

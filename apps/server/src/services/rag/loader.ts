@@ -8,6 +8,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 
 import { extractTextFromFile } from './fileText.js'
+import { guardedFetch } from '../../utils/urlGuard.js'
 
 export interface LoadedDocument {
   id: string
@@ -85,24 +86,15 @@ export async function loadFromUrl(
   name?: string,
   options: LoadOptions = {},
 ): Promise<LoadedDocument> {
-  // 1. fetch 页面（带超时 + size limit）
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
-
-  let res: Response
-  try {
-    res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        // 伪装成浏览器，避免某些站点拒绝 node-fetch UA
-        'User-Agent': 'Mozilla/5.0 (compatible; ai-study-rag/1.0)',
-        Accept: 'text/html,text/plain;q=0.9,*/*;q=0.1',
-      },
-      redirect: 'follow',
-    })
-  } finally {
-    clearTimeout(timeout)
-  }
+  // 1. fetch 页面（URL 守卫 + 逐跳重定向校验 + 超时 + size limit）
+  const { response: res } = await guardedFetch(url, {
+    headers: {
+      // 伪装成浏览器，避免某些站点拒绝 node-fetch UA
+      'User-Agent': 'Mozilla/5.0 (compatible; ai-study-rag/1.0)',
+      Accept: 'text/html,text/plain;q=0.9,*/*;q=0.1',
+    },
+    signal: AbortSignal.timeout(15000),
+  })
 
   if (!res.ok) {
     throw new Error(`抓取失败 HTTP ${res.status}: ${res.statusText}`)

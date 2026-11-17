@@ -9,6 +9,7 @@
  */
 
 import { invokeChatWithTools, type ChatMessage } from '../chain/model.js'
+import { routeModel } from '../chain/router.js'
 import { logger } from '../logger.js'
 import {
   firstRecurrenceDay,
@@ -598,8 +599,9 @@ const defaultInvoke = async (messages: ChatMessage[]): Promise<string> => {
   // Function Calling：让模型通过 extract_entries 工具返回结构化 JSON
   // tool_choice: 'auto' + system prompt 强指令"必须调用工具"
   // 若模型未触发工具，invokeChatWithTools 自动回退到 content 解析
+  const tier = routeModel({ step: 'extract' }).tier
   const response = await invokeChatWithTools(
-    { temperature: 0.1, feature: 'extract' },
+    { temperature: 0.1, feature: 'extract', tier },
     messages,
     [EXTRACT_ENTRIES_TOOL],
     'auto',

@@ -11,6 +11,7 @@
  */
 
 import { createChatChain } from '../chain/chatChain.js'
+import { routeModel } from '../chain/router.js'
 import { getEmbedding, cosineSimilarity } from '../rag/index.js'
 import { logger } from '../logger.js'
 
@@ -85,7 +86,8 @@ export const condensateQuery = async (params: CondensateParams): Promise<Condens
       .map((m) => `${m.role === 'user' ? '用户' : '助手'}：${m.content}`)
       .join('\n')
 
-    const chain = createChatChain({ temperature: 0, feature: 'understand' })
+    const tier = routeModel({ step: 'condense' }).tier
+    const chain = createChatChain({ temperature: 0, feature: 'understand', tier })
     const prompt = `你是查询改写助手。根据对话历史，把用户当前问题改写为一个能独立成立的完整问题（补全省略的主语、时间等指代）。
 如果当前问题本身已经完整，不需要改写，直接返回原问题。
 只输出改写后的问题，不要解释，不要加引号。

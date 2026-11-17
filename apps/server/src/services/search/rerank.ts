@@ -7,6 +7,7 @@
  */
 
 import { createChatChain } from '../chain/chatChain.js'
+import { routeModel } from '../chain/router.js'
 import { logger } from '../logger.js'
 import type { SearchResultItem } from './merge.js'
 
@@ -36,7 +37,8 @@ export const rerankCandidates = async (
 ${contextText}`
 
   try {
-    const chain = createChatChain({ temperature: 0, feature: 'understand' })
+    const tier = routeModel({ step: 'rerank', query }).tier
+    const chain = createChatChain({ temperature: 0, feature: 'understand', tier })
     const response = await withTimeout(
       chain.invoke({ messages: [{ role: 'user', content: prompt }] }),
       RERANK_TIMEOUT_MS,

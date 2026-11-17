@@ -167,6 +167,7 @@ describe('网页读取', () => {
       url: 'https://example.com/article',
       maxChars: 500,
       fetchImpl: mockFetch(html, 'text/html; charset=utf-8'),
+      resolve: async () => ['93.184.216.34'],
     })
     expect(result.title).toBe('示例 & 网页')
     expect(result.content).toContain('第一段')

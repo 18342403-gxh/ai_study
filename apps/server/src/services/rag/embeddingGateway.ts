@@ -16,6 +16,7 @@
 
 import { logger } from '../logger.js'
 import { costTracker } from '../costTracker.js'
+import { withSpan } from '../../observability/tracing.js'
 import crypto from 'node:crypto'
 
 const EMBEDDING_DIM = 1536 // 和智谱 embedding-3 一致
@@ -138,6 +139,8 @@ async function probeRealEmbedding(): Promise<boolean> {
     // 成功：清除 mock 标记
     mockUntil = 0
     logger.warn('embedding.service', '✅ Embedding API 已恢复，退出 hash 降级')
+    // 触发后台增量重嵌：把降级期间写入的 hash 向量重新生成真实 embedding
+    void import('./reembed.js').then(({ reembedHashVectors }) => reembedHashVectors())
     return true
   } catch (err) {
     // 失败：续期 TTL
@@ -150,8 +153,14 @@ async function probeRealEmbedding(): Promise<boolean> {
   }
 }
 
-/** 将单段文本转为向量（自动降级 + TTL 自愈） */
-export const getEmbedding = async (text: string): Promise<number[]> => {
+/** 将单段文本转为向量，附带血缘信息（real=真实 API，hash=降级伪向量） */
+export interface EmbeddingWithMeta {
+  vector: number[]
+  type: 'real' | 'hash'
+}
+
+/** 将单段文本转为向量（自动降级 + TTL 自愈），返回向量与血缘 */
+const getEmbeddingWithMetaInner = async (text: string): Promise<EmbeddingWithMeta> => {
   const { apiUrl, apiKey, model, forceMock, disableFallback } = getEnv()
 
   // ── 强制 mock 模式 ────────────────────────────────
@@ -166,7 +175,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
       costMs: 0,
       metadata: { mock: true, forceMock: true },
     })
-    return hashVector(text)
+    return { vector: hashVector(text), type: 'hash' }
   }
 
   // ── TTL 过期 → 主动探测真实 API（自愈）─────────────
@@ -190,7 +199,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
       costMs: 0,
       metadata: { mock: true, ttlRemainingMs: mockUntil - Date.now() },
     })
-    return hashVector(text)
+    return { vector: hashVector(text), type: 'hash' }
   }
 
   const start = Date.now()
@@ -237,7 +246,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
       })
     }
 
-    return data.data[0].embedding
+    return { vector: data.data[0].embedding, type: 'real' }
   } catch (err) {
     // ── 降级：hash 向量 + 启动 TTL ──────────────────
     if (disableFallback) {
@@ -268,22 +277,40 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
       metadata: { mock: true, reason: (err as Error).message.slice(0, 100) },
     })
 
-    return hashVector(text)
+    return { vector: hashVector(text), type: 'hash' }
   }
 }
 
-/** 批量获取 embedding（自动降级，worker pool 限并发） */
-export const getEmbeddings = async (texts: string[]): Promise<number[][]> => {
+/** 将单段文本转为向量（自动降级 + TTL 自愈）。兼容旧调用，仅返回向量。 */
+export const getEmbeddingWithMeta = async (text: string): Promise<EmbeddingWithMeta> => {
+  const { model } = getEnv()
+  return withSpan(
+    'gen_ai.embeddings',
+    { 'gen_ai.request.model': model, 'app.text_length': text.length },
+    async (span) => {
+      const result = await getEmbeddingWithMetaInner(text)
+      span.setAttribute('app.embedding_type', result.type)
+      span.setAttribute('app.embedding_dims', result.vector.length)
+      return result
+    },
+  )
+}
+
+export const getEmbedding = async (text: string): Promise<number[]> =>
+  (await getEmbeddingWithMeta(text)).vector
+
+/** 批量获取 embedding（自动降级，worker pool 限并发），返回向量与血缘 */
+export const getEmbeddingsWithMeta = async (texts: string[]): Promise<EmbeddingWithMeta[]> => {
   const { forceMock } = getEnv()
 
   if (forceMock) {
     logger.debug('embedding.service', 'getEmbeddings — 强制 mock 模式', { count: texts.length })
-    return texts.map((t) => hashVector(t))
+    return texts.map((t) => ({ vector: hashVector(t), type: 'hash' as const }))
   }
 
   // 并发 4（spec 阶段 11）：免费档限速敏感，批量上传文档时避免打满厂商 QPS
   const concurrency = Math.max(1, parseInt(process.env.EMBEDDING_CONCURRENCY || '4', 10) || 4)
-  const results: number[][] = new Array(texts.length)
+  const results: EmbeddingWithMeta[] = new Array(texts.length)
   let next = 0
 
   const worker = async (): Promise<void> => {
@@ -291,15 +318,21 @@ export const getEmbeddings = async (texts: string[]): Promise<number[][]> => {
       const i = next++
       // 单个文本失败 → hash 降级，不影响其他文本
       try {
-        results[i] = await getEmbedding(texts[i])
+        results[i] = await getEmbeddingWithMeta(texts[i])
       } catch {
-        results[i] = hashVector(texts[i])
+        results[i] = { vector: hashVector(texts[i]), type: 'hash' }
       }
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, texts.length) }, () => worker()))
   return results
+}
+
+/** 批量获取 embedding（自动降级，worker pool 限并发）。兼容旧调用，仅返回向量。 */
+export const getEmbeddings = async (texts: string[]): Promise<number[][]> => {
+  const metas = await getEmbeddingsWithMeta(texts)
+  return metas.map((m) => m.vector)
 }
 
 /** 计算两个向量的余弦相似度 */

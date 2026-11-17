@@ -14,6 +14,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import { getAllCircuits } from './circuitBreaker.js'
 import { getCacheStats } from './cache.js'
+import type { GuardAction, GuardCheckpoint } from '../services/guard/toolGuard.js'
 
 interface RequestBucket {
   count: number
@@ -26,6 +27,34 @@ const MAX_DURATIONS_PER_BUCKET = 500 // 每个 bucket 最多保留 500 条延迟
 
 let activeConnections = 0
 let startedAt = Date.now()
+
+// ── guard 决策计数（S6）─────────────────────────────
+type CheckpointCounts = Record<GuardAction, number>
+const guardStats: {
+  allow: number
+  wrap: number
+  deny: number
+  byCheckpoint: Record<string, CheckpointCounts>
+  lastAt: number | null
+} = { allow: 0, wrap: 0, deny: 0, byCheckpoint: {}, lastAt: null }
+
+const emptyCounts = (): CheckpointCounts => ({ allow: 0, wrap: 0, deny: 0 })
+
+/** 记录一次 guard 决策（allow/wrap/deny），供 /api/metrics 展示 */
+export function recordGuardDecision(action: GuardAction, checkpoint: GuardCheckpoint): void {
+  guardStats[action]++
+  const bucket = guardStats.byCheckpoint[checkpoint] ?? emptyCounts()
+  bucket[action]++
+  guardStats.byCheckpoint[checkpoint] = bucket
+  guardStats.lastAt = Date.now()
+}
+
+export const getGuardStats = () => ({
+  ...guardStats,
+  byCheckpoint: Object.fromEntries(
+    Object.entries(guardStats.byCheckpoint).map(([key, value]) => [key, { ...value }]),
+  ),
+})
 
 function bucketKey(method: string, path: string): string {
   return `${method}:${path}`
@@ -129,11 +158,17 @@ export function metricsHandler(_req: Request, res: Response) {
     perRoute: perRoute.sort((a, b) => b.count - a.count).slice(0, 30),
     circuits: getAllCircuits(),
     cache: getCacheStats(),
+    guard: getGuardStats(),
   })
 }
 
 /** 重置指标（测试/部署后调用） */
 export function resetMetrics(): void {
   buckets.clear()
+  guardStats.allow = 0
+  guardStats.wrap = 0
+  guardStats.deny = 0
+  guardStats.byCheckpoint = {}
+  guardStats.lastAt = null
   startedAt = Date.now()
 }

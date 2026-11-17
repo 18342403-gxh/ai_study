@@ -73,6 +73,10 @@ export const chunks = app.table(
     // 注意：pgvector 类型需要在运行时注入，这里用 text 作为声明占位
     // 实际建表时会被 pgvector 扩展替换为 vector(1536)
     embedding: text('embedding'),
+    /** 向量血缘：real=真实 API，hash=降级伪向量 */
+    embeddingType: varchar('embedding_type', { length: 16 }).notNull().default('real'),
+    /** 生成该向量的模型名 */
+    embeddingModel: varchar('embedding_model', { length: 64 }).notNull().default('embedding-3'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     /** 抽取标记：null 表示尚未抽取过（v5 4.3.8） */
     extractedAt: timestamp('extracted_at', { withTimezone: true }),
@@ -174,6 +178,8 @@ export const entryEmbeddings = app.table(
     entryId: uuid('entry_id').primaryKey(),
     embedding: text('embedding').notNull(),
     model: varchar('model', { length: 128 }).notNull(),
+    /** 向量血缘：real=真实 API，hash=降级伪向量 */
+    embeddingType: varchar('embedding_type', { length: 16 }).notNull().default('real'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

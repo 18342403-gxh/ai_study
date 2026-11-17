@@ -84,6 +84,13 @@ export interface DocumentRow {
   name: string
   size: number
   status: 'ready' | 'processing' | 'failed'
+  /** 真实解析格式（pdf/docx/doc/txt/md/json），失败时可能为空 */
+  kind?: string | null
+  /** 失败原因，供前端直接展示 */
+  error?: string | null
+  error_code?: string | null
+  /** 解析提示（编码回退、扩展名不一致、疑为扫描件等） */
+  warnings?: string[]
   chunk_count: number
   created_at: number
 }

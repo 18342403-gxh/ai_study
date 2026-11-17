@@ -23,13 +23,8 @@ const cache = new Map<string, CacheEntry>()
 const MAX_SIZE = 100
 const TTL_MS = 60_000
 
-/** 需要缓存的 GET 路径（白名单） */
-const CACHEABLE_PATHS = [
-  /^\/api\/sessions$/,
-  /^\/api\/documents$/,
-  /^\/api\/tools\/list$/,
-  /^\/api\/health$/,
-]
+/** 需要缓存的 GET 路径（白名单）— 仅放真正稳定、且写入频率极低的数据 */
+const CACHEABLE_PATHS = [/^\/api\/sessions$/, /^\/api\/tools\/list$/, /^\/api\/health$/]
 
 function isCacheable(req: Request): boolean {
   if (req.method !== 'GET') return false

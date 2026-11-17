@@ -9,6 +9,8 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Request, Response, NextFunction } from 'express'
+import { context as otelContext } from '@opentelemetry/api'
+import { startServerSpan } from '../observability/tracing.js'
 import {
   logger,
   withRequestId,
@@ -98,15 +100,31 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
 
   const start = process.hrtime.bigint()
 
+  // W3C traceparent：有则沿用父链，无则新建；span 状态与日志通过 traceId 对齐
+  const { span, ctx } = startServerSpan(`HTTP ${req.method}`, req.headers, {
+    'http.request.method': req.method,
+    'http.route': req.path,
+    'app.request_id': requestId,
+  })
+
   res.on('finish', () => {
     const diffNs = Number(process.hrtime.bigint() - start)
     const ms = Number((diffNs / 1e6).toFixed(2))
     const status = res.statusCode
     const level: LogLevel = status >= 500 ? 'ERROR' : status >= 400 ? 'WARN' : 'INFO'
 
+    span.setAttribute('http.response.status_code', status)
+    span.end()
+
     const tag = 'http'
     const msg = `${req.method} ${req.originalUrl} ${status} ${ms.toFixed(2)}ms`
-    const data = { method: req.method, url: req.originalUrl, status, durationMs: ms }
+    const data = {
+      method: req.method,
+      url: req.originalUrl,
+      status,
+      durationMs: ms,
+      traceId: span.spanContext().traceId,
+    }
 
     withRequestId(requestId, () => {
       if (level === 'ERROR') logger.error(tag, msg, data)
@@ -115,5 +133,6 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     })
   })
 
-  next()
+  // 在同一条异步上下文中继续后续中间件，保证下游 span 正确挂到本请求下
+  otelContext.with(ctx, () => next())
 }

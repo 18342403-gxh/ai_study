@@ -101,6 +101,22 @@
       </div>
 
       <div v-else class="max-w-3xl mx-auto py-4 space-y-5">
+        <!-- Embedding 降级提示条 -->
+        <div
+          v-if="embeddingMock"
+          class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          <!-- emoji 允许 -->
+          ⚠️ 语义检索降级中：当前上传的资料可能只被关键词检索到，语义搜索暂不可用。Embedding
+          服务恢复后将自动重建索引。
+        </div>
+        <div
+          v-else-if="reembeddingInProgress"
+          class="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800"
+        >
+          <!-- emoji 允许 -->
+          🔄 部分资料正在重新建立语义索引…
+        </div>
         <div
           v-for="message in messages"
           :key="message.id"
@@ -492,6 +508,10 @@ const examples = [
 const messages = ref<UiMessage[]>([])
 const input = ref('')
 const sending = ref(false)
+/** Embedding 降级状态：true 表示当前仅 BM25 生效，语义检索不可用 */
+const embeddingMock = ref(false)
+/** 重嵌进行中：API 恢复后正在重建 hash 向量的语义索引 */
+const reembeddingInProgress = ref(false)
 /** 「记一下」模式：开启后输入的内容默认走整理入库，不再需要关键词 */
 const recordMode = ref(false)
 const sessionId = ref<string | null>(null)
@@ -564,12 +584,23 @@ const importUrl = async () => {
       id: uid(),
       role: 'assistant',
       content: '',
-      error: (error as Error).message,
+      error: friendlyError(error),
     })
   } finally {
     urlLoading.value = false
     await scrollToBottom()
   }
+}
+
+/** 出站/上游错误统一转成可读文案，避免把原始堆栈或内部信息暴露给用户 */
+const friendlyError = (error: unknown): string => {
+  const msg = (error as Error)?.message ?? '请求失败'
+  if (/不允许读取本机或内网|网页地址/.test(msg)) return '这个链接无法读取，请换一个公开网页地址。'
+  if (/网页读取失败|不支持读取该内容类型|内容过大|跳转次数/.test(msg))
+    return '网页抓取失败，请稍后重试或换一个链接。'
+  if (/超时|timeout/i.test(msg)) return '请求超时，请稍后重试。'
+  if (/AI 请求失败|upstream|HTTP 5\d\d/.test(msg)) return 'AI 服务暂时不可用，请稍后重试。'
+  return msg.length > 120 ? '操作失败，请稍后重试。' : msg
 }
 
 const scrollToBottom = async () => {
@@ -807,11 +838,47 @@ const askAI = async (text: string, sid: string) => {
     placeholder.missing = answer.missing
     placeholder.degraded = answer.degraded
     placeholder.general = answer.general
+    // Embedding 降级状态：从 true → false 时触发重嵌状态轮询
+    const wasMock = embeddingMock.value
+    embeddingMock.value = answer.embeddingMock ?? false
+    if (wasMock && !embeddingMock.value) {
+      pollReembedStatus()
+    }
   } catch (error) {
     placeholder.loading = false
-    placeholder.error = (error as Error).message
+    placeholder.error = friendlyError(error)
   }
   await scrollToBottom()
+}
+
+/** 轮询重嵌状态：API 恢复后检查是否有 hash 向量待重嵌 */
+let reembedPollTimer: ReturnType<typeof setInterval> | null = null
+const pollReembedStatus = async () => {
+  if (reembedPollTimer) return
+  const check = async () => {
+    try {
+      const res = await $fetch<{
+        ok: boolean
+        data: { reembed: { pending: number; inProgress: boolean } }
+      }>('/api/cost/settings')
+      const status = res.data?.reembed
+      if (!status || (status.pending === 0 && !status.inProgress)) {
+        reembeddingInProgress.value = false
+        if (reembedPollTimer) {
+          clearInterval(reembedPollTimer)
+          reembedPollTimer = null
+        }
+        return
+      }
+      reembeddingInProgress.value = true
+    } catch {
+      // 轮询失败不阻塞，下次重试
+    }
+  }
+  await check()
+  if (reembeddingInProgress.value) {
+    reembedPollTimer = setInterval(check, 5000)
+  }
 }
 
 const send = async () => {

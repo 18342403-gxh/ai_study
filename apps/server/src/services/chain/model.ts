@@ -1,6 +1,8 @@
 import { logger } from '../logger.js'
 import { costTracker, checkMonthlyBudget, type AiFeature } from '../costTracker.js'
 import { isFreeModel } from '../llm/pricing.js'
+import { SpanStatusCode } from '@opentelemetry/api'
+import { tracer, withSpan } from '../../observability/tracing.js'
 
 /**
  * LangChain 模型初始化（m1 基础）
@@ -258,43 +260,62 @@ const invokeChat = async (ctx: ChatCtx, input: RawInput): Promise<string> => {
     ...(downgradedFrom ? { budgetDowngrade: downgradedFrom } : {}),
   })
 
-  try {
-    // 429 限流重试一次（只重试 HTTP 429，超时/网络错误直接抛）
-    let response: Response | undefined
-    for (let attempt = 0; attempt <= 1; attempt++) {
-      response = await postChat(ctx, { model, messages, stream: false })
-      if (response.ok) break
-      if (response.status === 429 && attempt < 1) {
-        logger.warn('llm.invoke', '429 限流，稍后重试一次', { model, delayMs: RETRY_429_DELAY_MS })
-        await new Promise((resolve) => setTimeout(resolve, RETRY_429_DELAY_MS))
-        continue
+  return withSpan(
+    'gen_ai.chat',
+    {
+      'gen_ai.system': ctx.provider,
+      'gen_ai.request.model': model,
+      'gen_ai.request.temperature': ctx.temperature,
+      'gen_ai.request.message_count': messages.length,
+      'app.feature': ctx.feature,
+    },
+    async (span) => {
+      try {
+        // 429 限流重试一次（只重试 HTTP 429，超时/网络错误直接抛）
+        let response: Response | undefined
+        for (let attempt = 0; attempt <= 1; attempt++) {
+          response = await postChat(ctx, { model, messages, stream: false })
+          if (response.ok) break
+          if (response.status === 429 && attempt < 1) {
+            logger.warn('llm.invoke', '429 限流，稍后重试一次', {
+              model,
+              delayMs: RETRY_429_DELAY_MS,
+            })
+            await new Promise((resolve) => setTimeout(resolve, RETRY_429_DELAY_MS))
+            continue
+          }
+          await throwHttpError('llm.invoke', model, response, Date.now() - t0)
+        }
+
+        const data = (await response!.json()) as {
+          choices: Array<{ message: { content: string } }>
+          usage?: any
+        }
+        const cost = Date.now() - t0
+        logger.info('llm.invoke', '调用完成', { model, costMs: cost, usage: data.usage })
+        clearChatDegraded()
+        if (data.usage) {
+          span.setAttribute('gen_ai.usage.input_tokens', data.usage.prompt_tokens ?? 0)
+          span.setAttribute('gen_ai.usage.output_tokens', data.usage.completion_tokens ?? 0)
+          trackUsage(ctx, { model, usage: data.usage, costMs: cost, downgradedFrom })
+        }
+
+        return data.choices[0]?.message?.content || ''
+      } catch (err) {
+        if ((err as Error).message.startsWith('AI 请求失败')) throw err
+        if ((err as Error).name === 'TimeoutError') {
+          logger.error('llm.invoke', '调用超时', { model, timeoutMs: LLM_TIMEOUT_MS })
+          throw new Error('AI 响应超时，请稍后重试', { cause: err })
+        }
+        logger.error('llm.invoke', '网络异常', {
+          model,
+          error: (err as Error).message,
+          costMs: Date.now() - t0,
+        })
+        throw err
       }
-      await throwHttpError('llm.invoke', model, response, Date.now() - t0)
-    }
-
-    const data = (await response!.json()) as {
-      choices: Array<{ message: { content: string } }>
-      usage?: any
-    }
-    const cost = Date.now() - t0
-    logger.info('llm.invoke', '调用完成', { model, costMs: cost, usage: data.usage })
-    clearChatDegraded()
-    if (data.usage) trackUsage(ctx, { model, usage: data.usage, costMs: cost, downgradedFrom })
-
-    return data.choices[0]?.message?.content || ''
-  } catch (err) {
-    if ((err as Error).message.startsWith('AI 请求失败')) throw err
-    if ((err as Error).name === 'TimeoutError') {
-      logger.error('llm.invoke', '调用超时', { model, timeoutMs: LLM_TIMEOUT_MS })
-      throw new Error('AI 响应超时，请稍后重试', { cause: err })
-    }
-    logger.error('llm.invoke', '网络异常', {
-      model,
-      error: (err as Error).message,
-      costMs: Date.now() - t0,
-    })
-    throw err
-  }
+    },
+  )
 }
 
 /**
@@ -328,39 +349,54 @@ export const invokeChatWithToolCalls = async (
     toolChoice,
   })
 
-  const response = await postChat(ctx, { model, messages, stream: false, tools, toolChoice })
-  if (!response.ok) {
-    await throwHttpError('llm.invoke', model, response, Date.now() - t0)
-  }
-
-  const data = (await response.json()) as {
-    choices: Array<{
-      message: {
-        content: string | null
-        tool_calls?: Array<{
-          id?: string
-          type?: 'function'
-          function: { name: string; arguments: string }
-        }>
-      }
-    }>
-    usage?: any
-  }
-  const cost = Date.now() - t0
-  logger.info('llm.invoke', 'Function Calling 调用完成', { model, costMs: cost })
-  clearChatDegraded()
-  if (data.usage) trackUsage(ctx, { model, usage: data.usage, costMs: cost, downgradedFrom })
-
-  const msg = data.choices[0]?.message
-  const toolCalls = (msg?.tool_calls ?? []).map((call, index) => ({
-    id: call.id || `call_${index}`,
-    type: 'function' as const,
-    function: {
-      name: call.function.name,
-      arguments: call.function.arguments || '{}',
+  return withSpan(
+    'gen_ai.chat.tools',
+    {
+      'gen_ai.system': ctx.provider,
+      'gen_ai.request.model': model,
+      'gen_ai.request.temperature': ctx.temperature,
+      'gen_ai.request.message_count': messages.length,
+      'app.feature': ctx.feature,
+      'app.tool_count': tools.length,
     },
-  }))
-  return { content: msg?.content || '', toolCalls }
+    async (span) => {
+      const response = await postChat(ctx, { model, messages, stream: false, tools, toolChoice })
+      if (!response.ok) await throwHttpError('llm.invoke', model, response, Date.now() - t0)
+
+      const data = (await response.json()) as {
+        choices: Array<{
+          message: {
+            content: string | null
+            tool_calls?: Array<{
+              id?: string
+              type?: 'function'
+              function: { name: string; arguments: string }
+            }>
+          }
+        }>
+        usage?: any
+      }
+      const cost = Date.now() - t0
+      logger.info('llm.invoke', 'Function Calling 调用完成', { model, costMs: cost })
+      clearChatDegraded()
+      if (data.usage) {
+        span.setAttribute('gen_ai.usage.input_tokens', data.usage.prompt_tokens ?? 0)
+        span.setAttribute('gen_ai.usage.output_tokens', data.usage.completion_tokens ?? 0)
+        trackUsage(ctx, { model, usage: data.usage, costMs: cost, downgradedFrom })
+      }
+
+      const msg = data.choices[0]?.message
+      const toolCalls = (msg?.tool_calls ?? []).map((call, index) => ({
+        id: call.id || `call_${index}`,
+        type: 'function' as const,
+        function: {
+          name: call.function.name,
+          arguments: call.function.arguments || '{}',
+        },
+      }))
+      return { content: msg?.content || '', toolCalls }
+    },
+  )
 }
 
 /**
@@ -401,6 +437,16 @@ const streamChat = async function* (
   const t0 = Date.now()
 
   logger.info('llm.stream', '调用开始', { model, messageCount: messages.length })
+
+  const span = tracer.startSpan('gen_ai.chat.stream', {
+    attributes: {
+      'gen_ai.system': ctx.provider,
+      'gen_ai.request.model': model,
+      'gen_ai.request.temperature': ctx.temperature,
+      'gen_ai.request.message_count': messages.length,
+      'app.feature': ctx.feature,
+    },
+  })
 
   let chunkCount = 0
   try {
@@ -453,7 +499,11 @@ const streamChat = async function* (
     logger.info('llm.stream', '调用完成', { model, chunkCount, costMs: cost, finishReason })
     clearChatDegraded()
     if (streamUsage) trackUsage(ctx, { model, usage: streamUsage, costMs: cost, downgradedFrom })
+    span.setAttribute('app.chunk_count', chunkCount)
+    span.setStatus({ code: SpanStatusCode.OK })
   } catch (err) {
+    span.recordException(err instanceof Error ? err : new Error(String(err)))
+    span.setStatus({ code: SpanStatusCode.ERROR })
     logger.error('llm.stream', '调用异常', {
       model,
       chunkCount,
@@ -461,6 +511,8 @@ const streamChat = async function* (
       costMs: Date.now() - t0,
     })
     throw err
+  } finally {
+    span.end()
   }
 }
 

@@ -7,6 +7,7 @@
 
 import { isMockMode } from '../rag/index.js'
 import { logger } from '../logger.js'
+import { withSpan } from '../../observability/tracing.js'
 import type { EntryType } from '../extract/extractor.js'
 import { searchDocumentsSemantic } from './docChannel.js'
 import { searchEntriesSemantic } from './entrySearch.js'
@@ -49,7 +50,7 @@ export interface SearchAllOutcome {
 /** 严格的个人归属线索：只认「我/咱」与个人知识库相关词（不含时间词），用于无命中时回退通用问答 */
 const OWNER_CUE_RE = /我|咱|安排|日程|进度|待办|提醒|记得|记录|计划/
 
-export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOutcome> => {
+const searchAllInner = async (options: SearchAllOptions): Promise<SearchAllOutcome> => {
   const nowMs = options.now ?? Date.now()
 
   const rules = ruleBasedUnderstanding(options.query, nowMs)
@@ -60,6 +61,7 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
           timeRange: options.timeRange,
           keywords: [],
           entityTypes: ALL_TYPES,
+          queryType: 'keyword',
           source: 'rules',
         }
       : // 规则已能给出明确时间窗口（或判定为通用问题）时不再调模型，省一次 LLM 往返
@@ -87,25 +89,33 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
   // 真正的通用问题会在下方「资料未命中」分支返回空。
   const [timeHits, entryHits, docHits] = await Promise.all([
     needsPersonal && window
-      ? searchTimeChannel({
-          windowStart: window.start,
-          windowEnd: window.end,
-          libraryId: options.libraryId,
-          includeArchived: options.includeArchived,
-          now: nowMs,
-        })
+      ? withSpan('retrieval.time_channel', { 'app.window': `${window.start}~${window.end}` }, () =>
+          searchTimeChannel({
+            windowStart: window.start,
+            windowEnd: window.end,
+            libraryId: options.libraryId,
+            includeArchived: options.includeArchived,
+            now: nowMs,
+          }),
+        )
       : Promise.resolve([]),
     needsPersonal
-      ? searchEntriesSemantic({ query: options.query, libraryId: options.libraryId })
+      ? withSpan('retrieval.entry_channel', {}, () =>
+          searchEntriesSemantic({ query: options.query, libraryId: options.libraryId }),
+        )
       : Promise.resolve([]),
     skipDocChannel
       ? Promise.resolve([])
-      : searchDocumentsSemantic(options.query).catch((err: unknown) => {
-          logger.warn('search.all', '文档语义通道失败，已跳过', {
-            error: (err as Error).message,
-          })
-          return []
-        }),
+      : withSpan('retrieval.doc_channel', {}, () =>
+          searchDocumentsSemantic(options.query, 15, understanding.queryType).catch(
+            (err: unknown) => {
+              logger.warn('search.all', '文档语义通道失败，已跳过', {
+                error: (err as Error).message,
+              })
+              return []
+            },
+          ),
+        ),
   ])
 
   // 模型判为通用问题、但确实命中了资料 → 按个人上下文回答（带引用）
@@ -129,7 +139,9 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
   // ── rerank（spec 1.6）：merge 后 LLM 重排序 ──
   // ENABLE_RERANK=1 开启；失败自动 fallback 到 merge 原顺序
   if (process.env.ENABLE_RERANK === '1' && results.length > 1) {
-    results = await rerankCandidates(options.query, results)
+    results = await withSpan('retrieval.rerank', { 'app.candidate_count': results.length }, () =>
+      rerankCandidates(options.query, results),
+    )
   }
 
   // 三个通道全空，且问题不含个人归属线索（寒暄 / 常识，如「您好」「今天天气怎么样」）
@@ -164,3 +176,23 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
     empty: results.length === 0,
   }
 }
+
+export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOutcome> =>
+  withSpan(
+    'retrieval.search_all',
+    {
+      'app.query_length': options.query.length,
+      'app.library_id': options.libraryId ?? '',
+      'app.skip_understanding': options.skipUnderstanding === true,
+    },
+    async (span) => {
+      const outcome = await searchAllInner(options)
+      span.setAttribute('retrieval.shown', outcome.results.length)
+      span.setAttribute('retrieval.time_hits', outcome.channels.time)
+      span.setAttribute('retrieval.entry_hits', outcome.channels.entry)
+      span.setAttribute('retrieval.doc_hits', outcome.channels.doc)
+      span.setAttribute('app.empty', outcome.empty)
+      span.setAttribute('app.embedding_mock', outcome.embeddingMock)
+      return outcome
+    },
+  )

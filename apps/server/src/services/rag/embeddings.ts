@@ -34,6 +34,9 @@ export const createEmbeddings = (): Embeddings => {
 export {
   getEmbedding,
   getEmbeddings,
+  getEmbeddingWithMeta,
+  getEmbeddingsWithMeta,
+  type EmbeddingWithMeta,
   cosineSimilarity,
   hashVector,
   isMockMode,

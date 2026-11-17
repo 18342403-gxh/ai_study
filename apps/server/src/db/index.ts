@@ -95,6 +95,7 @@ const initV5Schema = (db: Database.Database) => {
       entry_id TEXT PRIMARY KEY,
       embedding TEXT NOT NULL,
       model TEXT NOT NULL,
+      embedding_type TEXT NOT NULL DEFAULT 'real',
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
     )
@@ -149,6 +150,9 @@ const alignSqliteSchema = (db: Database.Database) => {
   ensureColumn('chunks', 'token_count', 'token_count INTEGER')
   ensureColumn('chunks', 'created_at', 'created_at INTEGER')
   ensureColumn('chunks', 'extracted_at', 'extracted_at INTEGER')
+  // chunks：向量血缘列（real=真实 API，hash=降级伪向量）
+  ensureColumn('chunks', 'embedding_type', `embedding_type TEXT NOT NULL DEFAULT 'real'`)
+  ensureColumn('chunks', 'embedding_model', `embedding_model TEXT NOT NULL DEFAULT 'embedding-3'`)
 
   // sessions：补 metadata / deleted_at
   ensureColumn('sessions', 'metadata', 'metadata TEXT')
@@ -156,6 +160,9 @@ const alignSqliteSchema = (db: Database.Database) => {
 
   // messages：补 tool_call_id
   ensureColumn('messages', 'tool_call_id', 'tool_call_id TEXT')
+
+  // entry_embeddings：向量血缘列
+  ensureColumn('entry_embeddings', 'embedding_type', `embedding_type TEXT NOT NULL DEFAULT 'real'`)
 
   // ai_usage_logs：feature 词表升级（阶段 11）需要重建表（SQLite CHECK 约束无法 ALTER）。
   // 旧值映射：chat/generator → chat_general，rag → understand，embedding / eval 保留；并补 cost 列。
@@ -239,6 +246,8 @@ const initSqlite = () => {
       chunk_index INTEGER NOT NULL,
       token_count INTEGER,
       embedding TEXT,
+      embedding_type TEXT NOT NULL DEFAULT 'real',
+      embedding_model TEXT NOT NULL DEFAULT 'embedding-3',
       created_at INTEGER,
       extracted_at INTEGER,
       FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE

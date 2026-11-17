@@ -5,6 +5,7 @@ import { toJsonSchema } from '@langchain/core/utils/json_schema'
 import { z } from 'zod'
 
 import { getLocalTimezone } from '../extract/timeParse.js'
+import type { ResolveHost } from '../../utils/urlGuard.js'
 import { calculate } from './calculator.js'
 import { fetchUrlText, getWeather, webSearch, type FetchLike, type SearchRecency } from './web.js'
 
@@ -19,6 +20,8 @@ export interface CommonTool {
 export interface CommonToolsOptions {
   fetchImpl?: FetchLike
   now?: () => Date
+  /** 测试注入：URL 守卫的 DNS 解析 */
+  resolve?: ResolveHost
 }
 
 const asCommonTool = (tool: DynamicStructuredTool): CommonTool => {
@@ -118,7 +121,7 @@ export const createCommonTools = (options: CommonToolsOptions = {}): CommonTool[
       maxChars: z.number().int().min(500).max(20_000).default(6000).describe('最多返回字符数'),
     }),
     func: async ({ url, maxChars }) =>
-      JSON.stringify(await fetchUrlText({ url, maxChars, fetchImpl })),
+      JSON.stringify(await fetchUrlText({ url, maxChars, fetchImpl, resolve: options.resolve })),
   })
 
   const weather = new DynamicStructuredTool({

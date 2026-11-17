@@ -17,6 +17,7 @@ import {
 } from '../services/costTracker.js'
 import { getChatDegradedState } from '../services/chain/model.js'
 import { getEmbeddingMockState } from '../services/rag/index.js'
+import { getReembedStatus } from '../services/rag/reembed.js'
 import { validate, asyncHandler } from '../middleware/index.js'
 
 const router = Router()
@@ -80,6 +81,7 @@ router.get(
         embeddingMockState: getEmbeddingMockState(),
         embeddingFallbackDisabled: process.env.DISABLE_EMBEDDING_FALLBACK === '1',
         embeddingConcurrency: parseInt(process.env.EMBEDDING_CONCURRENCY || '4', 10) || 4,
+        reembed: getReembedStatus(),
       },
     })
   }),

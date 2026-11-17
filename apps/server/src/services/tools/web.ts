@@ -1,6 +1,7 @@
 /** 联网工具的外部 HTTP 适配层：搜索、新闻、天气与网页正文读取。 */
 
 import { logger } from '../logger.js'
+import { assertSafeUrlSync, guardedFetch, type ResolveHost } from '../../utils/urlGuard.js'
 
 export type FetchLike = typeof fetch
 export type SearchProvider = 'bing' | 'zhipu' | 'auto'
@@ -286,39 +287,8 @@ export const getWeather = async (params: {
   }
 }
 
-const isPrivateHostname = (hostname: string): boolean => {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true
-  if (
-    host === '::1' ||
-    host.startsWith('fe80:') ||
-    host.startsWith('fc') ||
-    host.startsWith('fd')
-  ) {
-    return true
-  }
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
-  if (!ipv4) return false
-  const [a, b] = [Number(ipv4[1]), Number(ipv4[2])]
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
-  )
-}
-
-export const validatePublicHttpUrl = (rawUrl: string): URL => {
-  const url = new URL(rawUrl)
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('网页地址只支持 HTTP/HTTPS')
-  }
-  if (url.username || url.password) throw new Error('网页地址不能包含账号或密码')
-  if (isPrivateHostname(url.hostname)) throw new Error('不允许读取本机或内网地址')
-  return url
-}
+/** 同步 URL 校验（兼容旧调用点；DNS 校验由 guardedFetch 内部完成） */
+export const validatePublicHttpUrl = (rawUrl: string): URL => assertSafeUrlSync(rawUrl)
 
 export const htmlToText = (html: string): { title: string | null; content: string } => {
   const titleMatch = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)
@@ -337,53 +307,41 @@ export const fetchUrlText = async (params: {
   url: string
   maxChars?: number
   fetchImpl?: FetchLike
+  /** 测试注入：DNS 解析实现 */
+  resolve?: ResolveHost
 }) => {
-  const fetchImpl = params.fetchImpl ?? fetch
-  let current = validatePublicHttpUrl(params.url).toString()
-  let response: Response | undefined
-  let text = ''
-  let contentType = ''
-
-  for (let redirects = 0; redirects <= 3; redirects++) {
-    validatePublicHttpUrl(current)
-    response = await fetchImpl(current, {
-      redirect: 'manual',
+  const { response, finalUrl } = await guardedFetch(
+    params.url,
+    {
       headers: {
         'User-Agent': USER_AGENT,
         Accept: 'text/html, text/plain, application/json, application/xml',
       },
       signal: AbortSignal.timeout(timeoutMs()),
-    })
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location')
-      if (!location) throw new Error(`网页返回 HTTP ${response.status}，但没有跳转地址`)
-      if (redirects === 3) throw new Error('网页跳转次数过多')
-      current = new URL(location, current).toString()
-      continue
-    }
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 300)
-      throw new Error(`网页读取失败 HTTP ${response.status}${detail ? `：${detail}` : ''}`)
-    }
+    },
+    { fetchImpl: params.fetchImpl, resolve: params.resolve },
+  )
 
-    contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
-    const supported =
-      contentType.startsWith('text/') ||
-      /application\/(?:json|xml|xhtml\+xml)/.test(contentType) ||
-      contentType === ''
-    if (!supported) throw new Error(`不支持读取该内容类型：${contentType}`)
-    const contentLength = Number(response.headers.get('content-length') ?? 0)
-    if (contentLength > 2_000_000) throw new Error('网页内容过大（超过 2 MB）')
-    text = await response.text()
-    break
+  if (!response.ok) {
+    // 不回传上游响应体，避免把第三方页面内容/内部信息透给前端
+    throw new Error(`网页读取失败（HTTP ${response.status}）`)
   }
 
-  if (!response) throw new Error('网页读取失败')
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  const supported =
+    contentType.startsWith('text/') ||
+    /application\/(?:json|xml|xhtml\+xml)/.test(contentType) ||
+    contentType === ''
+  if (!supported) throw new Error(`不支持读取该内容类型：${contentType}`)
+  const contentLength = Number(response.headers.get('content-length') ?? 0)
+  if (contentLength > 2_000_000) throw new Error('网页内容过大（超过 2 MB）')
+  const text = await response.text()
+
   const maxChars = Math.min(20_000, Math.max(500, Math.floor(params.maxChars ?? 6000)))
   const isHtml = contentType.includes('html') || /^\s*<!doctype html|^\s*<html/i.test(text)
   const parsed = isHtml ? htmlToText(text) : { title: null, content: cleanText(text) }
   return {
-    url: response.url || current,
+    url: finalUrl,
     title: parsed.title,
     content: parsed.content.slice(0, maxChars),
     truncated: parsed.content.length > maxChars,

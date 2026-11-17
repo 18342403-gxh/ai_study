@@ -20,6 +20,7 @@ import { isSupportedExtension } from '../services/rag/fileText.js'
 import { getDb, tables } from '../db/index.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { routeModel } from '../services/chain/router.js'
 import { searchAll } from '../services/search/searchAll.js'
 import { logger } from '../services/logger.js'
 
@@ -263,7 +264,11 @@ router.post(
 上下文：
 ${results.map((r, i) => `[${i + 1}] ${r.content}`).join('\n\n')}`
 
-    const chain = createChatChain({ temperature: 0.3, feature: 'chat_general' })
+    const chain = createChatChain({
+      temperature: 0.3,
+      feature: 'chat_general',
+      tier: routeModel({ step: 'chat', query, needsPersonalContext: true }).tier,
+    })
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt || defaultSystem },
       { role: 'user', content: query },

@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
+import { routeModel } from '../services/chain/router.js'
 import { searchAll } from '../services/search/searchAll.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler } from '../middleware/index.js'
@@ -83,7 +84,11 @@ router.post(
       }),
     )
 
-    const chain = createChatChain({ temperature: 0.3, feature: 'chat_general' })
+    const chain = createChatChain({
+      temperature: 0.3,
+      feature: 'chat_general',
+      tier: routeModel({ step: 'chat', query, needsPersonalContext: true }).tier,
+    })
 
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream')

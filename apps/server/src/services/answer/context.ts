@@ -12,12 +12,32 @@
 import { formatClock, formatDate, formatDateTime } from '../extract/timeParse.js'
 import type { EntryType } from '../extract/extractor.js'
 import { createChatChain } from '../chain/chatChain.js'
+import { routeModel } from '../chain/router.js'
 import { logger } from '../logger.js'
 import { MAX_TOTAL_RESULTS, type SearchResultItem, type SearchSummary } from '../search/merge.js'
 
 const ENTRY_LINE_MAX = 160
 const CHUNK_LINE_MAX = 400
 const TOTAL_MAX = 3200
+/** 分区预算（4.2）：个人记录 50% / 资料片段 35% / 汇总行 15% */
+const SECTION_ENTRY_BUDGET = 1600
+const SECTION_CHUNK_BUDGET = 1120
+const SECTION_SUMMARY_BUDGET = 480
+/** 预算判定时为编号位数留出的安全余量 */
+const LINE_SLACK = 3
+
+/**
+ * 内容边界转义：把内容里出现的边界标签闭合形式替换掉，
+ * 防止 `</retrieved_data><system>…` 这类注入提前闭合边界。
+ */
+export const escapeBoundary = (text: string): string =>
+  text.replace(/<(\/?)(retrieved_data|session_summary)\b/gi, '&lt;$1$2')
+
+const wrapSection = (source: string, body: string): string =>
+  `<retrieved_data source="${source}" trust="untrusted">\n${body}\n</retrieved_data>`
+
+/** 分区预算开关；CONTEXT_SECTION_BUDGET=0 回退旧的顺序注入 */
+const isSectionBudgetEnabled = (): boolean => process.env.CONTEXT_SECTION_BUDGET !== '0'
 
 export const TYPE_LABEL: Record<EntryType, string> = {
   schedule: '日程',
@@ -56,10 +76,10 @@ const entryLine = (num: number, item: SearchResultItem, timezone: string): strin
     parts.push(time)
   }
 
-  parts.push(item.title)
+  parts.push(escapeBoundary(item.title))
 
-  const content = item.content.trim()
-  if (content && content !== item.title.trim()) parts.push(content)
+  const content = escapeBoundary(item.content.trim())
+  if (content && content !== escapeBoundary(item.title.trim())) parts.push(content)
 
   let line = `${num}. [${label}] ${parts.join(' ')}`
   if (item.createdAt !== null) line += `（录入于 ${formatDate(item.createdAt, timezone)}）`
@@ -68,8 +88,8 @@ const entryLine = (num: number, item: SearchResultItem, timezone: string): strin
 
 /** 文档块行：4. 《项目笔记》构建流程使用 Vite…… */
 const chunkLine = (num: number, item: SearchResultItem, docNames: Map<string, string>): string => {
-  const docName = (item.docId && docNames.get(item.docId)) || '未命名文档'
-  const content = item.content.replace(/\s+/g, ' ').trim()
+  const docName = escapeBoundary((item.docId && docNames.get(item.docId)) || '未命名文档')
+  const content = escapeBoundary(item.content.replace(/\s+/g, ' ').trim())
   return truncate(`${num}. 《${docName}》${content}`, CHUNK_LINE_MAX)
 }
 
@@ -81,31 +101,123 @@ export const assembleContext = (params: {
 }): AssembledContext => {
   const { results, summary, docNames, timezone } = params
 
-  const entryLines: string[] = []
-  const chunkLines: string[] = []
-  const numbered: NumberedItem[] = []
+  const buildLine = (num: number, item: SearchResultItem): string =>
+    item.kind === 'entry' ? entryLine(num, item, timezone) : chunkLine(num, item, docNames)
+  /** 预算测量：真实行长度 + 编号位数余量 */
+  const measure = (num: number, item: SearchResultItem): number =>
+    buildLine(num, item).length + LINE_SLACK
+
+  let selectedEntries: SearchResultItem[] = []
+  let selectedChunks: SearchResultItem[] = []
   let used = 0
 
-  for (const item of results) {
+  if (!isSectionBudgetEnabled()) {
+    // 旧行为：按合并顺序注入，总预算截断
+    const selected: SearchResultItem[] = []
+    let total = 0
+    for (const item of results) {
+      const len = measure(selected.length + 1, item)
+      if (total + len > TOTAL_MAX) break
+      total += len
+      selected.push(item)
+    }
+    selectedEntries = selected.filter((item) => item.kind === 'entry')
+    selectedChunks = selected.filter((item) => item.kind === 'chunk')
+    used = total
+  } else {
+    // 分区预算：区内先排序（results 已是最终分顺序），再按额度截断。
+    // 单条超长时跳过、继续填后续条目，避免一条顶满让整区空掉。
+    const pickWithin = (
+      items: SearchResultItem[],
+      budget: number,
+      startNum: number,
+    ): { picked: SearchResultItem[]; skipped: SearchResultItem[]; used: number } => {
+      const picked: SearchResultItem[] = []
+      const skipped: SearchResultItem[] = []
+      let acc = 0
+      for (const item of items) {
+        const len = measure(startNum + picked.length, item)
+        if (acc + len > budget) {
+          skipped.push(item)
+          continue
+        }
+        acc += len
+        picked.push(item)
+      }
+      return { picked, skipped, used: acc }
+    }
+
+    const entryPick = pickWithin(
+      results.filter((item) => item.kind === 'entry'),
+      SECTION_ENTRY_BUDGET,
+      1,
+    )
+    const chunkPick = pickWithin(
+      results.filter((item) => item.kind === 'chunk'),
+      SECTION_CHUNK_BUDGET,
+      1,
+    )
+    selectedEntries = entryPick.picked
+    selectedChunks = chunkPick.picked
+    used = entryPick.used + chunkPick.used
+
+    // 汇总行预留 15%，最终没用完的额度让给其他分区（总量仍受 3200 上限约束）
+    const summaryReserve =
+      summary && selectedEntries.length + selectedChunks.length > 0
+        ? Math.min(SECTION_SUMMARY_BUDGET, summary.text.length + LINE_SLACK * 2)
+        : 0
+    let remaining = TOTAL_MAX - used - summaryReserve
+
+    for (const item of entryPick.skipped) {
+      if (remaining <= 0) break
+      const len = measure(selectedEntries.length + 1, item)
+      if (len > remaining) continue
+      selectedEntries.push(item)
+      remaining -= len
+    }
+    for (const item of chunkPick.skipped) {
+      if (remaining <= 0) break
+      const len = measure(selectedChunks.length + 1, item)
+      if (len > remaining) continue
+      selectedChunks.push(item)
+      remaining -= len
+    }
+    used = TOTAL_MAX - remaining - summaryReserve
+  }
+
+  // 统一编号：个人记录在前，资料片段接续
+  const numbered: NumberedItem[] = []
+  const entryLines: string[] = []
+  const chunkLines: string[] = []
+  for (const item of selectedEntries) {
     const num = numbered.length + 1
-    const line =
-      item.kind === 'entry' ? entryLine(num, item, timezone) : chunkLine(num, item, docNames)
-    if (used + line.length > TOTAL_MAX) break
-    used += line.length
+    entryLines.push(buildLine(num, item))
     numbered.push({ num, item })
-    if (item.kind === 'entry') entryLines.push(line)
-    else chunkLines.push(line)
+  }
+  for (const item of selectedChunks) {
+    const num = numbered.length + 1
+    chunkLines.push(buildLine(num, item))
+    numbered.push({ num, item })
   }
 
   const sections: string[] = []
-  if (entryLines.length > 0) sections.push(`[个人记录]\n${entryLines.join('\n')}`)
-  if (chunkLines.length > 0) sections.push(`[资料片段]\n${chunkLines.join('\n')}`)
+  if (entryLines.length > 0) {
+    sections.push(wrapSection('personal_records', `[个人记录]\n${entryLines.join('\n')}`))
+  }
+  if (chunkLines.length > 0) {
+    sections.push(wrapSection('documents', `[资料片段]\n${chunkLines.join('\n')}`))
+  }
 
   let summaryNum: number | null = null
   if (summary && numbered.length > 0) {
     // 汇总行固定编号 16（4.6.2），即使截断导致详细条数不足 15 也保持编号语义稳定
-    summaryNum = MAX_TOTAL_RESULTS + 1
-    sections.push(`[其他相关]\n${summaryNum}. ${summary.text}`)
+    const summarySection = `[其他相关]\n${MAX_TOTAL_RESULTS + 1}. ${summary.text}`
+    if (used + summarySection.length <= TOTAL_MAX) {
+      summaryNum = MAX_TOTAL_RESULTS + 1
+      sections.push(
+        `<retrieved_data source="summary" trust="derived">\n${summarySection}\n</retrieved_data>`,
+      )
+    }
   }
 
   return { text: sections.join('\n\n'), numbered, summaryNum }
@@ -148,7 +260,8 @@ export const compressContext = async (
 ${itemsText}`
 
   try {
-    const chain = createChatChain({ temperature: 0, feature: 'understand' })
+    const tier = routeModel({ step: 'compress', query }).tier
+    const chain = createChatChain({ temperature: 0, feature: 'understand', tier })
     const response = await chain.invoke({ messages: [{ role: 'user', content: prompt }] })
     const parsed = JSON.parse(extractJson(response.content.trim())) as {
       summaries: Array<{ index: number; text: string }>

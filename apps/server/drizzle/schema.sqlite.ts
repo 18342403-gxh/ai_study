@@ -57,6 +57,10 @@ export const chunks = sqliteTable(
     chunkIndex: integer('chunk_index').notNull(),
     tokenCount: integer('token_count'),
     embedding: text('embedding'),
+    /** 向量血缘：real=真实 API，hash=降级伪向量 */
+    embeddingType: text('embedding_type').notNull().default('real'),
+    /** 生成该向量的模型名 */
+    embeddingModel: text('embedding_model').notNull().default('embedding-3'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }),
     /** 抽取标记：null 表示尚未抽取过（v5 4.3.8） */
     extractedAt: integer('extracted_at', { mode: 'timestamp_ms' }),
@@ -152,6 +156,8 @@ export const entryEmbeddings = sqliteTable('entry_embeddings', {
     .references(() => entries.id, { onDelete: 'cascade' }),
   embedding: text('embedding').notNull(),
   model: text('model').notNull(),
+  /** 向量血缘：real=真实 API，hash=降级伪向量 */
+  embeddingType: text('embedding_type').notNull().default('real'),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 })
 

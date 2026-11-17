@@ -8,7 +8,7 @@
 import { eq } from 'drizzle-orm'
 
 import { getDb, tables } from '../../db/index.js'
-import { getEmbedding } from '../rag/index.js'
+import { getEmbeddingWithMeta } from '../rag/index.js'
 import { logger } from '../logger.js'
 
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'embedding-3'
@@ -23,14 +23,15 @@ export const syncEntryEmbedding = async (
   content: string,
 ): Promise<void> => {
   try {
-    const vector = await getEmbedding(entryEmbeddingText(title, content))
+    const meta = await getEmbeddingWithMeta(entryEmbeddingText(title, content))
     const db = getDb()
     // 双方言都没有统一的 upsert 语法，先删后插保证覆盖语义
     await db.delete(tables.entryEmbeddings).where(eq(tables.entryEmbeddings.entryId, entryId))
     await db.insert(tables.entryEmbeddings).values({
       entryId,
-      embedding: JSON.stringify(vector),
+      embedding: JSON.stringify(meta.vector),
       model: EMBEDDING_MODEL,
+      embeddingType: meta.type,
       updatedAt: new Date(),
     })
   } catch (err) {

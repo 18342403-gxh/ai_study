@@ -9,6 +9,9 @@ import {
 } from '../chain/model.js'
 import type { AiFeature } from '../costTracker.js'
 import { logger } from '../logger.js'
+import { recordGuardDecision } from '../../middleware/metrics.js'
+import { withSpan } from '../../observability/tracing.js'
+import { guardToolOutput } from '../guard/toolGuard.js'
 import { createCommonTools, toFunctionToolDefinitions, type CommonTool } from './index.js'
 
 const TOOL_SYSTEM = `你是工具编排 Agent。根据用户问题决定是否需要调用工具。
@@ -24,6 +27,8 @@ export interface ToolExecution {
   name: string
   ok: boolean
   error?: string
+  /** 工具结果守卫决策：wrap 表示命中注入特征已包裹 */
+  guard?: 'wrap'
 }
 
 export interface ToolAgentOutcome {
@@ -36,6 +41,8 @@ export interface ToolAgentOutcome {
 export interface ToolAgentOptions {
   messages: ChatMessage[]
   feature?: AiFeature
+  /** 模型档位：工具循环默认走大模型（由 router 决策） */
+  tier?: 'small' | 'large'
   tools?: CommonTool[]
   maxIterations?: number
   /** 测试注入模型；生产默认走 GLM Function Calling。 */
@@ -77,11 +84,20 @@ const executeCall = async (
 
   try {
     const args = parseArguments(call.function.arguments)
-    const output = await tool.invoke(args)
+    const output = await withSpan(
+      'tool.execute',
+      { 'tool.name': tool.name, 'app.tool': tool.name },
+      () => tool.invoke(args),
+    )
+    const truncated =
+      output.length > 24_000 ? `${output.slice(0, 24_000)}\n[工具结果已截断]` : output
+    // 工具结果守卫：命中提示注入特征时包裹并标注 risk=high，不丢弃
+    const guard = guardToolOutput(tool.name, truncated)
+    recordGuardDecision(guard.action, 'tool')
     return {
       call,
-      output: output.length > 24_000 ? `${output.slice(0, 24_000)}\n[工具结果已截断]` : output,
-      step: { name: tool.name, ok: true },
+      output: guard.text,
+      step: { name: tool.name, ok: true, guard: guard.risk === 'high' ? 'wrap' : undefined },
     }
   } catch (error) {
     const message = (error as Error).message
@@ -100,7 +116,7 @@ export const runToolAgent = async (options: ToolAgentOptions): Promise<ToolAgent
     options.invoke ??
     ((messages: ToolCallMessage[], toolChoice: 'auto' | 'none') =>
       invokeChatWithToolCalls(
-        { temperature: 0.2, feature: options.feature ?? 'chat_general' },
+        { temperature: 0.2, feature: options.feature ?? 'chat_general', tier: options.tier },
         messages,
         definitions,
         toolChoice,

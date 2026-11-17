@@ -14,13 +14,18 @@ import { Router } from 'express'
 import { z } from 'zod'
 import multer from 'multer'
 import path from 'path'
+import { readFile, unlink } from 'node:fs/promises'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
-import { splitStructured, getEmbeddings } from '../services/rag/index.js'
-import { extractTextFromFile, isSupportedExtension } from '../services/rag/fileText.js'
+import {
+  splitStructured,
+  getEmbeddingsWithMeta,
+  createSqliteVectorStore,
+} from '../services/rag/index.js'
+import { extractDocument, isSupportedExtension } from '../services/documents/index.js'
 import { logger } from '../services/logger.js'
 import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { extractDocumentChunks, MAX_DOC_CHUNKS } from '../services/extract/documentExtractor.js'
@@ -33,6 +38,8 @@ import {
 import type { PromptEntry } from '../services/extract/extractor.js'
 import { getLocalTimezone } from '../services/extract/timeParse.js'
 
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'embedding-3'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const router = Router()
 
@@ -43,8 +50,11 @@ const docIdParamSchema = z.object({
 
 const uploadMetadataSchema = z
   .object({
+    /** 展示用文件名（可选，例如 PDF 提取为 txt 后仍显示原 PDF 名） */
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(500).optional(),
+    /** 展示用文档类型（可选），用于覆盖解析器自动识别的 kind */
+    kind: z.enum(['txt', 'md', 'json', 'pdf', 'docx', 'doc']).optional(),
   })
   .optional()
 
@@ -71,24 +81,196 @@ const upload = multer({
 })
 
 // ── 辅助函数 ─────────────────────────────────────────
-// 解析统一走 services/rag/fileText（txt / md / json / pdf / doc / docx）
+// 解析统一走 services/documents（每种格式独立解析器）
+
+/** 单篇文档处理超时：超过说明解析器卡死，必须落 failed 而不是永远 processing */
+const PROCESS_TIMEOUT_MS = Math.max(
+  10_000,
+  Number.parseInt(process.env.DOC_PROCESS_TIMEOUT_MS || '120000', 10) || 120_000,
+)
+
+/** 服务重启 / 崩溃后遗留的 processing 记录，超过该时长视为中断 */
+const STALE_PROCESSING_MS = Math.max(
+  30_000,
+  Number.parseInt(process.env.DOC_STALE_PROCESSING_MS || '180000', 10) || 180_000,
+)
+
+type DocumentMeta = Record<string, unknown>
+
+const mergeMeta = (meta: DocumentMeta | null | undefined, patch: DocumentMeta): DocumentMeta => ({
+  ...(meta ?? {}),
+  ...patch,
+})
+
+/** 把解析错误分类，前端据此给出不同提示 */
+const describeError = (error: unknown): { code: string; message: string } => {
+  const message = (error as Error)?.message || '解析失败'
+  if (message.includes('超时')) return { code: 'PARSE_TIMEOUT', message }
+  if (message.includes('扫描件') || message.includes('OCR')) {
+    return { code: 'SCANNED_PDF', message }
+  }
+  if (message.includes('不支持') || message.includes('不是有效')) {
+    return { code: 'UNSUPPORTED_CONTENT', message }
+  }
+  return { code: 'PARSE_FAILED', message }
+}
+
+const withTimeout = async <T>(task: Promise<T>, ms: number): Promise<T> => {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`文档处理超时（超过 ${Math.round(ms / 1000)} 秒）`)),
+          ms,
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** 解析 → 分块 → 向量化 → 落库；任何一步失败都写入可读原因 */
+const processDocument = async (
+  docId: string,
+  filePath: string,
+  fileName: string,
+  kindOverride?: string,
+) => {
+  const db = getDb()
+  try {
+    const buffer = await readFile(filePath)
+    const parsed = await withTimeout(extractDocument(buffer, fileName), PROCESS_TIMEOUT_MS)
+
+    const chunks = splitStructured(parsed.text)
+    const embeddingMetas = await getEmbeddingsWithMeta(chunks.map((chunk) => chunk.content))
+
+    // 走统一向量存储层：先删旧块（含 chunks_vec），再写入新块（自动双写 chunks_vec）
+    const vectorStore = createSqliteVectorStore()
+    await vectorStore.deleteByDocId(docId)
+    await vectorStore.addDocuments(
+      chunks.map((chunk, i) => ({
+        id: randomUUID(),
+        content: chunk.content,
+        metadata: { docId, chunkIndex: chunk.index, tokenCount: chunk.metadata?.tokenCount },
+        embedding: embeddingMetas[i].vector,
+        embeddingType: embeddingMetas[i].type,
+        embeddingModel: EMBEDDING_MODEL,
+      })),
+      docId,
+    )
+
+    const rows = await db
+      .select({ metadata: tables.documents.metadata })
+      .from(tables.documents)
+      .where(eq(tables.documents.id, docId))
+      .limit(1)
+
+    await db
+      .update(tables.documents)
+      .set({
+        status: 'ready',
+        chunkCount: chunks.length,
+        updatedAt: new Date(),
+        metadata: mergeMeta(rows[0]?.metadata, {
+          kind: kindOverride ?? parsed.kind,
+          chars: parsed.chars,
+          warnings: parsed.warnings,
+          error: null,
+          errorCode: null,
+          processedAt: new Date().toISOString(),
+        }),
+      })
+      .where(eq(tables.documents.id, docId))
+
+    logger.info('documents.route', '后台处理完成', {
+      docId,
+      kind: parsed.kind,
+      chars: parsed.chars,
+      chunkCount: chunks.length,
+      warnings: parsed.warnings.length,
+    })
+  } catch (error) {
+    const described = describeError(error)
+    const rows = await db
+      .select({ metadata: tables.documents.metadata })
+      .from(tables.documents)
+      .where(eq(tables.documents.id, docId))
+      .limit(1)
+
+    await db
+      .update(tables.documents)
+      .set({
+        status: 'failed',
+        updatedAt: new Date(),
+        metadata: mergeMeta(rows[0]?.metadata, {
+          error: described.message,
+          errorCode: described.code,
+          failedAt: new Date().toISOString(),
+        }),
+      })
+      .where(eq(tables.documents.id, docId))
+
+    logger.error('documents.route', '后台处理失败', {
+      docId,
+      code: described.code,
+      error: described.message,
+    })
+  }
+}
+
+/** 服务重启会让内存中的解析任务丢失，启动后第一次拉列表时修正这些僵尸记录 */
+const recoverStaleProcessing = async () => {
+  const db = getDb()
+  const cutoff = new Date(Date.now() - STALE_PROCESSING_MS)
+  const rows = await db
+    .select()
+    .from(tables.documents)
+    .where(and(eq(tables.documents.status, 'processing'), lt(tables.documents.updatedAt, cutoff)))
+
+  for (const row of rows) {
+    await db
+      .update(tables.documents)
+      .set({
+        status: 'failed',
+        updatedAt: new Date(),
+        metadata: mergeMeta(row.metadata, {
+          error: '解析进程已中断（服务重启或处理超时），请点击重新解析',
+          errorCode: 'PROCESS_INTERRUPTED',
+          failedAt: new Date().toISOString(),
+        }),
+      })
+      .where(eq(tables.documents.id, row.id))
+    logger.warn('documents.route', '修正遗留的解析中记录', { docId: row.id, name: row.name })
+  }
+  return rows.length
+}
 
 // ── 行 → API 对象映射（snake_case + 毫秒时间戳） ──────────
 
 type DocumentRow = typeof tables.documents.$inferSelect
 
-const rowToDocument = (row: DocumentRow) => ({
-  id: row.id,
-  name: row.name,
-  size: row.size,
-  type: row.mimeType,
-  status: row.status,
-  chunk_count: row.chunkCount,
-  created_at: row.createdAt.getTime(),
-  updated_at: row.updatedAt.getTime(),
-  user_id: row.userId,
-  library_id: row.libraryId,
-})
+const rowToDocument = (row: DocumentRow) => {
+  const meta = (row.metadata ?? {}) as DocumentMeta
+  return {
+    id: row.id,
+    name: row.name,
+    size: row.size,
+    type: row.mimeType,
+    kind: (meta.kind as string | undefined) ?? null,
+    error: (meta.error as string | undefined) ?? null,
+    error_code: (meta.errorCode as string | undefined) ?? null,
+    warnings: (meta.warnings as string[] | undefined) ?? [],
+    status: row.status,
+    chunk_count: row.chunkCount,
+    created_at: row.createdAt.getTime(),
+    updated_at: row.updatedAt.getTime(),
+    user_id: row.userId,
+    library_id: row.libraryId,
+  }
+}
 
 // ── 路由 ─────────────────────────────────────────────
 
@@ -108,9 +290,13 @@ router.post(
     const docId = randomUUID()
     const now = new Date()
 
+    // 展示用文件名 / 类型：默认取上传文件名；前端可覆盖（例如 PDF 提取为 txt 后仍显示原 PDF 名与 PDF 类型）
+    const displayName = (req.body?.name as string | undefined) ?? file.originalname
+    const kindOverride = req.body?.kind as string | undefined
+
     await db.insert(tables.documents).values({
       id: docId,
-      name: file.originalname,
+      name: displayName,
       size: file.size,
       mimeType: path.extname(file.originalname),
       storagePath: file.path,
@@ -120,47 +306,12 @@ router.post(
       updatedAt: now,
     })
 
-    // 异步处理文档（解析 → 分块 → 向量化）
-    ;(async () => {
-      try {
-        const text = await extractTextFromFile(file.path, file.originalname)
-        // v5 统一分片（spec 4.2）：结构 → 段落 → 句子 → 硬切，600/80
-        const chunks = splitStructured(text)
-        const embeddings = await getEmbeddings(chunks.map((c) => c.content))
+    // 异步处理文档（解析 → 分块 → 向量化）；不阻塞上传响应
+    // 解析仍用真实文件名（file.originalname）选择解析器，kindOverride 仅影响展示
+    void processDocument(docId, file.path, file.originalname, kindOverride)
 
-        await db.insert(tables.chunks).values(
-          chunks.map((chunk, i) => ({
-            id: randomUUID(),
-            docId,
-            content: chunk.content,
-            chunkIndex: chunk.index,
-            embedding: JSON.stringify(embeddings[i]),
-            createdAt: new Date(),
-          })),
-        )
-
-        await db
-          .update(tables.documents)
-          .set({ status: 'ready', chunkCount: chunks.length, updatedAt: new Date() })
-          .where(eq(tables.documents.id, docId))
-        logger.info('documents.route', 'POST /upload — 后台处理完成', {
-          docId,
-          chunkCount: chunks.length,
-        })
-      } catch (err) {
-        await db
-          .update(tables.documents)
-          .set({ status: 'failed', updatedAt: new Date() })
-          .where(eq(tables.documents.id, docId))
-        logger.error('documents.route', 'POST /upload — 后台处理失败', {
-          docId,
-          error: (err as Error).message,
-        })
-      }
-    })()
-
-    logger.info('documents.route', 'POST /upload — 出口', { docId, fileName: file.originalname })
-    res.json({ id: docId, name: file.originalname, status: 'processing' })
+    logger.info('documents.route', 'POST /upload — 出口', { docId, fileName: displayName })
+    res.json({ id: docId, name: displayName, status: 'processing' })
   }),
 )
 
@@ -169,10 +320,55 @@ router.get(
   '/',
   asyncHandler(async (_req, res) => {
     logger.info('documents.route', 'GET / — 入口')
+    // 先修正服务重启遗留的僵尸 processing，前端才不会一直显示“解析中”
+    await recoverStaleProcessing()
     const db = getDb()
     const rows = await db.select().from(tables.documents).orderBy(desc(tables.documents.createdAt))
     logger.info('documents.route', 'GET / — 出口', { count: rows.length })
     res.json(rows.map(rowToDocument))
+  }),
+)
+
+/** POST /api/documents/:id/reprocess — 重新解析（失败重试 / 中断恢复） */
+router.post(
+  '/:id/reprocess',
+  validate({ params: docIdParamSchema }),
+  asyncHandler(async (req, res) => {
+    const id = req.params.id
+    const db = getDb()
+
+    const rows = await db
+      .select()
+      .from(tables.documents)
+      .where(eq(tables.documents.id, id))
+      .limit(1)
+    const doc = rows[0]
+    if (!doc) throw createError(`文档 ${id} 不存在`, 404, 'DOC_NOT_FOUND')
+    if (!doc.storagePath) {
+      throw createError('原始文件已不存在，请重新上传', 409, 'SOURCE_FILE_MISSING')
+    }
+
+    try {
+      await readFile(doc.storagePath)
+    } catch {
+      throw createError('原始文件已不存在，请重新上传', 409, 'SOURCE_FILE_MISSING')
+    }
+
+    await db.delete(tables.chunks).where(eq(tables.chunks.docId, id))
+    await db
+      .update(tables.documents)
+      .set({
+        status: 'processing',
+        chunkCount: 0,
+        updatedAt: new Date(),
+        metadata: mergeMeta(doc.metadata, { error: null, errorCode: null }),
+      })
+      .where(eq(tables.documents.id, id))
+
+    void processDocument(id, doc.storagePath, doc.name)
+
+    logger.info('documents.route', 'POST /:id/reprocess — 已开始重新解析', { id })
+    res.json({ id, status: 'processing' })
   }),
 )
 
@@ -302,7 +498,7 @@ router.delete(
     const id = req.params.id
 
     const rows = await db
-      .select({ id: tables.documents.id })
+      .select({ id: tables.documents.id, storagePath: tables.documents.storagePath })
       .from(tables.documents)
       .where(eq(tables.documents.id, id))
       .limit(1)
@@ -310,8 +506,16 @@ router.delete(
       throw createError(`文档 ${id} 不存在`, 404, 'DOC_NOT_FOUND')
     }
 
-    await db.delete(tables.chunks).where(eq(tables.chunks.docId, id))
+    // 走统一向量存储层删除，同步清理 chunks_vec
+    await createSqliteVectorStore().deleteByDocId(id)
     await db.delete(tables.documents).where(eq(tables.documents.id, id))
+
+    // 同时清理磁盘原件，避免 uploads 目录无限增长
+    if (rows[0].storagePath) {
+      await unlink(rows[0].storagePath).catch(() => {
+        /* 文件可能已被清理，忽略 */
+      })
+    }
     logger.info('documents.route', 'DELETE /:id — 出口', { id })
     res.json({ success: true })
   }),

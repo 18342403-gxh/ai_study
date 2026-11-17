@@ -20,6 +20,9 @@ export {
   createEmbeddings,
   getEmbedding,
   getEmbeddings,
+  getEmbeddingWithMeta,
+  getEmbeddingsWithMeta,
+  type EmbeddingWithMeta,
   cosineSimilarity,
   hashVector,
   isMockMode,
@@ -64,22 +67,25 @@ export interface HybridSearchResult {
 
 /**
  * RRF（Reciprocal Rank Fusion）融合
- * score(d) = Σ 1/(k + rank(d))   — k=60（标准值）
+ * score(d) = Σ weight / (k + rank(d))   — k=60（标准值）
+ * vectorWeight / bm25Weight 控制两路分支贡献，默认等权 1.0
  */
 export function rrfFuse(
   vectorRanked: VectorSearchResult[],
   bm25Ranked: BM25Result[],
   k = 60,
+  vectorWeight = 1,
+  bm25Weight = 1,
 ): Array<{ id: string; score: number }> {
   const scores = new Map<string, number>()
 
   vectorRanked.forEach((r, rank) => {
     const id = r.doc.id!
-    scores.set(id, (scores.get(id) || 0) + 1 / (k + rank + 1))
+    scores.set(id, (scores.get(id) || 0) + vectorWeight / (k + rank + 1))
   })
 
   bm25Ranked.forEach((r, rank) => {
-    scores.set(r.id, (scores.get(r.id) || 0) + 1 / (k + rank + 1))
+    scores.set(r.id, (scores.get(r.id) || 0) + bm25Weight / (k + rank + 1))
   })
 
   return Array.from(scores.entries())
@@ -192,13 +198,33 @@ export function createRAGService() {
       k = 5,
       docId?: string,
       mode: 'hybrid' | 'vector' | 'bm25' = 'hybrid',
+      queryType?: 'keyword' | 'conceptual',
     ): Promise<HybridSearchResult[]> {
       const start = Date.now()
-      logger.info('rag.service', 'search — 入口', { k, docId, mode })
+      // 自适应 RRF 分支权重：keyword 偏向 BM25，conceptual 偏向向量
+      let vectorWeight = 1
+      let bm25Weight = 1
+      if (queryType === 'keyword') {
+        vectorWeight = 0.3
+        bm25Weight = 0.7
+      } else if (queryType === 'conceptual') {
+        vectorWeight = 0.7
+        bm25Weight = 0.3
+      }
+      logger.info('rag.service', 'search — 入口', {
+        k,
+        docId,
+        mode,
+        queryType,
+        vectorWeight,
+        bm25Weight,
+      })
       try {
-        const vectorTopK =
-          mode === 'bm25' ? [] : await vectorStore.similaritySearch(query, k * 3, docId)
-        const bm25TopK = mode === 'vector' ? [] : await bm25Search(query, k * 3, docId)
+        // 并行召回：向量与 BM25 同时执行，延迟取 max 而非 sum
+        const [vectorTopK, bm25TopK] = await Promise.all([
+          mode === 'bm25' ? Promise.resolve([]) : vectorStore.similaritySearch(query, k * 3, docId),
+          mode === 'vector' ? Promise.resolve([]) : bm25Search(query, k * 3, docId),
+        ])
 
         let fused: Array<{ id: string; score: number }>
         let sourceLabel: 'vector' | 'bm25' | 'hybrid'
@@ -210,7 +236,7 @@ export function createRAGService() {
           fused = bm25TopK.map((r, i) => ({ id: r.id, score: 1 / (60 + i + 1) }))
           sourceLabel = 'bm25'
         } else {
-          fused = rrfFuse(vectorTopK, bm25TopK)
+          fused = rrfFuse(vectorTopK, bm25TopK, 60, vectorWeight, bm25Weight)
           sourceLabel = 'hybrid'
         }
 
@@ -249,6 +275,7 @@ export function createRAGService() {
           resultCount: results.length,
           costMs,
           mode,
+          queryType,
           vectorCount: vectorTopK.length,
           bm25Count: bm25TopK.length,
         })
