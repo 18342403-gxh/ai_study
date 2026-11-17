@@ -128,11 +128,15 @@ const initV5Schema = (db: Database.Database) => {
 
 /** 结构对齐：把旧版 SQLite 表结构升级到与 PG schema 一致的列集（幂等） */
 const alignSqliteSchema = (db: Database.Database) => {
+  const hasTable = (table: string) =>
+    Boolean(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(table))
   const hasColumn = (table: string, column: string) => {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
     return cols.some((c) => c.name === column)
   }
   const ensureColumn = (table: string, column: string, ddl: string) => {
+    // 新库此时 v5 表还没建（initV5Schema 在后），跳过不存在的表，由建表语句保证列集
+    if (!hasTable(table)) return
     if (!hasColumn(table, column)) {
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
     }
