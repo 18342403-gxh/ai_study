@@ -30,6 +30,7 @@
     "dotenv": "16.4.5",
     "drizzle-orm": "^0.45.2",
     "express": "4.19.2",
+    "goldenmatch": "^1.29.0",
     "helmet": "^8.3.0",
     "langchain": "^1.5.9",
     "mammoth": "^1.13.0",

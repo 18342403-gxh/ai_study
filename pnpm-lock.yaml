@@ -163,6 +163,9 @@ importers:
       express:
         specifier: 4.19.2
         version: 4.19.2
+      goldenmatch:
+        specifier: ^1.29.0
+        version: 1.29.0(better-sqlite3@11.1.2)(react@18.3.1)(yaml@2.9.0)
       helmet:
         specifier: ^8.3.0
         version: 8.3.0
@@ -3818,6 +3821,10 @@ packages:
     resolution: {integrity: sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ==, tarball: https://registry.npmmirror.com/commander/-/commander-11.1.0.tgz}
     engines: {node: '>=16'}
 
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==, tarball: https://registry.npmmirror.com/commander/-/commander-15.1.0.tgz}
+    engines: {node: '>=22.12.0'}
+
   commander@2.20.3:
     resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==, tarball: https://registry.npmmirror.com/commander/-/commander-2.20.3.tgz}
 
@@ -4940,6 +4947,49 @@ packages:
   globby@16.2.3:
     resolution: {integrity: sha512-VZX7TV7jmd/pn71vdnLKtgwy1IWqc3KjI9x1/UtPkwoKk5fKrNLY30ltDe3cAM5xruIN7YuuaulFt133jRrKZg==, tarball: https://registry.npmmirror.com/globby/-/globby-16.2.3.tgz}
     engines: {node: '>=20'}
+
+  goldenmatch@1.29.0:
+    resolution: {integrity: sha512-SJk14V12luqxFuTCaMLSHokqlXvUVmmnauvSO0sgAte26m7BNPLf03NRW/pw558ptXxQKp4kB1fYAgfFNC6J8A==, tarball: https://registry.npmmirror.com/goldenmatch/-/goldenmatch-1.29.0.tgz}
+    engines: {node: '>=20'}
+    hasBin: true
+    peerDependencies:
+      '@huggingface/transformers': ^3.0.0
+      better-sqlite3: ^12.11.1
+      hnswlib-node: ^3.0.0
+      ink: ^5.0.0
+      ink-gradient: ^3.0.0
+      ink-select-input: ^6.0.0
+      ink-spinner: ^5.0.0
+      ink-table: ^3.1.0
+      ink-text-input: ^6.0.0
+      piscina: ^5.0.0
+      react: ^18.0.0
+      yaml: '*'
+    peerDependenciesMeta:
+      '@huggingface/transformers':
+        optional: true
+      better-sqlite3:
+        optional: true
+      hnswlib-node:
+        optional: true
+      ink:
+        optional: true
+      ink-gradient:
+        optional: true
+      ink-select-input:
+        optional: true
+      ink-spinner:
+        optional: true
+      ink-table:
+        optional: true
+      ink-text-input:
+        optional: true
+      piscina:
+        optional: true
+      react:
+        optional: true
+      yaml:
+        optional: true
 
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==, tarball: https://registry.npmmirror.com/gopd/-/gopd-1.2.0.tgz}
@@ -11461,6 +11511,8 @@ snapshots:
 
   commander@11.1.0: {}
 
+  commander@15.1.0: {}
+
   commander@2.20.3: {}
 
   commander@4.1.1: {}
@@ -12799,6 +12851,14 @@ snapshots:
       is-path-inside: 4.0.0
       slash: 5.1.0
       unicorn-magic: 0.4.0
+
+  goldenmatch@1.29.0(better-sqlite3@11.1.2)(react@18.3.1)(yaml@2.9.0):
+    dependencies:
+      commander: 15.1.0
+    optionalDependencies:
+      better-sqlite3: 11.1.2
+      react: 18.3.1
+      yaml: 2.9.0
 
   gopd@1.2.0: {}
 

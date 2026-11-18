@@ -1,376 +1,173 @@
-# 🧠 AI Study · 个人知识库
+# AI Study · 个人知识库
 
-> 对话与文档驱动的个人知识库（V5 转型中，方案见 `.trae/documents/knowledge-base-v5-spec.md`）— Node BFF + LangChain 编排层，PostgreSQL + pgvector / SQLite 双驱动数据库。
+对话与文档驱动的个人知识库。可以用自然语言记录日程、规划、事实和笔记，也可以上传文档，再通过带引用的问答找回这些信息。
 
----
+前端采用 Nuxt 3，服务端采用 Express + LangChain，默认使用 SQLite，也支持 PostgreSQL + pgvector。所有模型调用都在服务端完成，API Key 不会暴露到浏览器。
 
-## ✨ 产品与工程亮点
+## 主要功能
 
-### 🎯 产品主线：个人知识库 ⭐
+### 对话记录与整理
 
-通过对话或文档输入个人信息（日程、规划、资料等）→ 自动分块 + 向量化入库 → 后续与 AI 对话时基于个人信息检索增强回答（RAG）。
+- 通过「记一下」模式或“帮我记”“提醒我”等自然语言，将内容整理为日程、规划、事实或笔记。
+- 入库前展示候选卡片，可修改、确认或忽略；多条记录可批量确认。
+- 支持用自然语言修改、取消或删除已有记录，例如“把周会改到周二上午十点”。
+- 使用 GoldenMatch 关联不同来源、不同条目类型中的同一实体。高置信匹配自动合并，疑似匹配只提示；合并时保留新增事实和来源，不再用长文本覆盖短文本。
 
-- 📄 **文档输入**：上传 .md / .txt / .json / .pdf 或 URL 导入 → 自动分块 + 向量化
-- 💬 **对话检索**：提问时 BM25 + 向量 + RRF 混合检索 Top-5 注入 prompt，SSE 流式回答
-- 🗂️ **V5 规划**：条目化记忆、日程/规划视图、简单提醒（详见 spec）
+### 文档资料库
 
-### 🛠️ 工程亮点
+- 支持 `.txt`、`.md`、`.json`、`.pdf`、`.doc`、`.docx`，单文件最大 10MB。
+- 可从对话输入框、拖拽区域或文档页上传，也可粘贴网页 URL 导入。
+- 文档解析后自动分块并建立检索索引；处理失败的文档可以重新解析。
+- 可直接针对文档提问，也可将文档内容提取为记录，确认后入库。
 
-- **Monorepo（pnpm workspace）** — 4 个子项目统一管理，`@ai-study/shared` 共享类型/常量
-- **ESLint flat config + husky + lint-staged** — `eslint.config.mjs` 统一配置 Vue/Nuxt globals + React hooks 隔离 + 自定义 `no-emoji` rule，pre-commit 自动 lint-fix + prettier
-- **PostgreSQL + pgvector / SQLite 双驱动** — 零配置切换，SQLite 零依赖开发，PG 生产级向量检索（HNSW 索引）
-- **Drizzle ORM** — 类型安全 schema 管理 + 迁移
-- **Lucide 图标库** — 全项目统一 `lucide-vue-next`，禁止 emoji 当 UI 图标
-- **共用品牌资产** — 根目录 `assets/brand/` 存 `tech_cat.png`，各 app 通过 Vite/Nuxt alias `@brand` 引用
-- **BFF 中间件管线（5 层）** — rateLimit → metrics → cache → circuitBreaker → requestLogger
-- **统一日志体系** — `services/logger.ts` 零依赖门面 + 环形缓冲区 + SSE 实时推送，打开 `localhost:3001/api/logs-view` 即看全链路（DB/LLM/HTTP）
-- **Node BFF（Express）** — LangChain 100% 在 BFF 层运行，前端仅 HTTP 调用，API Key 永不暴露
-- **安全约束** — 所有 AI 调用（Chat/RAG）统一走 BFF，AI_API_KEY 只在 `apps/server/.env` 读取
-- **SSE 流式通信** — Chat/RAG 全链路 SSE 流式输出
+### 检索问答与引用
 
----
+- 融合时间、个人条目和文档片段三路检索，再结合 BM25、向量检索与 RRF 排序。
+- 个人资料命中时返回带引用的回答，点击引用可查看对应记录或文档片段。
+- 对话条目与文档内容可以共同进入回答上下文，避免只返回其中一种来源。
+- 未命中个人资料时可回退到通用问答；支持联网搜索、时间、计算、网页读取、天气和新闻等工具。
 
-## 📁 项目结构
+### 日程、规划与提醒
 
-```
-ai_study/
-├── apps/
-│   ├── server/              # Node BFF（Express :3001）— LangChain 编排层 + 数据库
-│   │   ├── src/
-│   │   │   ├── routes/      #   7 个路由模块
-│   │   │   │   ├── rag.ts         # /api/rag/* — 知识库文档管理（upload + url + list + delete）
-│   │   │   │   ├── kb.ts          # /api/kb — RAG 问答
-│   │   │   │   ├── chat.ts        # /api/chat — 简单对话
-│   │   │   │   ├── sessions.ts    # /api/sessions — 会话管理
-│   │   │   │   ├── documents.ts   # /api/documents — 文档管理（旧接口）
-│   │   │   │   ├── cost.ts        # /api/cost — 用量与成本
-│   │   │   │   └── logs.ts        # /api/logs — 日志查询 + SSE 实时流
-│   │   │   ├── services/    #   chain/ · rag/ · embedding.ts · logger.ts
-│   │   │   │   ├── rag/index.ts         # RAG 编排（Loader → Splitter → Embeddings → VectorStore）
-│   │   │   │   ├── rag/vectorStore.ts   # SQLite 向量存储 + cosineSimilarity 检索
-│   │   │   │   └── embedding.ts         # Embedding 服务（API 调用 + hashVector fallback）
-│   │   │   └── db/index.ts  #   DB 门面（SQLite / PG 双驱动 + SQL 自动转换）
-│   │   ├── public/logs-view.html  # 📋 浏览器日志查看器
-│   │   └── .env.example     #   环境变量模板
-│   ├── generator/           # 个人知识库前端（Nuxt 3 SSR :3003）— 产品主线
-│   │   ├── pages/index.vue          #   主页面（当前为文档管理，对话页随 V5 落地）
-│   │   ├── components/
-│   │   │   └── KnowledgePanel.vue   #   知识库管理（上传 + URL 导入 + 文档列表 + 删除）
-│   │   └── layouts/default.vue      #   侧边栏（文档管理）
-│   └── desktop/             # Electron 桌面端（Phase 1+2 — 内嵌启动 server+generator）
-├── packages/
-│   └── shared/              # @ai-study/shared — 公共类型/常量/DTO
-├── assets/
-│   └── brand/               # 🆕 共用品牌资产（各 app 通过 @brand alias 引用）
-│       └── tech_cat.png
-├── docs/                    # 📚 设计与技术文档
-├── eslint.config.mjs        # 🆕 ESLint flat config（v9+）
-├── .husky/pre-commit        # 🆕 pre-commit hook（lint-staged → eslint --fix + prettier）
-└── package.json             # 根脚本 + pnpm overrides + lint-staged 配置
-```
+- 日程页提供双周或月度日历视图，支持重复日程、悬浮详情、编辑、完成和删除。
+- 长期事实集中显示在日程页顶部，可展开查看和编辑。
+- 规划页按进行中、已完成、已搁置分类管理。
+- 对话页展示今天和明天的应用内提醒。
 
----
+## 安装与启动
 
-## 🗄️ 数据库架构
+### 1. 环境要求
 
-### 双驱动切换
+- Node.js 18.20.x LTS
+- pnpm 9.15.9
+- 可选：PostgreSQL 17 + pgvector 0.8.x（仅使用 PostgreSQL 时需要）
 
-通过 `DATABASE_DRIVER` 环境变量零配置切换：
-
-```env
-# SQLite（默认，零依赖，适合本地快速跑通）
-DATABASE_DRIVER=sqlite
-DB_PATH=./data/knowledge.db
-
-# PostgreSQL + pgvector（生产推荐，向量检索 HNSW 索引）
-DATABASE_DRIVER=postgres
-DATABASE_URL=postgresql://ai_study:123456@localhost:5432/ai_study
-```
-
-DB 门面（`src/db/index.ts`）自动处理 SQLite → PG 的差异：
-
-- `?` 占位符 → `$1, $2, $3...`
-- 裸表名 `sessions` → `app.sessions`（PG schema，带 SQL 关键字白名单防误匹配）
-- 毫秒时间戳（> 1e12）→ ISO 字符串（TIMESTAMPTZ）
-
-### PostgreSQL + pgvector 安装
-
-```sql
--- 1. 安装 pgvector 扩展（PostgreSQL 17 + pgvector 0.8.x）
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- 2. 创建数据库（可选：ai_study 受限用户）
-CREATE DATABASE ai_study;
-CREATE USER ai_study WITH PASSWORD '123456';
-GRANT ALL PRIVILEGES ON DATABASE ai_study TO ai_study;
-
--- 3. Schema 自动创建（BFF 启动时 `initDatabase()` 执行 Drizzle migrate）
---    app.documents · app.chunks · app.sessions · app.messages · app.ai_usage_logs
-```
-
-### pgvector 向量索引
-
-`app.chunks.embedding = vector(1536)` + HNSW 索引：
-
-```sql
-CREATE INDEX idx_chunks_embedding ON app.chunks
-  USING hnsw (embedding vector_cosine_ops);
-```
-
-### 中间件管线 & 日志
-
-```
-请求进入 → rateLimit → metrics → cache → circuitBreaker → requestLogger → 业务路由
-                                                                          ↓
-                                                              services/logger.ts 门面
-                                                                          ↓
-                                              ┌───────────────────────────┼───────────────────────────┐
-                                              ▼                           ▼                           ▼
-                                         stdout（彩色）          环形缓冲区（2000条）          SSE 广播
-                                                                                              ↓
-                                                                                   /api/logs-view（浏览器）
-```
-
-5 个 DB 表、每次 SQL 执行、每次 LLM 调用——全部自动打点，requestId 通过 AsyncLocalStorage 贯穿整条请求链。
-
----
-
-## 🔌 端口规划
-
-| 项目             | 端口      | 说明                                  |
-| ---------------- | --------- | ------------------------------------- |
-| `apps/server`    | **:3001** | Node BFF（LangChain + DB + 所有 API） |
-| `apps/generator` | **:3003** | 个人知识库前端（Nuxt 3 SSR）          |
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-| 工具        | 版本要求                                     |
-| ----------- | -------------------------------------------- |
-| **Node.js** | **>= 18.17 < 20.19**（推荐 18.20.x LTS）     |
-| **pnpm**    | **9.15.x**（严格匹配 `packageManager` 字段） |
-| OS          | Windows / macOS / Linux                      |
-
-**可选**（生产模式）：
-| 工具 | 版本要求 | 说明 |
-|------|---------|------|
-| **PostgreSQL** | **17.x** | `DATABASE_DRIVER=postgres` 时必需 |
-| **pgvector** | **0.8.x** | `CREATE EXTENSION vector` 用于向量检索 HNSW |
-
-### 安装依赖
+### 2. 安装依赖
 
 ```bash
 git clone https://github.com/18342403-gxh/ai_study.git
 cd ai_study
+npx pnpm@9.15.9 install --no-frozen-lockfile
+```
 
+Windows 如遇 `ERR_PNPM_EPERM`，可使用项目内 pnpm store：
+
+```bash
 npx pnpm@9.15.9 install --no-frozen-lockfile --store-dir=node_modules/.pnpm-store
 ```
 
-> 🪟 Windows 出现 `ERR_PNPM_EPERM`：加 `--store-dir=node_modules/.pnpm-store`
+### 3. 配置环境变量
 
-### 配置环境变量
+复制服务端配置模板：
 
 ```bash
-copy apps\server\.env.example apps\server\.env      # Windows
+# macOS / Linux
+cp apps/server/.env.example apps/server/.env
+
+# Windows
+copy apps\server\.env.example apps\server\.env
 ```
 
-编辑 `.env`，**至少修改 3 项**：
+编辑 `apps/server/.env`，至少填写模型密钥：
 
 ```env
-# ① AI 接口（必须填）
-AI_API_KEY=你的真实key
-AI_MODEL=glm-4-flash           # 或 glm-4-plus / glm-4 / gpt-4o-mini 等
-EMBEDDING_MODEL=embedding-3    # 用于 RAG 向量检索
+AI_API_URL=https://open.bigmodel.cn/api/paas/v4
+AI_API_KEY=你的真实密钥
+AI_MODEL=glm-4-flash
+EMBEDDING_MODEL=embedding-3
 
-# ② 数据库（可选，默认 SQLite 零配置可用）
-DATABASE_DRIVER=sqlite         # 直接用，数据存在 ./data/knowledge.db
-# DATABASE_DRIVER=postgres
-# DATABASE_URL=postgresql://ai_study:123456@localhost:5432/ai_study
+# 默认使用 SQLite，无需额外安装数据库
+DATABASE_DRIVER=sqlite
 ```
 
-**多厂商兼容**（修改 `AI_API_URL` 即可）：
-| 厂商 | AI_API_URL | 示例模型 |
-|------|-----------|---------|
-| 智谱 AI（默认） | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` / `glm-4-plus` |
-| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` / `gpt-4o` |
-| 阿里通义 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` / `qwen-max` |
-| 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` | 你的 endpoint ID |
+`AI_API_URL` 可替换为其他兼容 OpenAI 协议的服务地址，并同步调整模型名称。若 Embedding 使用不同厂商，可单独配置 `EMBEDDING_API_URL` 和 `EMBEDDING_API_KEY`。
 
-### 一键启动
+如需使用 PostgreSQL：
+
+```env
+DATABASE_DRIVER=postgres
+DATABASE_URL=postgresql://user:password@localhost:5432/ai_study
+```
+
+目标数据库需要启用 pgvector 扩展。完整配置项见 `apps/server/.env.example`。
+
+> `.env` 已被 Git 忽略。不要提交真实密钥；如果密钥曾经泄露，请立即重新生成。
+
+### 4. 启动开发环境
 
 ```bash
-# 生成器 + BFF（日常开发最常用）
-pnpm run dev
+pnpm dev
 ```
 
-启动后 BFF 会自动在浏览器打开 **📋 实时日志**（`localhost:3001/api/logs-view`）。
+启动后访问：
 
-访问地址：
-| 服务 | URL |
-|------|-----|
-| 📚 **个人知识库** | http://localhost:3003/ |
-| 📋 **实时日志查看器** | http://localhost:3001/api/logs-view（BFF 启动自动打开） |
-| BFF 健康检查 | http://localhost:3001/api/health |
+| 服务           | 地址                                |
+| -------------- | ----------------------------------- |
+| 个人知识库     | http://localhost:3003/              |
+| 服务端健康检查 | http://localhost:3001/api/health    |
+| 实时日志       | http://localhost:3001/api/logs-view |
 
-> 💡 禁用 BFF 自动打开日志页：`NO_AUTO_OPEN=1 pnpm run dev`
-
----
-
-## 📜 命令速查
-
-| 命令                     | 作用                                                             |
-| ------------------------ | ---------------------------------------------------------------- |
-| `pnpm run dev`           | **BFF + 知识库前端（最常用）**                                   |
-| `pnpm run dev:server`    | 仅 BFF :3001                                                     |
-| `pnpm run dev:generator` | 仅前端 :3003                                                     |
-| `pnpm run build`         | 生产构建                                                         |
-| `pnpm run typecheck`     | 全量 TS 检查（各子项目独立跑 `tsc --noEmit` / `nuxi typecheck`） |
-| `pnpm run lint`          | **ESLint（零 error，warning 不拦）**                             |
-| `pnpm run lint --fix`    | ESLint 自动修复                                                  |
-
-### 单独运行某个子项目
+首页会自动进入对话页。也可以分别启动前后端：
 
 ```bash
-pnpm --filter @ai-study/server dev        # tsx watch
-pnpm --filter @ai-study/generator dev     # Nuxt 3 :3003
-pnpm --filter @ai-study/shared build      # 改 shared 类型后先跑
+pnpm dev:server
+pnpm dev:generator
 ```
 
----
+## 日常使用
 
-## 🔧 核心模块开发指南
+### 记录一条信息
 
-### BFF（apps/server · Express :3001）
+1. 打开「对话」。
+2. 点击输入框旁的「记一下」，或直接输入“提醒我”“帮我记”等指令。
+3. 输入内容，例如“每周一上午九点开周会”或“张三是一位全栈开发”。
+4. 检查系统整理出的卡片，必要时点击「修改」。
+5. 点击「确认入库」；存在多条候选时也可点击「全部确认」。
+6. 若提示与已有记录相关，核对判重提示后再确认。高置信的同一实体会合并更新，新增事实和来源会保留在记录中。
 
-**职责**：LangChain 100% 在此运行，API Key 唯一场所，前端通过 HTTP 调用。
+### 上传资料并提问
 
-**中间件管线**：
+1. 点击输入框旁的「+」，选择「上传文件」或「粘贴链接」；也可以直接把文件拖进对话页。
+2. 等待文档状态变为「已就绪」。
+3. 直接询问资料内容，例如“这份简历里有哪些项目经历？”或“龚熙皓是谁？”。
+4. 查看回答下方的引用，点击可核对原始记录或文档片段。
+5. 如需把资料转成日程、规划或长期事实，可进入「文档」页，点击「提取为记录」，逐条确认。
 
-```
-cors → json parser → rateLimit → metrics → cache → circuitBreaker → requestLogger → routes → 404 → errorHandler
-```
+### 管理已有信息
 
-**目录**：
+- 修改记录：输入“把周会改到周二上午十点”等指令，或在日程、规划页面点击「编辑」。
+- 取消或删除：输入“取消周五的聚餐”“删除这条记录”，或在对应页面操作。
+- 查看日程：进入「日程」，点击日期格中的事项；一天超过 3 条时可展开「+N 更多」。
+- 管理规划：进入「规划」，切换进行中、已完成、已搁置，或编辑、恢复、删除规划。
+- 查看提醒：回到「对话」，展开顶部今天或明天的提醒。
 
-- `src/services/logger.ts` — **统一日志门面**（零依赖 `AsyncLocalStorage`，所有模块 `import { logger } from '...'` 即可）
-- `src/services/chain/model.ts` — LLM 调用层（invoke + stream 已接入完整日志）
-- `src/services/rag/` — RAG 编排（ingest / splitter / embedding / vectorStore / BM25 + RRF 混合检索）
-- `src/db/index.ts` — DB 门面（SQLite 同步 → Promise 包装 / PG 异步 + SQL 自动转换 + 每次执行自动日志）
-- `public/logs-view.html` — 📋 日志查看器（EventSource SSE 实时流 + tag/level 过滤 + 搜索）
+## 常用命令
 
-### 知识库前端（apps/generator · Nuxt 3 :3003）
+| 命令                                  | 作用                     |
+| ------------------------------------- | ------------------------ |
+| `pnpm dev`                            | 同时启动前端和服务端     |
+| `pnpm dev:server`                     | 仅启动服务端，端口 3001  |
+| `pnpm dev:generator`                  | 仅启动前端，端口 3003    |
+| `pnpm build`                          | 构建共享包和服务端       |
+| `pnpm typecheck`                      | 执行各子项目类型检查     |
+| `pnpm lint`                           | 执行 ESLint 检查         |
+| `pnpm --filter @ai-study/server test` | 执行服务端测试           |
+| `pnpm check:readme`                   | 检查 README 是否需要同步 |
 
-**职责**：产品主线前端（V5 转型中），当前为文档管理，对话页随 V5 落地。
+## 常见问题
 
-**知识库链路（5 步闭环）**：
+### 页面无法访问或接口请求失败
 
-```
-上传 /api/rag/documents  ←→  URL 导入 /api/rag/documents/url
-  ↓ documents INSERT(processing)
-ragService.ingestFromFileWithId()
-  ↓ splitter(500字/50字重叠) → embeddings(带 hashVector fallback) → chunks INSERT
-  ↓ UPDATE documents SET status='ready'
-RAG 问答 /api/kb/query → BM25 + 向量 + RRF 混合检索 Top-5
-  ↓ 注入 prompt → SSE 流式回答
-```
+先确认两个进程都已启动，并检查 http://localhost:3001/api/health 是否返回正常。前端默认请求 `http://localhost:3001`，需要修改时可设置 `BFF_URL`。
 
----
+### 模型返回 401、余额不足或调用失败
 
-## 🧱 工程化规范
+检查 `apps/server/.env` 中的 `AI_API_URL`、`AI_API_KEY` 和模型名称是否匹配。Embedding 服务暂时不可用时会降级为关键词检索，页面会显示提示；恢复真实 Embedding 服务后可重建语义索引。
 
-### ESLint + Prettier + husky
+### 文档一直显示解析中或解析失败
 
-```bash
-# 日常 lint
-pnpm run lint              # eslint --quiet（只报 error）
-pnpm run lint --fix        # 自动修复可修复的
+在「文档」页查看具体错误并点击「重新解析」。请确认文件未损坏、大小不超过 10MB；扫描版 PDF 的识别效果取决于页面清晰度。
 
-# 提交自动拦截
-git add -A && git commit   # → lint-staged 自动跑 eslint --fix + prettier
-```
+### 需要排查一次问答或入库请求
 
-**红线**（`eslint.config.mjs` + husky 双重保障）：
-
-- ✅ **ESLint 零 error**（warning 可忽略）
-- ✅ **TypeScript 零 error**（`tsc --noEmit` / `vue-tsc` / `nuxi typecheck`）
-- ✅ **禁用 emoji 当 UI 图标**（自定义 `no-emoji` rule）
-- ✅ **禁止 console.log**（允许 `warn` / `error`）
-- ✅ **禁止 `.eslintrc.*` 旧格式**（v9+ 必须 `eslint.config.mjs` flat config）
-
-**图标统一**：前端统一用 `lucide-vue-next`。**禁止用 emoji** 代替图标。
-
-**品牌资产**：根目录 `assets/brand/` 存 `tech_cat.png`，各 app nuxt/vite.config 配 `@brand` alias，代码里 `import logo from '@brand/tech_cat.png'`。
-
-### Workflow Gate Check（可选）
-
-```bash
-# 运行工作流 gate 验证（需在 .workflow-state.json 目录下）
-node .trae/skills/fullstack-builder/scripts/gate-check.js single phase2.lint
-node .trae/skills/fullstack-builder/scripts/gate-check.js single phase2.typecheck
-```
-
----
-
-## 📚 技术文档（docs/）
-
-| 编号 | 文档                | 难度   |
-| ---- | ------------------- | ------ |
-| 18   | Generator 技术拆解  | ⭐⭐⭐ |
-| 20   | 日志体系 & 可观测性 | ⭐⭐   |
-
----
-
-## 🐛 常见问题与排错
-
-### Q1: 想换成 PostgreSQL
-
-1. 安装 PostgreSQL 17 + pgvector 0.8.x 扩展
-2. 改 `.env`：`DATABASE_DRIVER=postgres` + `DATABASE_URL=...`
-3. BFF 启动时自动执行 Drizzle migrate 创建所有表
-4. 报错 `syntax error at or near "app"` → DB 里**没有 `app` schema**，运行 `CREATE SCHEMA IF NOT EXISTS app;`
-
-### Q2: pgvector `vector` type 不存在
-
-`CREATE EXTENSION IF NOT EXISTS vector;` 然后重试。pgvector 是独立扩展，不是 PostgreSQL 核心。
-
-### Q3: BFF 返回 500 / `API Key missing`
-
-检查 `apps/server/.env` 是否从 `.env.example` 复制且 `AI_API_KEY` 真实填写。
-
-### Q4: Nuxt 端口被占用
-
-```powershell
-Get-NetTCPConnection -LocalPort 3001,3003 -ErrorAction SilentlyContinue |
-  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-```
-
-### Q5: CircuitBreaker 把 SSE 流搞崩
-
-错误 `ERR_HTTP_HEADERS_SENT`：SSE 流 headers 在第一条 `res.write()` 时已发出，circuitBreaker 拦截 `res.end()` 时不应再 `setHeader`。已修复：`checkResult()` 开头加 `if (res.headersSent) return`。
-
-### Q6: qualifySchema 把 SQL 关键字当表名
-
-`ON CONFLICT ... DO UPDATE SET ...` 里的 `SET` 被正则匹配成表名加了 `app.` 前缀。已修复：加 SQL 关键字白名单（SET/ON/WHERE/VALUES/CONFLICT/DO/EXCLUDED 等）。
-
-### Q7: 看日志排查问题
-
-打开 `localhost:3001/api/logs-view` → tag 下拉选 `llm.stream` 看 AI 调用、选 `db` 看 SQL 执行。**同一个 requestId 的日志会聚集在一起**，完整展示一条请求的 DB → LLM 调用链。
-
-### Q8: Embedding API 不可用 / 余额不足
-
-BFF 启动时如果 `EMBEDDING_API_KEY` 未配或余额耗尽，会自动启用 `hashVector` 降级（SHA-256 → Mulberry32 PRNG → Box-Muller 正态分布 → 归一化）。日志里会看到 `[embedding.service] ⚠️ Embedding API 不可用，启用 hash 向量降级`。
-
-hashVector 语义检索精度低于真实 Embedding，但保证系统零配置也能跑。**建议生产环境配置真实 Embedding API**（智谱 `embedding-3` / OpenAI `text-embedding-3-small`）。
-
-### Q9: 生成器「知识库无匹配」
-
-正常情况 — 知识库为空时 RAG 返回 0 条，生成器会在进度条里显示「知识库无匹配，从零生成」。上传文档并等状态变「就绪」后再试。
-
----
-
-## 📄 License
-
-MIT
+打开 http://localhost:3001/api/logs-view，按请求 ID、日志级别或标签查看服务端、数据库和模型调用日志。

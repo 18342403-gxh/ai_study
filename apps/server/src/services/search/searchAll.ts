@@ -99,11 +99,11 @@ const searchAllInner = async (options: SearchAllOptions): Promise<SearchAllOutco
           }),
         )
       : Promise.resolve([]),
-    needsPersonal
-      ? withSpan('retrieval.entry_channel', {}, () =>
-          searchEntriesSemantic({ query: options.query, libraryId: options.libraryId }),
-        )
-      : Promise.resolve([]),
+    // 与文档通道一样始终检索：人名问答（如「龚熙皓是谁」）常被初判为通用问题，
+    // 但对话录入的条目仍可能命中，不能在此时提前跳过。
+    withSpan('retrieval.entry_channel', {}, () =>
+      searchEntriesSemantic({ query: options.query, libraryId: options.libraryId }),
+    ),
     skipDocChannel
       ? Promise.resolve([])
       : withSpan('retrieval.doc_channel', {}, () =>
@@ -118,8 +118,8 @@ const searchAllInner = async (options: SearchAllOptions): Promise<SearchAllOutco
         ),
   ])
 
-  // 模型判为通用问题、但确实命中了资料 → 按个人上下文回答（带引用）
-  if (!needsPersonal && docHits.length === 0) {
+  // 初判为通用问题、但确实命中了文档或个人条目 → 按个人上下文回答（带引用）
+  if (!needsPersonal && docHits.length === 0 && entryHits.length === 0) {
     logger.info('search.all', '通用知识问题，资料未命中', { queryLength: options.query.length })
     return {
       understanding,

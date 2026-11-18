@@ -22,6 +22,11 @@ import { validate, asyncHandler, createError } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
 import { removeEntryEmbedding, syncEntryEmbedding } from '../services/search/entryIndex.js'
 import { DEFAULT_EVENT_MS, intervalsOverlap } from '../services/extract/dedupe.js'
+import {
+  ENTITY_AUTO_MERGE_THRESHOLD,
+  findBestEntityMatch,
+  mergeEntryContent,
+} from '../services/extract/entityResolution.js'
 
 const router = Router()
 
@@ -204,6 +209,16 @@ const findCreateDuplicate = (
       }
     }
   }
+
+  // 创建端与卡片共用 GoldenMatch 实体判断；中低分不在这里自动合并。
+  const entityMatch = findBestEntityMatch(body, rows)
+  if (entityMatch && entityMatch.score >= ENTITY_AUTO_MERGE_THRESHOLD) {
+    const row = rows[entityMatch.index]!
+    if (content !== '' && normalizeForDup(row.content) === content) {
+      return { kind: 'exact', row }
+    }
+    return { kind: 'similar', row }
+  }
   return null
 }
 
@@ -256,9 +271,8 @@ router.post(
         .where(
           and(
             eq(tables.entries.libraryId, body.libraryId),
-            eq(tables.entries.type, body.type),
-            // 只跟「活着的」条目比：active / draft；archived / done 不再挡新建
-            // 用 status 字段逐个过滤见下，这里先按 library+type 缩小范围
+            // 只跟「活着的」条目比：active / draft；archived / done 不再挡新建。
+            // 不按 type/sourceType 过滤，GoldenMatch 可关联跨类型、跨来源的同一实体。
           ),
         )
         .limit(100)
@@ -289,8 +303,12 @@ router.post(
           return
         }
         // similar + merge：把新信息合并进已有条目，不新建
-        const mergedContent =
-          body.content.length > hit.row.content.length ? body.content : hit.row.content
+        const mergedContent = mergeEntryContent({
+          existingContent: hit.row.content,
+          incomingContent: body.content,
+          existingSourceType: hit.row.sourceType,
+          incomingSourceType: body.sourceType,
+        })
         const mergedStartAt =
           body.startAt !== null && body.startAt !== undefined
             ? toDate(body.startAt)

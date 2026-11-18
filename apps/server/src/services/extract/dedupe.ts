@@ -14,6 +14,7 @@ import { cosineSimilarity, getEmbedding } from '../rag/embeddings.js'
 import { logger } from '../logger.js'
 import { addLocalDays } from './timeParse.js'
 import { expandOccurrences, type Recurrence } from './recurrence.js'
+import { ENTITY_AUTO_MERGE_THRESHOLD, findBestEntityMatch } from './entityResolution.js'
 import type { ExtractedEntry } from './extractor.js'
 
 /** 未提供结束时间时，按 1 小时估算事件长度 */
@@ -314,9 +315,8 @@ export const findBestDuplicate = async (
   existing: ExistingEntry[],
 ): Promise<DuplicateInfo | null> => {
   const candidates = existing.filter((entry) => entry.type === candidate.type)
-  if (candidates.length === 0) return null
 
-  // 完全内容一致（同标题）的捷径，省掉 embedding
+  // 完全内容一致（同类型、同标题）的精确兜底优先，保持幂等语义。
   const identical = candidates.find(
     (entry) =>
       normalizeTitle(entry.title) === normalizeTitle(candidate.title) &&
@@ -334,38 +334,68 @@ export const findBestDuplicate = async (
     }
   }
 
-  const pool = candidates.filter((entry) => needEmbedding(candidate, entry)).slice(0, 3)
-  if (pool.length === 0) return null
-
-  let candidateVector: number[]
-  try {
-    candidateVector = await getEmbedding(entryText(candidate))
-  } catch (err) {
-    logger.warn('extract', '去重向量计算失败，退化为仅标题/时间判重', {
-      error: (err as Error).message,
-    })
-    // 向量失败时用 contentSim=0 跑一遍，纯标题/时间信号仍能出 similar（标题+时间）
-    candidateVector = []
+  // GoldenMatch 只补充 fact/note 的跨类型、跨来源实体匹配，不改变日程判重规则。
+  const entityMatch = findBestEntityMatch(candidate, existing)
+  if (entityMatch && entityMatch.score >= ENTITY_AUTO_MERGE_THRESHOLD) {
+    const entry = existing[entityMatch.index]!
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: entityMatch.score,
+      level: 'similar',
+      action: 'merge',
+      reason: `识别为同一实体「${entityMatch.entity}」（匹配度 ${Math.round(entityMatch.score * 100)}%）`,
+    }
   }
 
+  const pool = candidates.filter((entry) => needEmbedding(candidate, entry)).slice(0, 3)
   let best: DuplicateInfo | null = null
-  for (const entry of pool) {
-    let contentSim = 0
-    if (candidateVector.length > 0) {
-      try {
-        const vector = await getEmbedding(entryText(entry))
-        contentSim = cosineSimilarity(candidateVector, vector)
-      } catch (err) {
-        logger.warn('extract', '已有条目向量计算失败，跳过该条内容比对', {
-          entryId: entry.id,
-          error: (err as Error).message,
-        })
-      }
+  if (pool.length > 0) {
+    let candidateVector: number[]
+    try {
+      candidateVector = await getEmbedding(entryText(candidate))
+    } catch (err) {
+      logger.warn('extract', '去重向量计算失败，退化为仅标题/时间判重', {
+        error: (err as Error).message,
+      })
+      // 向量失败时用 contentSim=0 跑一遍，纯标题/时间信号仍能出 similar（标题+时间）
+      candidateVector = []
     }
-    const info = gradePair(candidate, entry, contentSim)
-    if (info && (!best || info.similarity > best.similarity)) best = info
-    // exact 已是最高档，提前退出
-    if (best?.level === 'exact') break
+
+    for (const entry of pool) {
+      let contentSim = 0
+      if (candidateVector.length > 0) {
+        try {
+          const vector = await getEmbedding(entryText(entry))
+          contentSim = cosineSimilarity(candidateVector, vector)
+        } catch (err) {
+          logger.warn('extract', '已有条目向量计算失败，跳过该条内容比对', {
+            entryId: entry.id,
+            error: (err as Error).message,
+          })
+        }
+      }
+      const info = gradePair(candidate, entry, contentSim)
+      if (info && (!best || info.similarity > best.similarity)) best = info
+      // exact 已是最高档，提前退出
+      if (best?.level === 'exact') break
+    }
+  }
+
+  // 原有 similar/exact 优先；中分实体匹配只提示，仍由用户确认新建。
+  if (best && (best.action !== 'create' || !entityMatch || best.similarity >= entityMatch.score)) {
+    return best
+  }
+  if (entityMatch) {
+    const entry = existing[entityMatch.index]!
+    return {
+      entryId: entry.id,
+      title: entry.title,
+      similarity: entityMatch.score,
+      level: 'related',
+      action: 'create',
+      reason: `可能关联实体「${entityMatch.entity}」（匹配度 ${Math.round(entityMatch.score * 100)}%）`,
+    }
   }
   return best
 }

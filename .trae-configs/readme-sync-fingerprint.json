@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-06T19:23:49.875Z",
-  "overallHash": "f194b8e93e84efdeef09b4821186f0500643b45a6927d2b1ac0a710ba177919a",
+  "generatedAt": "2026-11-18T18:23:40.197Z",
+  "overallHash": "015093e40d5db2b0e56f551ae2eebea04f1d1256cd0f7dec9b99b53afb56c294",
   "perHash": {
     "app:desktop": "8ee0ee943009a33b6a54245656f80df096f4cf783ffc04f1f8c8c9c6a7578acb",
     "app:generator": "6b81f42e46a49c97e203defae0e62ec679b3e62aa5d8ebebe2d69c80e49c1f80",
@@ -8,8 +8,8 @@
     "appsDirs": "4c9fc3a5e48fc3380fb2c01685eeaed8ae01de67e02b09e3ee6058fc260356f4",
     "packagesDirs": "07b11d0c437f20703317844a5d969f29f2ba7a601396767a61a8684c22b8f9a3",
     "pkg:shared": "d9208ab24d07cf96352a06352a36307a6947b3d0932aff914ea931fb5f91203e",
-    "readmeMtime": "42650daedb3fd14fd6d049374b4a93bc5a70591daa355186f371a1a0ee94e26d",
-    "rootPackage": "d6dd27550a2e826bfdca084edfe7061e33ab23792764bfe612e88e0d1707bdff",
+    "readmeMtime": "5f371bcc5fa29e07a691ea05b2065749be7d46a1f20c62b66709d87a9229abd4",
+    "rootPackage": "354f84a4c40577f49e704d9f26efe9ef619a536f920e83b50463f8a6b55ea091",
     "workspace": "60ce4d1dbf137701a4683d171391c51662700c2f3e32a7caab8b2efc22540e65"
   },
   "comment": "README 同步指纹 — 由 scripts/check-readme-needs-update.mjs 自动生成。请勿手动编辑。当关键项变化时，AI 需要更新 README 后再跑 pnpm run check:readme --update 刷新本文件。"

@@ -208,6 +208,50 @@ describe('findBestDuplicate — 三档判重', () => {
     ])
     expect(dup).toBeNull()
   })
+
+  it('GoldenMatch：对话 fact 与文档 note 识别为同一实体并合并', async () => {
+    const candidate = makeEntry({
+      type: 'fact',
+      title: '龚熙皓是一个全栈开发',
+      content: '龚熙皓是一个全栈开发',
+      time: null,
+    })
+    const existing = makeExisting({
+      id: 'resume',
+      type: 'note',
+      title: '龚熙皓的简历',
+      content: '龚熙皓是一位前端开发工程师。',
+      startAt: null,
+      endAt: null,
+    })
+
+    const dup = await findBestDuplicate(candidate, [existing])
+    expect(dup?.entryId).toBe('resume')
+    expect(dup?.action).toBe('merge')
+    expect(dup?.reason).toContain('龚熙皓')
+  })
+
+  it('GoldenMatch：不同姓名只提示相关，不自动合并', async () => {
+    const candidate = makeEntry({
+      type: 'fact',
+      title: '龚熙皓是一个全栈开发',
+      content: '龚熙皓是一个全栈开发',
+      time: null,
+    })
+    const existing = makeExisting({
+      id: 'another-person',
+      type: 'note',
+      title: '龚熙明的简历',
+      content: '龚熙明是一位前端开发工程师。',
+      startAt: null,
+      endAt: null,
+    })
+
+    const dup = await findBestDuplicate(candidate, [existing])
+    expect(dup?.entryId).toBe('another-person')
+    expect(dup?.level).toBe('related')
+    expect(dup?.action).toBe('create')
+  })
 })
 
 describe('buildDedupeInfo', () => {
