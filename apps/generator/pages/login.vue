@@ -1,10 +1,10 @@
 <template>
   <div class="min-h-screen flex items-center justify-center bg-slate-100 px-4">
     <div class="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 p-7">
-      <div class="flex flex-col items-center text-center mb-7">
+      <div class="flex flex-col items-center text-center mb-5">
         <img :src="techCatLogo" alt="知识库" class="h-24 w-auto" />
-        <h1 class="mt-4 text-xl font-semibold text-slate-800">知识库</h1>
-        <p class="mt-1.5 text-xs text-slate-500 tracking-wide">独属于你的个人知识库</p>
+        <h1 class="mt-2.5 text-xl font-semibold text-slate-800">知识库</h1>
+        <p class="mt-1 text-xs text-slate-500 tracking-wide">独属于你的个人知识库</p>
       </div>
 
       <form class="space-y-4" @submit.prevent="submit">
