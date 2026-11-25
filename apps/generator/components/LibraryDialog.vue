@@ -17,7 +17,6 @@
             <div class="flex items-center gap-2">
               <Library class="w-4 h-4 text-slate-400" />
               <h3 class="text-sm font-semibold text-slate-800">资料库</h3>
-              <span class="text-[11px] text-slate-400">上传后即可在对话中被检索</span>
             </div>
             <button
               type="button"

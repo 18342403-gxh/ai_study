@@ -13,12 +13,12 @@ import multer from 'multer'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 
 import { createRAGService } from '../services/rag/index.js'
 import { isSupportedExtension } from '../services/rag/fileText.js'
 import { getDb, tables } from '../db/index.js'
-import { validate, asyncHandler, createError } from '../middleware/index.js'
+import { validate, asyncHandler, createError, requireUser } from '../middleware/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
 import { routeModel } from '../services/chain/router.js'
 import { searchAll } from '../services/search/searchAll.js'
@@ -82,6 +82,7 @@ router.post(
     const file = req.file
     if (!file) throw createError('未提供文件', 400)
 
+    const user = requireUser(req)
     const db = getDb()
     const now = new Date()
     const documentId = randomUUID()
@@ -95,6 +96,8 @@ router.post(
     // 先写入 documents 表（chunk 外键依赖）
     await db.insert(tables.documents).values({
       id: documentId,
+      userId: user.id,
+      libraryId: user.libraryId,
       name: file.originalname,
       size: file.size || 0,
       mimeType: path.extname(file.originalname),
@@ -157,6 +160,7 @@ router.post(
       throw createError('只支持 http / https URL', 400, 'INVALID_PROTOCOL')
     }
 
+    const user = requireUser(req)
     const db = getDb()
     const now = new Date()
     const documentId = randomUUID()
@@ -166,6 +170,8 @@ router.post(
     // 先写 DB 记录（URL 导入：storage_path 存 URL，mime_type 存 '.url'）
     await db.insert(tables.documents).values({
       id: documentId,
+      userId: user.id,
+      libraryId: user.libraryId,
       name: providedName || url.slice(0, 120),
       size: 0,
       mimeType: '.url',
@@ -227,9 +233,14 @@ router.post(
 /** GET /api/rag/documents */
 router.get(
   '/documents',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const user = requireUser(req)
     const db = getDb()
-    const rows = await db.select().from(tables.documents).orderBy(desc(tables.documents.createdAt))
+    const rows = await db
+      .select()
+      .from(tables.documents)
+      .where(eq(tables.documents.libraryId, user.libraryId))
+      .orderBy(desc(tables.documents.createdAt))
     res.json(rows.map(rowToDocument))
   }),
 )
@@ -240,12 +251,13 @@ router.post(
   validate({ body: querySchema }),
   asyncHandler(async (req, res) => {
     const { query, documentIds, topK, stream, systemPrompt } = req.body
+    const user = requireUser(req)
 
     logger.info('rag.route', 'POST /query 开始', { topK, stream, queryLen: query.length })
 
     // 统一走 searchAll 三通道编排（与 /api/chat 共享同一套检索路径）
     // documentIds 在后处理阶段过滤（searchAll 不支持按文档过滤）
-    const outcome = await searchAll({ query })
+    const outcome = await searchAll({ query, libraryId: user.libraryId })
     let results = outcome.results.filter((r) => r.kind === 'chunk')
     if (documentIds && documentIds.length > 0) {
       results = results.filter((r) => r.docId && documentIds.includes(r.docId))
@@ -326,10 +338,18 @@ router.delete(
   '/documents/:id',
   validate({ params: docIdParam }),
   asyncHandler(async (req, res) => {
+    const user = requireUser(req)
     const db = getDb()
     const id = req.params.id
 
     logger.info('rag.route', 'DELETE /documents/:id 开始', { documentId: id })
+
+    const owned = await db
+      .select({ id: tables.documents.id })
+      .from(tables.documents)
+      .where(and(eq(tables.documents.id, id), eq(tables.documents.libraryId, user.libraryId)))
+      .limit(1)
+    if (!owned[0]) throw createError(`文档 ${id} 不存在`, 404, 'DOC_NOT_FOUND')
 
     // 删除向量
     await ragService.deleteDocument(id)

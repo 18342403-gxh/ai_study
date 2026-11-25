@@ -11,7 +11,7 @@ pnpm eval -- --no-judge   # 跳过 LLM 裁判（幻觉率/引用准确率按满�
 pnpm eval -- --only=time  # 按 id 前缀过滤：time / plan / fact / miss / conflict / degraded
 ```
 
-评测在独立临时 SQLite（`%TEMP%/kb-eval-<pid>.db`）中跑，不碰开发库；每个用例用独立 `libraryId` 隔离种子数据。
+评测连接独立的真实 PostgreSQL 测试库（默认 `ai_study_test`，可用 `TEST_DATABASE_URL` 覆盖），不碰开发库；每个用例用独立 `libraryId` 隔离种子数据，结束后统一清理。
 
 ## 指标与门禁
 

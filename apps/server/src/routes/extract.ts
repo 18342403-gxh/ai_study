@@ -2,9 +2,12 @@
  * 信息抽取 API — v5 阶段 4
  *
  * POST /api/extract — 对话文本 → 意图判别 + 结构化条目（含重复/冲突提示）
+ * POST /api/extract/:threadId/resume — 确认/编辑草稿后从检查点续跑入库（图模式）
+ * GET  /api/extract/:threadId — 读取未确认草稿（图模式，刷新后恢复）
  *
  * 约定：
- *   - 本接口只做抽取与提示，不写库；用户确认后走 POST /api/entries
+ *   - `ENABLE_GRAPH_EXTRACT=1` 时走抽取图（可中断/恢复）；默认走旧的一次性实现
+ *   - 旧路径只做抽取与提示，不写库；用户确认后走 POST /api/entries
  *   - 时间统一返回毫秒时间戳，并附带可直接展示的绝对时间文本
  *   - 失败时仍返回 200，ok=false + failed 标记，保留原文供手动新建
  */
@@ -15,9 +18,16 @@ import { and, desc, eq } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 
 import { getDb, tables } from '../db/index.js'
-import { asyncHandler, validate } from '../middleware/index.js'
+import { asyncHandler, createError, validate, requireUser } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
+import { isGraphEnabled } from '../services/graph/runtime.js'
 import { extractEntries, type PromptEntry } from '../services/extract/extractor.js'
+import {
+  runExtractGraph,
+  resumeExtractGraph,
+  readExtractDraft,
+  type ExtractResumePayload,
+} from '../services/extract/graph.js'
 import {
   buildEntryCards,
   pickRelated,
@@ -113,6 +123,53 @@ const matchExistingEntries = (
   return [...matched].map(([id, target]) => ({ id, target }))
 }
 
+/** 抽取失败时把原文落库为 draft 草稿，避免用户输入丢失 */
+const persistFailedDraft = async (params: {
+  text: string
+  userId: string
+  libraryId: string
+  sessionId: string | null
+  nowMs: number
+  failed: string
+}): Promise<string | null> => {
+  const draftEntryId = randomUUID()
+  const draftTitle = params.text.slice(0, 30).trim() || '抽取失败草稿'
+  try {
+    const db = getDb()
+    await db.insert(tables.entries).values({
+      id: draftEntryId,
+      userId: params.userId,
+      libraryId: params.libraryId,
+      type: 'note',
+      title: draftTitle,
+      content: params.text,
+      status: 'draft',
+      startAt: null,
+      endAt: null,
+      recurrence: null,
+      recurrenceUntil: null,
+      exceptions: null,
+      sourceType: 'conversation',
+      sourceRef: params.sessionId,
+      confidence: 0,
+      createdAt: new Date(params.nowMs),
+      updatedAt: new Date(params.nowMs),
+      archivedAt: null,
+    })
+    logger.info('extract.route', '抽取失败，原文已落库为 draft 草稿', {
+      draftEntryId,
+      libraryId: params.libraryId,
+      failed: params.failed,
+    })
+    return draftEntryId
+  } catch (dbErr) {
+    logger.error('extract.route', 'draft 草稿落库失败（不影响响应）', {
+      error: (dbErr as Error).message,
+    })
+    return null
+  }
+}
+
 const router = Router()
 
 const extractSchema = z.object({
@@ -121,14 +178,104 @@ const extractSchema = z.object({
   libraryId: z.string().max(64).default('default'),
 })
 
+const threadIdSchema = z.object({
+  threadId: z.string().min(1).max(200),
+})
+
+const resumeSchema = z.object({
+  cards: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(200),
+        action: z.enum(['skip', 'merge', 'create']),
+        entryId: z.string().max(64).optional(),
+        payload: z.object({
+          type: z.enum(['schedule', 'plan', 'fact', 'note']),
+          title: z.string().trim().min(1).max(100),
+          content: z.string().trim().min(1).max(10000),
+          startAt: z.number().int().nullable().optional(),
+          endAt: z.number().int().nullable().optional(),
+          recurrence: z.unknown().nullable().optional(),
+          confidence: z.number().min(0).max(1).optional(),
+        }),
+      }),
+    )
+    .min(1)
+    .max(10),
+})
+
 /** POST /api/extract — 抽取 */
 router.post(
   '/',
   validate({ body: extractSchema }),
   asyncHandler(async (req, res) => {
     const body = extractSchema.parse(req.body)
+    const user = requireUser(req)
+    body.libraryId = user.libraryId
     const nowMs = Date.now()
     const timezone = getLocalTimezone()
+
+    if (body.sessionId) {
+      const db = getDb()
+      const sessionRows = await db
+        .select({ id: tables.sessions.id })
+        .from(tables.sessions)
+        .where(and(eq(tables.sessions.id, body.sessionId), eq(tables.sessions.userId, user.id)))
+        .limit(1)
+      if (!sessionRows[0]) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
+    }
+
+    // ── 图模式：抽取 → （直接操作 | 卡片确认中断） ──
+    if (isGraphEnabled('extract')) {
+      const result = await runExtractGraph({
+        text: body.text,
+        userId: user.id,
+        sessionId: body.sessionId ?? null,
+        libraryId: body.libraryId,
+        nowMs,
+        timezone,
+      })
+
+      const source = { sessionId: body.sessionId ?? null, libraryId: body.libraryId }
+
+      if (result.interrupted) {
+        res.json({
+          ...result.outcome,
+          entries: result.cards,
+          cards: result.cards,
+          draftId: result.draftId,
+          threadId: result.threadId,
+          draftEntryId: null,
+          interrupted: true,
+          source,
+        })
+        return
+      }
+
+      const draftEntryId =
+        result.outcome.failed !== null
+          ? await persistFailedDraft({
+              text: body.text,
+              userId: user.id,
+              libraryId: body.libraryId,
+              sessionId: body.sessionId ?? null,
+              nowMs,
+              failed: result.outcome.failed,
+            })
+          : null
+
+      res.json({
+        ...result.outcome,
+        entries: [],
+        reply: result.reply || result.outcome.reply,
+        draftEntryId,
+        draftId: result.draftId,
+        threadId: result.threadId,
+        interrupted: false,
+        source,
+      })
+      return
+    }
 
     const db = getDb()
     // 判重与 Prompt 参考都只看当前知识库的 active 条目
@@ -257,43 +404,17 @@ router.post(
     const entries = await buildEntryCards(outcome.entries, existing, nowMs, timezone)
 
     // ── 抽取失败时把原文落库为 draft 草稿，避免用户输入丢失 ──
-    let draftEntryId: string | null = null
-    if (outcome.failed !== null) {
-      draftEntryId = randomUUID()
-      const draftTitle = body.text.slice(0, 30).trim() || '抽取失败草稿'
-      try {
-        await db.insert(tables.entries).values({
-          id: draftEntryId,
-          userId: 'local',
-          libraryId: body.libraryId,
-          type: 'note',
-          title: draftTitle,
-          content: body.text,
-          status: 'draft',
-          startAt: null,
-          endAt: null,
-          recurrence: null,
-          recurrenceUntil: null,
-          exceptions: null,
-          sourceType: 'conversation',
-          sourceRef: body.sessionId ?? null,
-          confidence: 0,
-          createdAt: new Date(nowMs),
-          updatedAt: new Date(nowMs),
-          archivedAt: null,
-        })
-        logger.info('extract.route', '抽取失败，原文已落库为 draft 草稿', {
-          draftEntryId,
-          libraryId: body.libraryId,
-          failed: outcome.failed,
-        })
-      } catch (dbErr) {
-        logger.error('extract.route', 'draft 草稿落库失败（不影响响应）', {
-          error: (dbErr as Error).message,
-        })
-        draftEntryId = null
-      }
-    }
+    const draftEntryId =
+      outcome.failed !== null
+        ? await persistFailedDraft({
+            text: body.text,
+            userId: user.id,
+            libraryId: body.libraryId,
+            sessionId: body.sessionId ?? null,
+            nowMs,
+            failed: outcome.failed,
+          })
+        : null
 
     logger.info('extract.route', 'POST / 完成', {
       libraryId: body.libraryId,
@@ -311,6 +432,66 @@ router.post(
         sessionId: body.sessionId ?? null,
         libraryId: body.libraryId,
       },
+    })
+  }),
+)
+
+/** POST /api/extract/:threadId/resume — 确认草稿并入库（图模式） */
+router.post(
+  '/:threadId/resume',
+  validate({ params: threadIdSchema, body: resumeSchema }),
+  asyncHandler(async (req, res) => {
+    const threadId = req.params.threadId
+    const body = resumeSchema.parse(req.body)
+    const user = requireUser(req)
+
+    const draft = await readExtractDraft(threadId)
+    if (!draft || draft.libraryId !== user.libraryId) {
+      throw createError('草稿不存在或已处理完成', 404, 'EXTRACT_DRAFT_NOT_FOUND')
+    }
+
+    const result = await resumeExtractGraph(threadId, body as unknown as ExtractResumePayload)
+
+    logger.info('extract.route', 'resume 完成', {
+      threadId,
+      interrupted: result.interrupted,
+      remaining: result.cards.length,
+      committed: result.committed,
+    })
+
+    res.json({
+      ok: true,
+      draftId: result.draftId,
+      threadId,
+      interrupted: result.interrupted,
+      cards: result.cards,
+      reply: result.reply,
+      committed: result.committed,
+      done: !result.interrupted && result.cards.length === 0,
+      source: { sessionId: draft.sessionId, libraryId: draft.libraryId },
+    })
+  }),
+)
+
+/** GET /api/extract/:threadId — 读取未确认草稿（图模式） */
+router.get(
+  '/:threadId',
+  validate({ params: threadIdSchema }),
+  asyncHandler(async (req, res) => {
+    const threadId = req.params.threadId
+    const user = requireUser(req)
+    const draft = await readExtractDraft(threadId)
+    if (!draft || draft.libraryId !== user.libraryId) {
+      throw createError('草稿不存在或已处理完成', 404, 'EXTRACT_DRAFT_NOT_FOUND')
+    }
+
+    res.json({
+      ok: true,
+      draftId: draft.draftId,
+      threadId,
+      interrupted: true,
+      cards: draft.cards,
+      source: { sessionId: draft.sessionId, libraryId: draft.libraryId },
     })
   }),
 )

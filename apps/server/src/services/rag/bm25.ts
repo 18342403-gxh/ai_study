@@ -17,7 +17,7 @@
  *   英文：按非字母数字字符分词 + lowercase
  */
 
-import { and, eq, isNotNull } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull } from 'drizzle-orm'
 
 import { getDb, tables } from '../../db/index.js'
 
@@ -223,21 +223,40 @@ export function bm25Rank(
 }
 
 /** 从 chunks 表读全部数据 → 算 BM25 → 排序取 Top-K */
-export async function bm25Search(query: string, k = 5, docId?: string): Promise<BM25Result[]> {
+export async function bm25Search(
+  query: string,
+  k = 5,
+  docId?: string,
+  libraryId?: string,
+): Promise<BM25Result[]> {
   const db = getDb()
 
   const conds = [isNotNull(tables.chunks.content)]
   if (docId) conds.push(eq(tables.chunks.docId, docId))
 
-  const rows = await db
-    .select({
-      id: tables.chunks.id,
-      doc_id: tables.chunks.docId,
-      content: tables.chunks.content,
-      chunk_index: tables.chunks.chunkIndex,
-    })
-    .from(tables.chunks)
-    .where(and(...conds))
+  const selection = {
+    id: tables.chunks.id,
+    doc_id: tables.chunks.docId,
+    content: tables.chunks.content,
+    chunk_index: tables.chunks.chunkIndex,
+  }
+
+  const rows = libraryId
+    ? await db
+        .select(selection)
+        .from(tables.chunks)
+        .innerJoin(tables.documents, eq(tables.chunks.docId, tables.documents.id))
+        .where(
+          and(
+            ...conds,
+            eq(tables.documents.libraryId, libraryId),
+            isNull(tables.documents.deletedAt),
+          ),
+        )
+    : await db
+        .select(selection)
+        .from(tables.chunks)
+        .where(and(...conds))
 
   if (rows.length === 0) return []
 

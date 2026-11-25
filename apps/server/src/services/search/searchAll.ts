@@ -6,11 +6,12 @@
  */
 
 import { isMockMode } from '../rag/index.js'
+import { isGraphEnabled } from '../graph/runtime.js'
 import { logger } from '../logger.js'
 import { withSpan } from '../../observability/tracing.js'
-import type { EntryType } from '../extract/extractor.js'
 import { searchDocumentsSemantic } from './docChannel.js'
 import { searchEntriesSemantic } from './entrySearch.js'
+import { ALL_TYPES, OWNER_CUE_RE, runSearchGraph } from './graph.js'
 import { mergeSearchSignals, type SearchResultItem, type SearchSummary } from './merge.js'
 import { rerankCandidates } from './rerank.js'
 import {
@@ -20,8 +21,6 @@ import {
   type TimeWindow,
 } from './queryUnderstanding.js'
 import { searchTimeChannel } from './timeChannel.js'
-
-const ALL_TYPES: EntryType[] = ['schedule', 'plan', 'fact', 'note']
 
 export interface SearchAllOptions {
   query: string
@@ -46,9 +45,6 @@ export interface SearchAllOutcome {
   /** 检索为空 → 生成阶段必须走"未找到"话术（spec 4.5.5） */
   empty: boolean
 }
-
-/** 严格的个人归属线索：只认「我/咱」与个人知识库相关词（不含时间词），用于无命中时回退通用问答 */
-const OWNER_CUE_RE = /我|咱|安排|日程|进度|待办|提醒|记得|记录|计划/
 
 const searchAllInner = async (options: SearchAllOptions): Promise<SearchAllOutcome> => {
   const nowMs = options.now ?? Date.now()
@@ -107,14 +103,17 @@ const searchAllInner = async (options: SearchAllOptions): Promise<SearchAllOutco
     skipDocChannel
       ? Promise.resolve([])
       : withSpan('retrieval.doc_channel', {}, () =>
-          searchDocumentsSemantic(options.query, 15, understanding.queryType).catch(
-            (err: unknown) => {
-              logger.warn('search.all', '文档语义通道失败，已跳过', {
-                error: (err as Error).message,
-              })
-              return []
-            },
-          ),
+          searchDocumentsSemantic(
+            options.query,
+            15,
+            understanding.queryType,
+            options.libraryId,
+          ).catch((err: unknown) => {
+            logger.warn('search.all', '文档语义通道失败，已跳过', {
+              error: (err as Error).message,
+            })
+            return []
+          }),
         ),
   ])
 
@@ -186,7 +185,9 @@ export const searchAll = async (options: SearchAllOptions): Promise<SearchAllOut
       'app.skip_understanding': options.skipUnderstanding === true,
     },
     async (span) => {
-      const outcome = await searchAllInner(options)
+      const outcome = isGraphEnabled('search')
+        ? await runSearchGraph(options)
+        : await searchAllInner(options)
       span.setAttribute('retrieval.shown', outcome.results.length)
       span.setAttribute('retrieval.time_hits', outcome.channels.time)
       span.setAttribute('retrieval.entry_hits', outcome.channels.entry)

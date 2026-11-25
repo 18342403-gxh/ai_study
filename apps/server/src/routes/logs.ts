@@ -15,9 +15,10 @@ import {
   type LogLevel,
   type LogRecord,
 } from '../services/logger.js'
-import { validate, asyncHandler } from '../middleware/index.js'
+import { validate, asyncHandler, requireAdmin } from '../middleware/index.js'
 
 const router = Router()
+router.use(requireAdmin)
 
 const listLogsQuerySchema = z.object({
   level: z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR']).optional(),

@@ -35,10 +35,7 @@
       <p v-if="loading" class="text-sm text-slate-400">加载中…</p>
 
       <template v-else>
-        <p v-if="entries.length === 0" class="mb-3 text-xs text-slate-400">
-          这段时间还没有安排，
-          <NuxtLink to="/chat" class="text-primary-500 hover:underline">去对话里记一条 →</NuxtLink>
-        </p>
+        <p v-if="entries.length === 0" class="mb-3 text-xs text-slate-400">这段时间还没有安排</p>
 
         <!-- 日历网格：周一到周日为列，每周一行 -->
         <div

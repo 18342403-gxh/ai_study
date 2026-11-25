@@ -10,7 +10,7 @@ import { z } from 'zod'
 
 import { searchTimeChannel } from '../services/search/timeChannel.js'
 import { addLocalDays, startOfLocalDay } from '../services/extract/timeParse.js'
-import { validate, asyncHandler } from '../middleware/index.js'
+import { validate, asyncHandler, requireUser } from '../middleware/index.js'
 
 const router = Router()
 
@@ -32,14 +32,14 @@ router.get(
   '/',
   validate({ query: remindersQuerySchema }),
   asyncHandler(async (req, res) => {
-    const query = remindersQuerySchema.parse(req.query)
+    const user = requireUser(req)
     const today = startOfLocalDay(Date.now())
     const dayAfterTomorrow = addLocalDays(today, 2)
 
     const hits = await searchTimeChannel({
       windowStart: today,
       windowEnd: dayAfterTomorrow,
-      libraryId: query.libraryId,
+      libraryId: user.libraryId,
     })
 
     const tomorrow = addLocalDays(today, 1)

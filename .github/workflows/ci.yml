@@ -83,6 +83,20 @@ jobs:
     name: Unit Tests (vitest)
     needs: build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ai_study
+          POSTGRES_PASSWORD: 123456
+          POSTGRES_DB: ai_study
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ai_study -d ai_study"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
 
     steps:
       - uses: actions/checkout@v4
@@ -101,12 +115,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # 用 SQLite（零配置初始化，不需要 PG）
-      - name: Run server unit tests
+      - name: Run server tests on PostgreSQL
         working-directory: apps/server
         run: npx vitest run --pool=forks
         env:
-          DATABASE_DRIVER: sqlite
+          TEST_DATABASE_URL: postgresql://ai_study:123456@localhost:5432/ai_study_test
           ENABLE_MOCK_EMBEDDING: '1'
 
       - name: Upload coverage report
@@ -141,5 +154,5 @@ jobs:
 
       # 只报告 high + critical，不 block pipeline
       - name: Dependency audit
-        run: pnpm audit --audit-level=high || echo "AUDIT_FINDINGS: see report above"
+        run: 'pnpm audit --audit-level=high || echo "AUDIT_FINDINGS: see report above"'
         continue-on-error: true

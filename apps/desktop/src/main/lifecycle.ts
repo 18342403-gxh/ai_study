@@ -4,7 +4,7 @@
  * Electron 主进程退出前，必须确保子进程也被正确终止：
  * 1. SIGTERM（先礼）→ 给子进程 2 秒处理时间
  * 2. SIGKILL（后兵）→ 2 秒后还没退就强杀
- * 3. SQLite WAL checkpoint（如果用 SQLite）
+ * 3. 等待服务端关闭 PostgreSQL 检查点与业务连接池
  */
 
 import type { ChildProcess } from 'node:child_process'

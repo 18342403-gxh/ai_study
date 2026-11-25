@@ -7,7 +7,7 @@
  *
  * 约定：
  *   - API 出入参保持旧形状：snake_case 字段 + 毫秒时间戳
- *   - 列表/详情的 type 字段映射自 DB 的 mime_type 列（兼容旧 SQLite 形状）
+ *   - 列表/详情的 type 字段映射自 DB 的 mime_type 列
  */
 
 import { Router } from 'express'
@@ -23,11 +23,11 @@ import { getDb, tables } from '../db/index.js'
 import {
   splitStructured,
   getEmbeddingsWithMeta,
-  createSqliteVectorStore,
+  createPgVectorStore,
 } from '../services/rag/index.js'
 import { extractDocument, isSupportedExtension } from '../services/documents/index.js'
 import { logger } from '../services/logger.js'
-import { validate, asyncHandler, createError } from '../middleware/index.js'
+import { validate, asyncHandler, createError, requireUser } from '../middleware/index.js'
 import { extractDocumentChunks, MAX_DOC_CHUNKS } from '../services/extract/documentExtractor.js'
 import {
   buildEntryCards,
@@ -37,6 +37,8 @@ import {
 } from '../services/extract/cards.js'
 import type { PromptEntry } from '../services/extract/extractor.js'
 import { getLocalTimezone } from '../services/extract/timeParse.js'
+import { isGraphEnabled } from '../services/graph/runtime.js'
+import { runDocumentDraftGraph } from '../services/extract/graph.js'
 
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'embedding-3'
 
@@ -147,8 +149,8 @@ const processDocument = async (
     const chunks = splitStructured(parsed.text)
     const embeddingMetas = await getEmbeddingsWithMeta(chunks.map((chunk) => chunk.content))
 
-    // 走统一向量存储层：先删旧块（含 chunks_vec），再写入新块（自动双写 chunks_vec）
-    const vectorStore = createSqliteVectorStore()
+    // 走统一向量存储层：先删旧块，再写入 pgvector 向量。
+    const vectorStore = createPgVectorStore()
     await vectorStore.deleteByDocId(docId)
     await vectorStore.addDocuments(
       chunks.map((chunk, i) => ({
@@ -222,13 +224,19 @@ const processDocument = async (
 }
 
 /** 服务重启会让内存中的解析任务丢失，启动后第一次拉列表时修正这些僵尸记录 */
-const recoverStaleProcessing = async () => {
+const recoverStaleProcessing = async (libraryId: string) => {
   const db = getDb()
   const cutoff = new Date(Date.now() - STALE_PROCESSING_MS)
   const rows = await db
     .select()
     .from(tables.documents)
-    .where(and(eq(tables.documents.status, 'processing'), lt(tables.documents.updatedAt, cutoff)))
+    .where(
+      and(
+        eq(tables.documents.libraryId, libraryId),
+        eq(tables.documents.status, 'processing'),
+        lt(tables.documents.updatedAt, cutoff),
+      ),
+    )
 
   for (const row of rows) {
     await db
@@ -286,6 +294,7 @@ router.post(
       throw createError('未提供上传文件', 400, 'NO_FILE')
     }
 
+    const user = requireUser(req)
     const db = getDb()
     const docId = randomUUID()
     const now = new Date()
@@ -296,6 +305,8 @@ router.post(
 
     await db.insert(tables.documents).values({
       id: docId,
+      userId: user.id,
+      libraryId: user.libraryId,
       name: displayName,
       size: file.size,
       mimeType: path.extname(file.originalname),
@@ -318,12 +329,17 @@ router.post(
 /** GET /api/documents */
 router.get(
   '/',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     logger.info('documents.route', 'GET / — 入口')
+    const user = requireUser(req)
     // 先修正服务重启遗留的僵尸 processing，前端才不会一直显示“解析中”
-    await recoverStaleProcessing()
+    await recoverStaleProcessing(user.libraryId)
     const db = getDb()
-    const rows = await db.select().from(tables.documents).orderBy(desc(tables.documents.createdAt))
+    const rows = await db
+      .select()
+      .from(tables.documents)
+      .where(eq(tables.documents.libraryId, user.libraryId))
+      .orderBy(desc(tables.documents.createdAt))
     logger.info('documents.route', 'GET / — 出口', { count: rows.length })
     res.json(rows.map(rowToDocument))
   }),
@@ -335,12 +351,13 @@ router.post(
   validate({ params: docIdParamSchema }),
   asyncHandler(async (req, res) => {
     const id = req.params.id
+    const user = requireUser(req)
     const db = getDb()
 
     const rows = await db
       .select()
       .from(tables.documents)
-      .where(eq(tables.documents.id, id))
+      .where(and(eq(tables.documents.id, id), eq(tables.documents.libraryId, user.libraryId)))
       .limit(1)
     const doc = rows[0]
     if (!doc) throw createError(`文档 ${id} 不存在`, 404, 'DOC_NOT_FOUND')
@@ -378,6 +395,8 @@ router.post(
   validate({ params: docIdParamSchema, body: documentExtractSchema }),
   asyncHandler(async (req, res) => {
     const body = documentExtractSchema.parse(req.body ?? {})
+    const user = requireUser(req)
+    const libraryId = user.libraryId
     const docId = req.params.id
     const db = getDb()
     const nowMs = Date.now()
@@ -386,7 +405,7 @@ router.post(
     const docRows = await db
       .select()
       .from(tables.documents)
-      .where(eq(tables.documents.id, docId))
+      .where(and(eq(tables.documents.id, docId), eq(tables.documents.libraryId, libraryId)))
       .limit(1)
     const doc = docRows[0]
     if (!doc || doc.deletedAt !== null || doc.status === 'deleted') {
@@ -419,7 +438,7 @@ router.post(
     const entryRows = await db
       .select()
       .from(tables.entries)
-      .where(and(eq(tables.entries.libraryId, body.libraryId), eq(tables.entries.status, 'active')))
+      .where(and(eq(tables.entries.libraryId, libraryId), eq(tables.entries.status, 'active')))
       .orderBy(desc(tables.entries.updatedAt))
       .limit(50)
 
@@ -471,20 +490,42 @@ router.post(
       entryCount: entries.length,
     })
 
-    res.json({
+    const summary = {
       ok: true,
       docId,
       docName: doc.name,
-      libraryId: body.libraryId,
-      entries,
+      libraryId,
       truncated: result.truncated,
       remaining: result.remaining,
       totalChunks: chunkRows.length,
       chunksProcessed: result.chunksProcessed,
       failedChunks: result.failedChunks,
       alreadyExtracted,
-      source: { docId, libraryId: body.libraryId },
-    })
+      source: { docId, libraryId },
+    }
+
+    // ── 图模式：卡片交给抽取图挂起，确认走 /api/extract/:threadId/resume ──
+    if (isGraphEnabled('extract') && entries.length > 0) {
+      const draft = await runDocumentDraftGraph({
+        userId: user.id,
+        libraryId,
+        sessionId: null,
+        cards: entries,
+        nowMs,
+        timezone,
+      })
+      res.json({
+        ...summary,
+        entries: draft.cards,
+        cards: draft.cards,
+        draftId: draft.draftId,
+        threadId: draft.threadId,
+        interrupted: true,
+      })
+      return
+    }
+
+    res.json({ ...summary, entries })
   }),
 )
 
@@ -494,20 +535,21 @@ router.delete(
   validate({ params: docIdParamSchema }),
   asyncHandler(async (req, res) => {
     logger.info('documents.route', 'DELETE /:id — 入口', { id: req.params.id })
+    const user = requireUser(req)
     const db = getDb()
     const id = req.params.id
 
     const rows = await db
       .select({ id: tables.documents.id, storagePath: tables.documents.storagePath })
       .from(tables.documents)
-      .where(eq(tables.documents.id, id))
+      .where(and(eq(tables.documents.id, id), eq(tables.documents.libraryId, user.libraryId)))
       .limit(1)
     if (!rows[0]) {
       throw createError(`文档 ${id} 不存在`, 404, 'DOC_NOT_FOUND')
     }
 
-    // 走统一向量存储层删除，同步清理 chunks_vec
-    await createSqliteVectorStore().deleteByDocId(id)
+    // 删除分块向量；随后删除文档记录。
+    await createPgVectorStore().deleteByDocId(id)
     await db.delete(tables.documents).where(eq(tables.documents.id, id))
 
     // 同时清理磁盘原件，避免 uploads 目录无限增长

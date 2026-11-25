@@ -18,15 +18,15 @@ import { randomUUID } from 'crypto'
 import { and, desc, eq, gte, lte } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
-import { validate, asyncHandler, createError } from '../middleware/index.js'
+import { validate, asyncHandler, createError, requireUser } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
 import { removeEntryEmbedding, syncEntryEmbedding } from '../services/search/entryIndex.js'
 import { DEFAULT_EVENT_MS, intervalsOverlap } from '../services/extract/dedupe.js'
 import {
   ENTITY_AUTO_MERGE_THRESHOLD,
   findBestEntityMatch,
-  mergeEntryContent,
 } from '../services/extract/entityResolution.js'
+import { synthesizeEntryContent } from '../services/extract/contentSynthesis.js'
 
 const router = Router()
 
@@ -156,9 +156,13 @@ const rowToEntry = (row: EntryRow) => ({
   archivedAt: toMs(row.archivedAt),
 })
 
-const findEntry = async (id: string): Promise<EntryRow | undefined> => {
+const findEntry = async (id: string, libraryId: string): Promise<EntryRow | undefined> => {
   const db = getDb()
-  const rows = await db.select().from(tables.entries).where(eq(tables.entries.id, id)).limit(1)
+  const rows = await db
+    .select()
+    .from(tables.entries)
+    .where(and(eq(tables.entries.id, id), eq(tables.entries.libraryId, libraryId)))
+    .limit(1)
   return rows[0]
 }
 
@@ -230,12 +234,13 @@ router.get(
   validate({ query: listEntriesQuerySchema }),
   asyncHandler(async (req, res) => {
     // 再 parse 一次以应用 coerce/default（中间件只校验不回写）
-    const { type, status, libraryId, from, to, limit } = listEntriesQuerySchema.parse(req.query)
+    const user = requireUser(req)
+    const { type, status, from, to, limit } = listEntriesQuerySchema.parse(req.query)
 
     const conds = [
+      eq(tables.entries.libraryId, user.libraryId),
       type ? eq(tables.entries.type, type) : undefined,
       status ? eq(tables.entries.status, status) : undefined,
-      libraryId ? eq(tables.entries.libraryId, libraryId) : undefined,
       from !== undefined ? gte(tables.entries.startAt, new Date(from)) : undefined,
       to !== undefined ? lte(tables.entries.startAt, new Date(to)) : undefined,
     ]
@@ -262,6 +267,10 @@ router.post(
     const now = new Date()
     // 再 parse 一次以应用 Zod default（中间件只校验不回写）
     const body = createEntrySchema.parse(req.body)
+    const user = requireUser(req)
+    // 归属只由登录态决定，忽略客户端传参
+    body.userId = user.id
+    body.libraryId = user.libraryId
 
     // ── 创建端兜底判重：防止绕过前端的重复创建 ──
     if (body.onDuplicate !== 'force') {
@@ -302,13 +311,16 @@ router.post(
           })
           return
         }
-        // similar + merge：把新信息合并进已有条目，不新建
-        const mergedContent = mergeEntryContent({
+        // similar + merge：GoldenMatch 负责实体判断，LLM 只负责把正文组织得自然连贯
+        const synthesis = await synthesizeEntryContent({
+          type: hit.row.type,
+          title: hit.row.title,
           existingContent: hit.row.content,
           incomingContent: body.content,
           existingSourceType: hit.row.sourceType,
           incomingSourceType: body.sourceType,
         })
+        const mergedContent = synthesis.content
         const mergedStartAt =
           body.startAt !== null && body.startAt !== undefined
             ? toDate(body.startAt)
@@ -326,10 +338,19 @@ router.post(
           .where(eq(tables.entries.id, hit.row.id))
         // 内容/时间可能变化，重建向量
         await syncEntryEmbedding(hit.row.id, hit.row.title, mergedContent)
-        const merged = await findEntry(hit.row.id)
+        const merged = await findEntry(hit.row.id, user.libraryId)
         logger.info('entries.route', 'POST / 命中相似，已合并进已有条目', {
           entryId: hit.row.id,
           title: hit.row.title,
+          contentRewritten: synthesis.rewritten,
+          originalContent: hit.row.content,
+          incomingContent: body.content,
+          rawMergedContent: synthesis.rawContent,
+          mergedContent,
+          sources: [
+            { sourceType: hit.row.sourceType, sourceRef: hit.row.sourceRef },
+            { sourceType: body.sourceType, sourceRef: body.sourceRef },
+          ],
         })
         res.status(200).json({ ...rowToEntry(merged!), deduped: 'merged' })
         return
@@ -356,7 +377,7 @@ router.post(
       archivedAt: body.status === 'archived' ? now : null,
     })
 
-    const row = await findEntry(id)
+    const row = await findEntry(id, user.libraryId)
     // v5 4.4.3：入库后同步向量，供语义检索使用（失败只记日志）
     await syncEntryEmbedding(id, body.title, body.content)
     logger.info('entries.route', 'POST / 完成', {
@@ -373,7 +394,7 @@ router.get(
   '/:id',
   validate({ params: entryIdParam }),
   asyncHandler(async (req, res) => {
-    const row = await findEntry(req.params.id)
+    const row = await findEntry(req.params.id, requireUser(req).libraryId)
     if (!row) throw createError('条目不存在', 404, 'ENTRY_NOT_FOUND')
     res.json(rowToEntry(row))
   }),
@@ -386,7 +407,8 @@ router.patch(
   asyncHandler(async (req, res) => {
     const db = getDb()
     const id = req.params.id
-    const existing = await findEntry(id)
+    const user = requireUser(req)
+    const existing = await findEntry(id, user.libraryId)
     if (!existing) throw createError('条目不存在', 404, 'ENTRY_NOT_FOUND')
 
     // 再 parse 一次以应用 Zod default（中间件只校验不回写）
@@ -409,7 +431,6 @@ router.patch(
     if (body.recurrenceUntil !== undefined) updates.recurrenceUntil = toDate(body.recurrenceUntil)
     if (body.sourceRef !== undefined) updates.sourceRef = body.sourceRef
     if (body.confidence !== undefined) updates.confidence = body.confidence
-    if (body.libraryId !== undefined) updates.libraryId = body.libraryId
 
     // 状态流转：归档时记录 archived_at，离开归档则清空
     if (body.status !== undefined) {
@@ -434,7 +455,7 @@ router.patch(
       )
     }
 
-    const row = await findEntry(id)
+    const row = await findEntry(id, user.libraryId)
     logger.info('entries.route', 'PATCH /:id 完成', {
       entryId: id,
       fields: Object.keys(updates).length - 1,
@@ -449,7 +470,7 @@ router.delete(
   validate({ params: entryIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const existing = await findEntry(req.params.id)
+    const existing = await findEntry(req.params.id, requireUser(req).libraryId)
     if (!existing) throw createError('条目不存在', 404, 'ENTRY_NOT_FOUND')
     await removeEntryEmbedding(req.params.id)
     await db.delete(tables.entries).where(eq(tables.entries.id, req.params.id))

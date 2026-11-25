@@ -1,6 +1,7 @@
 export * from './types/chat.js'
 export * from './types/document.js'
 export * from './types/entry.js'
+export * from './types/plan.js'
 export * from './types/knowledge-base.js'
 export * from './types/rag.js'
 export * from './types/tools.js'

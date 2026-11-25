@@ -15,6 +15,26 @@ const baseUrl = (): string => {
   return String(config.public.bffUrl ?? '').replace(/\/$/, '')
 }
 
+/** SSR 时把浏览器 Cookie 透传给 BFF，保证首屏请求也带登录态 */
+const ssrCookie = (): string | undefined => {
+  if (!import.meta.server) return undefined
+  try {
+    return useRequestHeaders(['cookie']).cookie
+  } catch {
+    return undefined
+  }
+}
+
+const authHeaders = (): Record<string, string> => {
+  const cookie = ssrCookie()
+  return cookie ? { cookie } : {}
+}
+
+/** 登录态接口的 401 由调用方处理；业务接口 401 直接回登录页 */
+const handleUnauthorized = (path: string): void => {
+  if (import.meta.client && !path.startsWith('/api/auth/')) void navigateTo('/login')
+}
+
 export const apiFetch = async <T>(
   path: string,
   init?: RequestInit & { timeoutMs?: number },
@@ -24,8 +44,10 @@ export const apiFetch = async <T>(
   try {
     res = await fetch(`${baseUrl()}${path}`, {
       ...rest,
+      credentials: 'include',
       ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
       headers: {
+        ...authHeaders(),
         ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
         ...rest.headers,
       },
@@ -39,6 +61,7 @@ export const apiFetch = async <T>(
   }
 
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized(path)
     let message = `请求失败（${res.status}）`
     try {
       const body = (await res.json()) as ApiErrorBody
@@ -65,8 +88,14 @@ export const apiDelete = (path: string): Promise<void> => apiFetch<void>(path, {
 
 /** multipart 上传（不手写 Content-Type，交给浏览器生成 boundary） */
 export const apiUpload = async <T>(path: string, form: FormData): Promise<T> => {
-  const res = await fetch(`${baseUrl()}${path}`, { method: 'POST', body: form })
+  const res = await fetch(`${baseUrl()}${path}`, {
+    method: 'POST',
+    body: form,
+    credentials: 'include',
+    headers: authHeaders(),
+  })
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized(path)
     let message = `上传失败（${res.status}）`
     try {
       const body = (await res.json()) as ApiErrorBody
@@ -77,6 +106,39 @@ export const apiUpload = async <T>(path: string, form: FormData): Promise<T> => 
     throw new Error(message)
   }
   return (await res.json()) as T
+}
+
+export type AuthRole = 'admin' | 'temp'
+
+export interface AuthUser {
+  id: string
+  username: string
+  role: AuthRole
+  libraryId: string
+  /** 毫秒时间戳；超管为 null */
+  expiresAt: number | null
+}
+
+export interface AuthMeResponse {
+  user: AuthUser
+}
+
+export interface TempAccountRow {
+  id: string
+  username: string
+  libraryId: string
+  createdAt: number
+  expiresAt: number | null
+  remainingMs: number | null
+  lastLoginAt: number | null
+}
+
+export interface CreatedTempAccount {
+  id: string
+  username: string
+  password: string
+  libraryId: string
+  expiresAt: number
 }
 
 export interface DocumentRow {
@@ -192,6 +254,8 @@ export interface DuplicateInfo {
 }
 
 export interface EntryCard extends ExtractedEntry {
+  /** 图模式下草稿卡片的稳定标识（resume 时回传） */
+  key?: string
   duplicate: DuplicateInfo | null
   conflicts: Array<{
     entryId?: string
@@ -213,7 +277,27 @@ export interface ExtractResponse {
   failed: Record<string, unknown> | null
   rawText: string
   draftEntryId: string | null
+  /** 图模式：草稿 id 与 thread id（中断时返回） */
+  draftId?: string | null
+  threadId?: string | null
+  interrupted?: boolean
+  cards?: EntryCard[]
   source: { sessionId: string | null; libraryId: string }
+}
+
+export interface ExtractDraftResponse {
+  ok: boolean
+  draftId: string
+  threadId: string
+  interrupted: boolean
+  cards: EntryCard[]
+  source: { sessionId: string | null; libraryId: string }
+}
+
+export interface ExtractResumeResponse extends ExtractDraftResponse {
+  reply: string
+  committed: { created: number; merged: number; skipped: number }
+  done: boolean
 }
 
 export interface SessionSummary {
@@ -293,4 +377,76 @@ export const TYPE_LABEL: Record<EntryType, string> = {
   plan: '规划',
   fact: '事实',
   note: '笔记',
+}
+
+// ── 长期规划 ─────────────────────────────────────────
+
+export type PlanStatus = 'draft' | 'active' | 'done' | 'archived'
+
+export interface PlanStage {
+  id?: string
+  title: string
+  description?: string
+  targetAt?: number | null
+  done?: boolean
+}
+
+export interface PlanSource {
+  type: 'entry' | 'chunk'
+  id: string
+  label: string
+  snippet: string
+}
+
+export interface PlanDraft {
+  title: string
+  goal: string
+  startAt: number | null
+  endAt: number | null
+  stages: PlanStage[]
+  sources: PlanSource[]
+  /** false 表示知识库未覆盖，草稿为通用建议 */
+  grounded: boolean
+}
+
+export interface PlanRow {
+  id: string
+  userId: string
+  libraryId: string
+  title: string
+  goal: string
+  status: PlanStatus
+  startAt: number | null
+  endAt: number | null
+  progress: number
+  stages: PlanStage[]
+  sourceType: 'conversation' | 'document' | 'manual'
+  sourceRef: string | null
+  createdAt: number
+  updatedAt: number
+  archivedAt: number | null
+}
+
+export interface PlanStepResponse {
+  ok: boolean
+  threadId: string
+  draftId: string
+  stage: 'ask' | 'confirm' | 'done'
+  questions?: string[]
+  draft?: PlanDraft | null
+  savedPlan?: PlanRow | null
+  done: boolean
+}
+
+export interface PlanCapabilities {
+  aiEnabled: boolean
+}
+
+export interface PlanFormValue {
+  title: string
+  goal: string
+  startAt: number | null
+  endAt: number | null
+  progress: number
+  stages: PlanStage[]
 }

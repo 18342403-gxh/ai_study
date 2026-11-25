@@ -24,9 +24,17 @@ export const searchDocumentsSemantic = async (
   query: string,
   k = 15,
   queryType?: 'keyword' | 'conceptual',
+  libraryId?: string,
 ): Promise<DocChannelHit[]> => {
   const mock = isMockMode()
-  const results = await createRAGService().search(query, k, undefined, 'hybrid', queryType)
+  const results = await createRAGService().search(
+    query,
+    k,
+    undefined,
+    'hybrid',
+    queryType,
+    libraryId,
+  )
   // 动态 BM25 阈值：按查询 token 数缩放，避免长查询时绝对阈值过高
   const queryTokenCount = tokenize(query).length
   const minBm25 = 0.5 * Math.sqrt(Math.max(1, queryTokenCount))
@@ -38,6 +46,8 @@ export const searchDocumentsSemantic = async (
     // RRF 是排名分，零相关也会拿到正分，这里按原始分做相关性兜底
     const bm25 = r.bm25Score ?? 0
     const cosine = r.vectorScore ?? 0
+    // mock 模式下 hash 向量完全不可信，必须靠 BM25 token 重叠验证
+    if (mock && bm25 <= 0) return []
     if (bm25 < minBm25 && (mock || cosine < MIN_COSINE)) return []
 
     return [

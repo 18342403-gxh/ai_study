@@ -2,7 +2,7 @@
 
 对话与文档驱动的个人知识库。可以用自然语言记录日程、规划、事实和笔记，也可以上传文档，再通过带引用的问答找回这些信息。
 
-前端采用 Nuxt 3，服务端采用 Express + LangChain，默认使用 SQLite，也支持 PostgreSQL + pgvector。所有模型调用都在服务端完成，API Key 不会暴露到浏览器。
+前端采用 Nuxt 3，服务端采用 Express + LangChain，统一使用 PostgreSQL + pgvector。所有模型调用都在服务端完成，API Key 不会暴露到浏览器。
 
 ## 主要功能
 
@@ -11,7 +11,7 @@
 - 通过「记一下」模式或“帮我记”“提醒我”等自然语言，将内容整理为日程、规划、事实或笔记。
 - 入库前展示候选卡片，可修改、确认或忽略；多条记录可批量确认。
 - 支持用自然语言修改、取消或删除已有记录，例如“把周会改到周二上午十点”。
-- 使用 GoldenMatch 关联不同来源、不同条目类型中的同一实体。高置信匹配自动合并，疑似匹配只提示；合并时保留新增事实和来源，不再用长文本覆盖短文本。
+- 使用 GoldenMatch 关联不同来源、不同条目类型中的同一实体。高置信匹配合并时通过 LLM 重写正文，让表达自然连贯；疑似匹配只提示。重写失败会回退到保留新增事实和来源的确定性合并，不再用长文本覆盖短文本。
 
 ### 文档资料库
 
@@ -31,7 +31,10 @@
 
 - 日程页提供双周或月度日历视图，支持重复日程、悬浮详情、编辑、完成和删除。
 - 长期事实集中显示在日程页顶部，可展开查看和编辑。
-- 规划页按进行中、已完成、已搁置分类管理。
+- 规划页按进行中、已完成、已搁置分类管理，支持手动新建、编辑进度与阶段。
+- 长期规划：在对话中描述目标（或点「AI 生成规划」）即可生成规划草稿。系统先检索知识库中的个人情况，必要时追问一轮；草稿可在卡片内编辑后确认入库。
+- 规划依据优先来自知识库；知识库未覆盖的部分按通用建议补足，并在草稿上标注。
+- 旧版规划条目保留在规划页折叠区，可一键「转为长期规划」。
 - 对话页展示今天和明天的应用内提醒。
 
 ## 安装与启动
@@ -40,7 +43,7 @@
 
 - Node.js 18.20.x LTS
 - pnpm 9.15.9
-- 可选：PostgreSQL 17 + pgvector 0.8.x（仅使用 PostgreSQL 时需要）
+- Docker Desktop（本地启动 PostgreSQL 17 + pgvector），或自行准备兼容的 PostgreSQL + pgvector 服务
 
 ### 2. 安装依赖
 
@@ -68,32 +71,45 @@ cp apps/server/.env.example apps/server/.env
 copy apps\server\.env.example apps\server\.env
 ```
 
-编辑 `apps/server/.env`，至少填写模型密钥：
+编辑 `apps/server/.env`，至少填写模型密钥和 PostgreSQL 连接串：
 
 ```env
 AI_API_URL=https://open.bigmodel.cn/api/paas/v4
 AI_API_KEY=你的真实密钥
 AI_MODEL=glm-4-flash
 EMBEDDING_MODEL=embedding-3
-
-# 默认使用 SQLite，无需额外安装数据库
-DATABASE_DRIVER=sqlite
+DATABASE_URL=postgresql://ai_study:123456@localhost:5432/ai_study
 ```
 
-`AI_API_URL` 可替换为其他兼容 OpenAI 协议的服务地址，并同步调整模型名称。若 Embedding 使用不同厂商，可单独配置 `EMBEDDING_API_URL` 和 `EMBEDDING_API_KEY`。
+`AI_API_URL` 可替换为其他兼容 OpenAI 协议的服务地址，并同步调整模型名称。若 Embedding 使用不同厂商，可单独配置 `EMBEDDING_API_URL` 和 `EMBEDDING_API_KEY`。完整配置项见 `apps/server/.env.example`。
 
-如需使用 PostgreSQL：
-
-```env
-DATABASE_DRIVER=postgres
-DATABASE_URL=postgresql://user:password@localhost:5432/ai_study
-```
-
-目标数据库需要启用 pgvector 扩展。完整配置项见 `apps/server/.env.example`。
+> 编排灰度开关（默认全部关闭，关闭时与改造前行为一致）：
+> `ENABLE_GRAPH_SEARCH=1` 启用检索图化、
+> `ENABLE_GRAPH_EXTRACT=1` 启用抽取中断/恢复（草稿可跨刷新与重启恢复）、
+> `ENABLE_GRAPH_AGENT=1` 启用工具循环检查点（中断后可续跑且不重放已执行工具）。
+>
+> 长期规划开关：`ENABLE_PLAN_AI` 默认开启；设为 `0` 只关闭 AI 生成入口，手动新建/编辑规划仍可用。
 
 > `.env` 已被 Git 忽略。不要提交真实密钥；如果密钥曾经泄露，请立即重新生成。
 
-### 4. 启动开发环境
+### 4. 初始化 PostgreSQL
+
+使用本地 Compose 启动数据库并初始化 schema、pgvector 扩展和 HNSW 索引：
+
+```bash
+docker compose up -d postgres
+pnpm --filter @ai-study/server db:init
+```
+
+`db:init` 可重复执行。多实例部署时先对共享数据库执行一次，再启动各 BFF 实例。若需迁移旧版本地业务数据，在目标八张业务表为空时执行：
+
+```bash
+pnpm --filter @ai-study/server migrate:sqlite -- --from ./data/knowledge.db
+```
+
+迁移会保留源文件并创建带时间戳的备份；旧检查点不转换，新检查点由 PostgreSQL 保存。
+
+### 5. 启动开发环境
 
 ```bash
 pnpm dev
@@ -139,20 +155,22 @@ pnpm dev:generator
 - 取消或删除：输入“取消周五的聚餐”“删除这条记录”，或在对应页面操作。
 - 查看日程：进入「日程」，点击日期格中的事项；一天超过 3 条时可展开「+N 更多」。
 - 管理规划：进入「规划」，切换进行中、已完成、已搁置，或编辑、恢复、删除规划。
+- 生成规划：在对话页输入“帮我做一个三个月的 TypeScript 学习规划”，或进入「规划」页点击「AI 生成规划」。草稿可修改标题、目标、时间与阶段后确认入库。
 - 查看提醒：回到「对话」，展开顶部今天或明天的提醒。
 
 ## 常用命令
 
-| 命令                                  | 作用                     |
-| ------------------------------------- | ------------------------ |
-| `pnpm dev`                            | 同时启动前端和服务端     |
-| `pnpm dev:server`                     | 仅启动服务端，端口 3001  |
-| `pnpm dev:generator`                  | 仅启动前端，端口 3003    |
-| `pnpm build`                          | 构建共享包和服务端       |
-| `pnpm typecheck`                      | 执行各子项目类型检查     |
-| `pnpm lint`                           | 执行 ESLint 检查         |
-| `pnpm --filter @ai-study/server test` | 执行服务端测试           |
-| `pnpm check:readme`                   | 检查 README 是否需要同步 |
+| 命令                                     | 作用                     |
+| ---------------------------------------- | ------------------------ |
+| `pnpm dev`                               | 同时启动前端和服务端     |
+| `pnpm dev:server`                        | 仅启动服务端，端口 3001  |
+| `pnpm dev:generator`                     | 仅启动前端，端口 3003    |
+| `pnpm --filter @ai-study/server db:init` | 初始化 PostgreSQL 结构   |
+| `pnpm build`                             | 构建共享包和服务端       |
+| `pnpm typecheck`                         | 执行各子项目类型检查     |
+| `pnpm lint`                              | 执行 ESLint 检查         |
+| `pnpm --filter @ai-study/server test`    | 执行服务端测试           |
+| `pnpm check:readme`                      | 检查 README 是否需要同步 |
 
 ## 常见问题
 

@@ -12,9 +12,10 @@ import { logger } from '../logger.js'
 import { recordGuardDecision } from '../../middleware/metrics.js'
 import { withSpan } from '../../observability/tracing.js'
 import { guardToolOutput } from '../guard/toolGuard.js'
+import { isGraphEnabled } from '../graph/runtime.js'
 import { createCommonTools, toFunctionToolDefinitions, type CommonTool } from './index.js'
 
-const TOOL_SYSTEM = `你是工具编排 Agent。根据用户问题决定是否需要调用工具。
+export const TOOL_SYSTEM = `你是工具编排 Agent。根据用户问题决定是否需要调用工具。
 规则：
 1. 当前时间、实时天气、最新新闻、网页内容、外部实时事实，必须调用相应工具，不得凭记忆编造。
 2. 复杂数学计算使用 calculator；用户提供网页地址并要求阅读时使用 fetch_url。
@@ -36,17 +37,27 @@ export interface ToolAgentOutcome {
   steps: ToolExecution[]
   /** true 表示达到工具轮数上限后又做了一次无工具总结。 */
   reachedMaxIterations: boolean
+  /** 图模式下本次运行的 thread_id，用于中断/重启后续跑 */
+  threadId?: string
 }
 
 export interface ToolAgentOptions {
   messages: ChatMessage[]
   feature?: AiFeature
+  /** 覆盖默认 TOOL_SYSTEM（规划等专用 agent 使用） */
+  systemPrompt?: string
   /** 模型档位：工具循环默认走大模型（由 router 决策） */
   tier?: 'small' | 'large'
   tools?: CommonTool[]
   maxIterations?: number
   /** 测试注入模型；生产默认走 GLM Function Calling。 */
   invoke?: (messages: ToolCallMessage[], toolChoice: 'auto' | 'none') => Promise<ToolCallResult>
+  /** 图模式下的会话标识；缺省时按匿名会话处理 */
+  sessionId?: string
+  /** 图模式下的消息标识；缺省时随机生成，仅用于落检查点 */
+  messageId?: string
+  /** 图模式下显式指定 thread_id（恢复时复用） */
+  threadId?: string
 }
 
 /** 默认开启，ENABLE_TOOLS=0 可整体关闭并恢复原有纯模型对话。 */
@@ -68,7 +79,7 @@ const parseArguments = (raw: string): Record<string, unknown> => {
   return parsed as Record<string, unknown>
 }
 
-const executeCall = async (
+export const executeCall = async (
   call: ModelToolCall,
   tools: CommonTool[],
 ): Promise<{ call: ModelToolCall; output: string; step: ToolExecution }> => {
@@ -109,7 +120,16 @@ const executeCall = async (
   }
 }
 
-export const runToolAgent = async (options: ToolAgentOptions): Promise<ToolAgentOutcome> => {
+export interface ResolvedToolAgentDeps {
+  tools: CommonTool[]
+  invoke: (messages: ToolCallMessage[], toolChoice: 'auto' | 'none') => Promise<ToolCallResult>
+  maxIterations: number
+}
+
+/** 解析工具、模型调用与轮数上限；旧循环与工具图共用，保证行为一致 */
+export const resolveToolAgentDeps = (
+  options: Omit<ToolAgentOptions, 'messages'>,
+): ResolvedToolAgentDeps => {
   const tools = options.tools ?? createCommonTools()
   const definitions = toFunctionToolDefinitions(tools)
   const invoke =
@@ -123,8 +143,19 @@ export const runToolAgent = async (options: ToolAgentOptions): Promise<ToolAgent
       ))
   const configuredMax = Number.parseInt(process.env.TOOL_MAX_ITERATIONS || '4', 10) || 4
   const maxIterations = Math.min(6, Math.max(1, options.maxIterations ?? configuredMax))
+  return { tools, invoke, maxIterations }
+}
+
+export const runToolAgent = async (options: ToolAgentOptions): Promise<ToolAgentOutcome> => {
+  // ── 图模式：decide / execute / summarize，每轮落检查点（ENABLE_GRAPH_AGENT=1） ──
+  if (isGraphEnabled('agent')) {
+    const { runToolAgentGraph } = await import('./graph.js')
+    return runToolAgentGraph(options)
+  }
+
+  const { tools, invoke, maxIterations } = resolveToolAgentDeps(options)
   const messages: ToolCallMessage[] = [
-    { role: 'system', content: TOOL_SYSTEM },
+    { role: 'system', content: options.systemPrompt ?? TOOL_SYSTEM },
     ...options.messages,
   ]
   const steps: ToolExecution[] = []

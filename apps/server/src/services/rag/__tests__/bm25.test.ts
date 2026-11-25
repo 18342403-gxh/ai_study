@@ -1,7 +1,7 @@
 /**
  * BM25 单元测试 — tokenize / 纯 TS BM25 打分逻辑
  *
- * BM25 的 bm25Search() 需要真实 SQLite DB（查 chunks 表），
+ * BM25 的 bm25Search() 需要真实 PostgreSQL DB（查 chunks 表），
  * 所以这里不测完整 bm25Search 流程，只测 tokenize 这个纯函数
  * 以及 BM25 打分公式（构造模拟数据）。
  */

@@ -9,11 +9,11 @@
 
 Electron 桌面端是整个项目的**产品化终态**——把"浏览器里的 AI 组件生成器"变成"用户电脑上的独立应用"。
 
-| 维度 | 目标 |
-|------|------|
-| **产品定位** | AI 组件生成器的桌面分发形态，离线可用（除 AI 调用需联网） |
-| **教学定位** | 展示"同一个前后端项目，如何从 Web 形态变成桌面形态" |
-| **复用率** | 前端（generator）100% 复用 · 后端（BFF）100% 复用 · 仅壳层和 preload 新写 |
+| 维度         | 目标                                                                      |
+| ------------ | ------------------------------------------------------------------------- |
+| **产品定位** | AI 组件生成器的桌面分发形态，离线可用（除 AI 调用需联网）                 |
+| **教学定位** | 展示"同一个前后端项目，如何从 Web 形态变成桌面形态"                       |
+| **复用率**   | 前端（generator）100% 复用 · 后端（BFF）100% 复用 · 仅壳层和 preload 新写 |
 
 ### 与其他子项目的关系
 
@@ -21,7 +21,7 @@ Electron 桌面端是整个项目的**产品化终态**——把"浏览器里的
 ┌──────────────────────────────────────────────────────────┐
 │                    apps/                                 │
 │                                                          │
-│  server/  ──  Express + LangChain + SQLite/PG            │
+│  server/  ──  Express + LangChain + PostgreSQL           │
 │  (BFF)         100% 被桌面端复用（内嵌启动）               │
 │                                                          │
 │  generator/ ── Nuxt 3 SSR                                │
@@ -58,12 +58,12 @@ Electron 桌面端是整个项目的**产品化终态**——把"浏览器里的
 └───────────────────────────────────────────────────────────┘
 ```
 
-| 维度 | 评估 |
-|------|------|
-| 复用率 | ⭐⭐⭐⭐⭐ 前后端 100% 复用 |
-| 独立性 | ⭐⭐⭐⭐⭐ 完全自包含，不依赖外部服务 |
-| 复杂度 | ⭐⭐⭐ 需要处理进程间通信和生命周期 |
-| 教学价值 | ⭐⭐⭐⭐⭐ 展示 Electron 如何包裹已有项目 |
+| 维度     | 评估                                             |
+| -------- | ------------------------------------------------ |
+| 复用率   | ⭐⭐⭐⭐⭐ 前后端 100% 复用                      |
+| 独立性   | ⭐⭐⭐⭐⭐ 完全自包含，不依赖外部服务            |
+| 复杂度   | ⭐⭐⭐ 需要处理进程间通信和生命周期              |
+| 教学价值 | ⭐⭐⭐⭐⭐ 展示 Electron 如何包裹已有项目        |
 | 打包体积 | ⭐⭐ 较大（Electron runtime ~100MB + Node 依赖） |
 
 ### 方案 B：薄壳模式（BFF 独立运行）
@@ -79,13 +79,13 @@ Electron 桌面端是整个项目的**产品化终态**——把"浏览器里的
 └─────────────────────────────────────┘
 ```
 
-| 维度 | 评估 |
-|------|------|
-| 复用率 | ⭐⭐⭐⭐⭐ 前后端 100% 复用 |
-| 独立性 | ⭐⭐ 不能独立运行，用户需手动启动 server 和 generator |
-| 复杂度 | ⭐⭐⭐⭐⭐ 最简单 |
-| 教学价值 | ⭐⭐⭐ 一般，壳层太薄 |
-| 适用场景 | 开发调试阶段 |
+| 维度     | 评估                                                  |
+| -------- | ----------------------------------------------------- |
+| 复用率   | ⭐⭐⭐⭐⭐ 前后端 100% 复用                           |
+| 独立性   | ⭐⭐ 不能独立运行，用户需手动启动 server 和 generator |
+| 复杂度   | ⭐⭐⭐⭐⭐ 最简单                                     |
+| 教学价值 | ⭐⭐⭐ 一般，壳层太薄                                 |
+| 适用场景 | 开发调试阶段                                          |
 
 ### 方案 C：纯 IPC 模式（绕过 HTTP）
 
@@ -103,17 +103,18 @@ Electron 桌面端是整个项目的**产品化终态**——把"浏览器里的
 └──────────────────────────────────────┘
 ```
 
-| 维度 | 评估 |
-|------|------|
-| 复用率 | ⭐ 需要重写所有路由层为 IPC handlers |
-| 独立性 | ⭐⭐⭐⭐⭐ 完全自包含 |
-| 复杂度 | ⭐⭐⭐⭐ 需要维护两套接口（HTTP + IPC） |
-| 教学价值 | ⭐⭐ 会让项目架构变得分裂 |
+| 维度       | 评估                                      |
+| ---------- | ----------------------------------------- |
+| 复用率     | ⭐ 需要重写所有路由层为 IPC handlers      |
+| 独立性     | ⭐⭐⭐⭐⭐ 完全自包含                     |
+| 复杂度     | ⭐⭐⭐⭐ 需要维护两套接口（HTTP + IPC）   |
+| 教学价值   | ⭐⭐ 会让项目架构变得分裂                 |
 | 数据一致性 | ❌ Web 端和桌面端接口不同，行为可能不一致 |
 
 ### 推荐方案：**方案 A（内嵌 BFF + 内嵌前端）**
 
 核心理由：
+
 1. **教学一致性**——Web 端和桌面端走同一套 HTTP API，行为完全一致，学习者不会困惑
 2. **零接口维护**——BFF 的路由、中间件、错误处理、限流……全部原生复用，不需要维护一套 IPC handlers
 3. **自包含体验**——用户双击桌面图标即可使用，不需要理解"先启动 server"
@@ -226,7 +227,7 @@ let mainWindow: BrowserWindow
 app.whenReady().then(async () => {
   // ① 启动 BFF（apps/server）
   serverProc = spawnServer()
-  serverPort = await waitForServerReady(serverProc, 3001)  // 等待 /api/health
+  serverPort = await waitForServerReady(serverProc, 3001) // 等待 /api/health
 
   // ② 启动前端（apps/generator），注入 BFF 端口
   generatorProc = spawnGenerator({ SERVER_PORT: serverPort })
@@ -241,8 +242,8 @@ app.whenReady().then(async () => {
     height: 800,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,      // ✅ 安全边界
-      nodeIntegration: false,       // ✅ 渲染进程不能直接 require('electron')
+      contextIsolation: true, // ✅ 安全边界
+      nodeIntegration: false, // ✅ 渲染进程不能直接 require('electron')
     },
   })
 
@@ -269,8 +270,7 @@ contextBridge.exposeInMainWorld('desktop', {
    * 让用户选择一个本地目录
    * 用途：导入本地组件库、选择导出目录
    */
-  chooseDirectory: () =>
-    ipcRenderer.invoke('desktop:chooseDirectory'),
+  chooseDirectory: () => ipcRenderer.invoke('desktop:chooseDirectory'),
 
   /**
    * 保存文件到本地（弹保存对话框）
@@ -283,62 +283,51 @@ contextBridge.exposeInMainWorld('desktop', {
    * 在系统默认浏览器打开外部链接
    * 用途：查看文档、反馈问题
    */
-  openExternal: (url: string) =>
-    ipcRenderer.invoke('desktop:openExternal', url),
+  openExternal: (url: string) => ipcRenderer.invoke('desktop:openExternal', url),
 
   /**
    * 获取桌面应用信息
    * 用途：版本号展示、调试
    */
-  getAppInfo: () =>
-    ipcRenderer.invoke('desktop:getAppInfo'),
+  getAppInfo: () => ipcRenderer.invoke('desktop:getAppInfo'),
 
   /**
    * 设置 API Key（从渲染进程 → 主进程 → server 子进程）
    * 用途：用户在桌面端设置 API Key，写入 app.getPath('userData')/.env
    */
-  setApiKey: (key: string) =>
-    ipcRenderer.invoke('server:setApiKey', key),
+  setApiKey: (key: string) => ipcRenderer.invoke('server:setApiKey', key),
 })
 ```
 
 **设计约束**：
+
 - preload 是唯一能让渲染进程访问 Electron 能力的入口
 - 渲染进程**永远不能**直接 `import 'electron'` 或 `require('electron')`
 - 所有 IPC 通信必须用 `ipcRenderer.invoke()`（request-response 模式），避免 fire-and-forget 丢失消息
 - 频道名统一用命名空间前缀（`desktop:` / `server:`），避免冲突
 
-### 3.5 数据层策略（与数据库选型的衔接）
+### 3.5 数据层策略
 
-#### SQLite 阶段（当前）
+桌面端统一依赖外部 PostgreSQL + pgvector，不再内嵌数据库文件。可使用本机或远程实例：
 
-```
-开发期：apps/server/data/knowledge.db
-生产期：app.getPath('userData')/data/knowledge.db
-       ↑ Electron 自动隔离的用户数据目录
-```
+| 形态        | 数据库位置                         | 适用场景       |
+| ----------- | ---------------------------------- | -------------- |
+| **本地 PG** | 用户电脑上的 PostgreSQL + pgvector | 数据保留在本机 |
+| **远程 PG** | 云端 PostgreSQL + pgvector         | 多设备共享数据 |
 
-**关键适配点**：server 子进程启动时，通过环境变量注入 db 路径：
+开发模式从 `apps/server/.env` 读取 `DATABASE_URL`；生产模式从 `app.getPath('userData')/.env` 或 `SERVER_ENV_FILE` 指定的文件读取。主进程只透传连接配置，服务端在未配置或无法连接时拒绝启动：
+
 ```typescript
 // spawnServer.ts
 spawn('node', ['dist/index.js'], {
   env: {
     ...process.env,
-    DB_PATH: path.join(app.getPath('userData'), 'data', 'knowledge.db'),
+    DATABASE_URL: serverEnv.DATABASE_URL,
   },
 })
 ```
 
-#### PostgreSQL 阶段（未来切换后）
-
-两种部署形态：
-
-| 形态 | 数据库位置 | 适用场景 |
-|------|-----------|---------|
-| **本地 PG** | 用户电脑上 docker run postgres | 离线可用、数据不外传 |
-| **远程 PG** | 云端 PostgreSQL + pgvector | 多设备同步、无需用户装 PG |
-
-**推荐**：先做远程 PG（云托管），Electron 端通过 `SERVER_URL` 环境变量指向云端 BFF；后期再做本地 PG 模式（需要安装引导）。
+部署或多实例启动前先对目标库执行一次 `pnpm --filter @ai-study/server db:init`，再启动各 BFF 实例。
 
 #### API Key 存储
 
@@ -370,7 +359,7 @@ Electron 主进程          server 子进程         generator 子进程        
     │                        │                      │    ← 用户操作 →     │
     │                        │◀── HTTP /api/xxx ────│◀── fetch('/api') ─│
     │                        │── LangChain 处理     │                    │
-    │                        │── SQLite/PG 查询     │                    │
+    │                        │── PostgreSQL 查询    │                    │
     │                        │── SSE 响应 ──────────│── SSE 流 ─────────▶│
 ```
 
@@ -380,34 +369,37 @@ Electron 主进程          server 子进程         generator 子进程        
 
 > 以下每条都来自真实踩过的坑，**必须遵守**，否则会导致难以排查的问题。
 
-### 约束 1：数据库路径硬编码 = 定时炸弹 ❌
+### 约束 1：必须显式配置 PostgreSQL
 
-| 踩坑 | 表现 | 根因 |
-|------|------|------|
-| SQLITE_NOTADB 报错 | 启动时 db.prepare() 抛异常 | db 路径指向了非 SQLite 文件（可能是 `.gitkeep` 或之前打包残留） |
-| 生产环境数据丢失 | 升级应用后旧数据找不到 | 开发期硬编码 `./data/knowledge.db`，生产期这个路径不存在 |
+| 问题           | 表现                     | 根因                                      |
+| -------------- | ------------------------ | ----------------------------------------- |
+| 服务端拒绝启动 | 子进程退出并输出配置错误 | 未配置 `DATABASE_URL` 或目标库不可达      |
+| 向量检索不可用 | 初始化或服务探针失败     | 目标库未安装 pgvector，或未执行 `db:init` |
 
-**✅ 正确做法**：
+正确做法：
+
 ```typescript
-// 永远通过环境变量传入 db 路径
-const DB_PATH = process.env.DB_PATH ?? path.join(__dirname, 'data', 'knowledge.db')
+const databaseUrl = process.env.DATABASE_URL
+if (!databaseUrl) throw new Error('DATABASE_URL is required')
 
-// Electron 主进程 spawn server 时注入
+// Electron 主进程 spawn server 时透传
 spawn('node', ['dist/index.js'], {
   env: {
-    DB_PATH: path.join(app.getPath('userData'), 'data', 'knowledge.db'),
+    ...process.env,
+    DATABASE_URL: databaseUrl,
   },
 })
 ```
 
 ### 约束 2：渲染进程不能直接碰 Node/Electron ❌
 
-| 踩坑 | 表现 | 根因 |
-|------|------|------|
-| webpack/vite 打包崩溃 | `Cannot find module 'electron'` | 渲染层代码里直接 `import { ipcRenderer } from 'electron'`，被打包器当作浏览器依赖解析 |
-| require is not defined | 浏览器预览正常但 Electron 里报错 | `nodeIntegration: false` 下渲染进程没有 Node API |
+| 踩坑                   | 表现                             | 根因                                                                                  |
+| ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------- |
+| webpack/vite 打包崩溃  | `Cannot find module 'electron'`  | 渲染层代码里直接 `import { ipcRenderer } from 'electron'`，被打包器当作浏览器依赖解析 |
+| require is not defined | 浏览器预览正常但 Electron 里报错 | `nodeIntegration: false` 下渲染进程没有 Node API                                      |
 
 **✅ 正确做法**：
+
 ```
 ❌ 渲染进程里：import { ipcRenderer } from 'electron'
 ✅ 渲染进程里：window.desktop.saveFile('test.vue', code)
@@ -416,12 +408,13 @@ spawn('node', ['dist/index.js'], {
 
 ### 约束 3：IPC 通信必须走 preload 桥接 ❌
 
-| 踩坑 | 表现 | 根因 |
-|------|------|------|
+| 踩坑         | 表现                                        | 根因                      |
+| ------------ | ------------------------------------------- | ------------------------- |
 | 安全边界混乱 | 每个组件自己写 `window.require('electron')` | 没有统一的 preload 暴露层 |
-| 调试困难 | 谁都能发 IPC 消息，日志满天飞 | 没有命名空间，频道名冲突 |
+| 调试困难     | 谁都能发 IPC 消息，日志满天飞               | 没有命名空间，频道名冲突  |
 
 **✅ 正确做法**：
+
 ```
 1. 所有 Electron 能力只在 preload/index.ts 暴露一次
 2. 频道名必须加命名空间前缀：desktop:*、server:*
@@ -431,12 +424,13 @@ spawn('node', ['dist/index.js'], {
 
 ### 约束 4：进程退出必须优雅清理 ❌
 
-| 踩坑 | 表现 | 根因 |
-|------|------|------|
-| 应用卡死在退出 | 进程关了但服务器还占着端口 | 子进程没收到 SIGTERM，主进程直接 exit |
-| 数据库 WAL 文件损坏 | 强制 kill 导致 SQLite WAL 没刷盘 | 退出太快，没等 WAL checkpoint 完成 |
+| 踩坑             | 表现                       | 根因                                  |
+| ---------------- | -------------------------- | ------------------------------------- |
+| 应用卡死在退出   | 进程关了但服务器还占着端口 | 子进程没收到 SIGTERM，主进程直接 exit |
+| 数据库连接未释放 | 强制 kill 后连接短暂残留   | 没等服务端关闭检查点和业务连接池      |
 
 **✅ 正确做法**：
+
 ```typescript
 // 1. 主进程监听所有退出事件
 app.on('before-quit', () => gracefulShutdown())
@@ -447,22 +441,20 @@ async function gracefulShutdown() {
   serverProc?.kill('SIGTERM')
   generatorProc?.kill('SIGTERM')
 
-  // 给 server 时间完成 WAL checkpoint
-  await Promise.race([
-    Promise.all([waitExit(serverProc), waitExit(generatorProc)]),
-    sleep(10000),
-  ])
+  // 给 server 时间关闭 PostgreSQL 检查点与业务连接池
+  await Promise.race([Promise.all([waitExit(serverProc), waitExit(generatorProc)]), sleep(10000)])
 }
 ```
 
 ### 约束 5：API Key 不能写死在源码里 ❌
 
-| 踩坑 | 表现 | 根因 |
-|------|------|------|
-| git history 泄露 | API Key 被提交到 git | 开发期图省事写在 .env 忘了 .gitignore |
-| 打包进 asar | 解压 asar 就能看到 Key | Electron 打包把 .env 塞进了 asar 文件 |
+| 踩坑             | 表现                   | 根因                                  |
+| ---------------- | ---------------------- | ------------------------------------- |
+| git history 泄露 | API Key 被提交到 git   | 开发期图省事写在 .env 忘了 .gitignore |
+| 打包进 asar      | 解压 asar 就能看到 Key | Electron 打包把 .env 塞进了 asar 文件 |
 
 **✅ 正确做法**：
+
 ```
 1. 开发期：.env 文件 + .gitignore 排除（当前已有）
 2. 生产期：API Key 存储在 app.getPath('userData') 下，不进 asar
@@ -480,14 +472,14 @@ apps/desktop/           复用来源                     复用率
 src/main/index.ts       Electron 框架本身（独立新写）      0%
 src/main/spawnServer.ts spawn apps/server 子进程          100%（server 代码零修改）
 src/preload/index.ts    Electron preload（独立新写）       0%
-                                                      
+
 渲染进程 →              apps/generator/                 100%
   HTTP /api/chat          apps/server/routes/chat.ts    100%
   HTTP /api/rag/xxx       apps/server/routes/rag.ts     100%
   HTTP /api/agent/xxx     apps/server/routes/agent.ts   100%
   HTTP /api/generator/xxx apps/server/routes/generator.ts 100%
   LangChain services      apps/server/services/*        100%
-  SQLite / (未来 PG)      apps/server/src/db/index.ts   适配路径即可
+  PostgreSQL + pgvector  apps/server/src/db/index.ts   100%
   shared types            packages/shared               100%
 
 window.desktop.xxx      Electron 原生能力（新写）          0%
@@ -508,13 +500,13 @@ Phase 1：Electron 最小壳（仅主进程 + preload）
   ├── 创建 src/main/index.ts（加载现有 :3003）
   ├── 创建 src/preload/index.ts（基础 expose）
   ├── 验证：Electron 窗口能显示 generator
-  └── 数据库：临时用开发期路径（先跑通）
+  └── 数据库：配置开发环境 DATABASE_URL
 
 Phase 2：内嵌 BFF（方案 A 完整形态）
   ├── spawnServer.ts：fork apps/server
   ├── spawnGenerator.ts：fork apps/generator
-  ├── 数据库路径：app.getPath('userData') 适配
-  ├── 优雅退出：SIGTERM + WAL checkpoint 等待
+  ├── 数据库配置：从 userData/.env 读取 DATABASE_URL
+  ├── 优雅退出：SIGTERM + PostgreSQL 连接池关闭等待
   └── 验证：双击 Electron 图标 → 自动启动 server → 自动加载前端
 
 Phase 3：桌面特有功能
@@ -524,10 +516,9 @@ Phase 3：桌面特有功能
   ├── 自动更新（electron-updater）
   └── 打包（electron-builder + 代码签名）
 
-Phase 4：数据库升级（与 Web 端同步）
-  ├── 先切换 server 端：SQLite → Drizzle ORM（不改存储引擎）
-  ├── 再切换存储引擎：SQLite → PostgreSQL（本地或远程）
-  ├── Electron 端只需改环境变量，主进程代码零修改
+Phase 4：统一数据库（与 Web 端同步，已完成）
+  ├── server 端统一 Drizzle ORM + PostgreSQL + pgvector
+  ├── Electron 透传 DATABASE_URL，不内嵌数据库文件
   └── pgvector 向量检索对桌面端透明（全在 server 内部）
 ```
 

@@ -36,9 +36,9 @@ A **deterministic state machine** with 6 phases, each with mandatory gates. The 
 
 收到启动命令后，**立即执行以下 3 步**：
 
-1. **`node skill/scripts/state.js init <project-name>`** — 创建 `.workflow-state.json`
+1. **`node .trae/skills/fullstack-builder/scripts/state.js init <project-name>`** — 创建 `.workflow-state.json`
 2. 输出 Phase 1 的 Actions 清单，开始执行
-3. 每完成一个 gate，运行 `node skill/scripts/state.js pass <gate-slug>` 标记通过并输出进度
+3. 每完成一个 gate，运行 `node .trae/skills/fullstack-builder/scripts/state.js pass <gate-slug>` 标记通过并输出进度
 
 **所有脚本都在 `.trae/skills/fullstack-builder/scripts/` 目录下，零依赖，纯 Node.js。**
 

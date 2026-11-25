@@ -12,7 +12,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 
-import { asyncHandler, validate } from '../middleware/index.js'
+import { asyncHandler, validate, requireUser } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
 import { searchAll } from '../services/search/searchAll.js'
 import { formatDateTime, getLocalTimezone } from '../services/extract/timeParse.js'
@@ -43,11 +43,12 @@ router.post(
   validate({ body: searchSchema }),
   asyncHandler(async (req, res) => {
     const body = searchSchema.parse(req.body)
+    const user = requireUser(req)
     const timezone = getLocalTimezone()
 
     const outcome = await searchAll({
       query: body.query,
-      libraryId: body.libraryId,
+      libraryId: user.libraryId,
       timezone,
       timeRange: body.timeRange,
       includeArchived: body.includeArchived,
@@ -55,7 +56,7 @@ router.post(
     })
 
     logger.info('search.route', 'POST / 完成', {
-      libraryId: body.libraryId,
+      libraryId: user.libraryId,
       resultCount: outcome.results.length,
       empty: outcome.empty,
       understandingSource: outcome.understanding.source,
@@ -64,7 +65,7 @@ router.post(
     res.json({
       ok: true,
       query: body.query,
-      libraryId: body.libraryId,
+      libraryId: user.libraryId,
       understanding: {
         needsPersonalContext: outcome.understanding.needsPersonalContext,
         timeRange: outcome.understanding.timeRange,

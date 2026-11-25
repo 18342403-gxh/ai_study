@@ -2,7 +2,7 @@
 /**
  * 评测跑批 — spec 4.11.3
  *
- *   pnpm eval                 全量 20 条用例（真实 LLM + 独立临时 SQLite）
+ *   pnpm eval                 全量 20 条用例（真实 LLM + 独立 PostgreSQL 测试库）
  *   pnpm eval -- --no-judge   跳过 LLM 裁判（幻觉率/引用准确率按满分处理）
  *   pnpm eval -- --only=time  只跑某类（按 id 前缀过滤，如 time / miss / degraded）
  *
@@ -13,20 +13,12 @@
 
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// ── 0. 隔离 DB：必须在任何 src import 之前设置（db 模块读 DB_PATH） ──
-const tmpDb = path.join(os.tmpdir(), `kb-eval-${process.pid}.db`)
-for (const suffix of ['', '-wal', '-shm']) {
-  try {
-    fs.rmSync(tmpDb + suffix, { force: true })
-  } catch {
-    /* ignore */
-  }
-}
-process.env.DB_PATH = tmpDb
+// ── 0. 隔离 DB：必须在任何 src import 之前设置 ──
+process.env.DATABASE_URL =
+  process.env.TEST_DATABASE_URL ?? 'postgresql://ai_study:123456@localhost:5432/ai_study_test'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -69,7 +61,7 @@ interface CaseResult {
   citationMismatch: string[] | null
 }
 
-/** 动态 import 的服务集合（DB_PATH 设置完成后才能加载） */
+/** 动态 import 的服务集合（DATABASE_URL 设置完成后才能加载） */
 type Deps = Record<string, any>
 
 // ── 时间解析（与用例 JSON 的相对偏移一致，保证用例永不过期） ──
@@ -277,13 +269,14 @@ const main = async (): Promise<number> => {
   const noJudge = args.includes('--no-judge')
   const only = args.find((a) => a.startsWith('--only='))?.slice(7)
 
-  const { initDatabase, getDb, tables } = await import('../../src/db/index.js')
+  const { resetTestDatabase } = await import('../helpers/db.js')
+  const { getDb, tables } = await import('../../src/db/index.js')
   const { searchAll } = await import('../../src/services/search/searchAll.js')
   const { generateAnswer } = await import('../../src/services/answer/generate.js')
   const { syncEntryEmbedding } = await import('../../src/services/search/entryIndex.js')
   const { createChatChain } = await import('../../src/services/chain/chatChain.js')
 
-  await initDatabase()
+  await resetTestDatabase()
   const deps: Deps = {
     db: getDb(),
     tables,
@@ -298,7 +291,7 @@ const main = async (): Promise<number> => {
   }
   const cases = casesFile.cases.filter((c) => !only || c.id.startsWith(only))
   console.log(
-    `\n[v5-eval] 用例 ${cases.length} 条，临时库 ${tmpDb}，judge=${noJudge ? 'off' : 'on'}\n`,
+    `\n[v5-eval] 用例 ${cases.length} 条，测试库 ${new URL(process.env.DATABASE_URL).pathname.slice(1)}，judge=${noJudge ? 'off' : 'on'}\n`,
   )
 
   const results: CaseResult[] = []
@@ -335,8 +328,14 @@ const main = async (): Promise<number> => {
 }
 
 main()
-  .then((code) => process.exit(code))
-  .catch((err) => {
+  .then(async (code) => {
+    const { closeTestDatabase } = await import('../helpers/db.js')
+    await closeTestDatabase()
+    process.exit(code)
+  })
+  .catch(async (err) => {
     console.error('[v5-eval] 运行失败', err)
+    const { closeTestDatabase } = await import('../helpers/db.js')
+    await closeTestDatabase().catch(() => {})
     process.exit(1)
   })

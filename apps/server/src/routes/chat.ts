@@ -7,7 +7,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
@@ -18,7 +18,7 @@ import { generateAnswer } from '../services/answer/generate.js'
 import { getLocalTimezone } from '../services/extract/timeParse.js'
 import { searchAll } from '../services/search/searchAll.js'
 import { condensateQuery } from '../services/search/condensateQuery.js'
-import { validate, asyncHandler, createError } from '../middleware/index.js'
+import { validate, asyncHandler, createError, requireUser } from '../middleware/index.js'
 
 const router = Router()
 
@@ -51,6 +51,7 @@ router.post(
   validate({ body: chatAskSchema }),
   asyncHandler(async (req, res) => {
     const body = chatAskSchema.parse(req.body)
+    const user = requireUser(req)
     const timezone = getLocalTimezone()
     const db = getDb()
 
@@ -58,7 +59,7 @@ router.post(
       const rows = await db
         .select({ id: tables.sessions.id })
         .from(tables.sessions)
-        .where(eq(tables.sessions.id, body.sessionId))
+        .where(and(eq(tables.sessions.id, body.sessionId), eq(tables.sessions.userId, user.id)))
         .limit(1)
       if (!rows[0]) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
     }
@@ -104,7 +105,7 @@ router.post(
 
     const search = await searchAll({
       query: searchQuery,
-      libraryId: body.libraryId,
+      libraryId: user.libraryId,
       timezone,
     })
     const answer = await generateAnswer({
@@ -136,11 +137,11 @@ router.post(
           role: 'assistant',
           content: answer.reply,
           citations: answer.citations as unknown as Record<string, unknown>[],
-          metadata: JSON.stringify({
+          metadata: {
             missing: answer.missing,
             degraded: answer.degraded,
             degradedReason: answer.degradedReason,
-          }),
+          },
           createdAt: new Date(now.getTime() + 1),
         },
       ])

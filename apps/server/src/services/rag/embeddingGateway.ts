@@ -132,7 +132,7 @@ async function probeRealEmbedding(): Promise<boolean> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model, input: PROBE_TEXT }),
+      body: JSON.stringify({ model, input: PROBE_TEXT, dimensions: EMBEDDING_DIM }),
       signal: AbortSignal.timeout(Math.min(EMBEDDING_TIMEOUT_MS, 5_000)),
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -212,7 +212,7 @@ const getEmbeddingWithMetaInner = async (text: string): Promise<EmbeddingWithMet
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model, input: text }),
+      body: JSON.stringify({ model, input: text, dimensions: EMBEDDING_DIM }),
       signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
     })
 

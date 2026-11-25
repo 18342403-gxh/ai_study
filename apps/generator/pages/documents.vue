@@ -35,20 +35,6 @@
         </p>
       </div>
 
-      <!-- 各格式的解析能力说明 -->
-      <div class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <div
-          v-for="format in DOCUMENT_FORMATS"
-          :key="format.key"
-          class="px-3 py-2 rounded-lg bg-slate-50 text-[11px] text-slate-500"
-        >
-          <span class="mr-1.5 px-1 rounded text-[10px] font-medium" :class="format.badgeClass">{{
-            format.badge
-          }}</span>
-          {{ format.hint }}
-        </div>
-      </div>
-
       <p
         v-if="notice"
         class="mb-3 text-xs"
@@ -62,7 +48,6 @@
       <div v-else-if="rows.length === 0" class="mt-16 text-center">
         <BookOpen class="w-10 h-10 mx-auto text-slate-300" />
         <p class="mt-3 text-sm text-slate-500">还没有上传文档</p>
-        <p class="mt-1 text-xs text-slate-400">上传后可以直接在对话里提问，或提取为记录</p>
       </div>
 
       <ul v-else class="space-y-2">
@@ -131,7 +116,7 @@
           <h3 class="text-sm font-medium text-slate-700">
             《{{ extractedDocName }}》提取出 {{ cards.length }} 条
           </h3>
-          <button class="text-xs text-slate-400 hover:text-slate-600" @click="cards = []">
+          <button class="text-xs text-slate-400 hover:text-slate-600" @click="collapseCards">
             收起
           </button>
         </div>
@@ -143,7 +128,7 @@
             :state="item.state"
             :saving="item.saving"
             @confirm="(payload) => confirmCard(item, payload)"
-            @ignore="item.state = 'ignored'"
+            @ignore="ignoreCard(item)"
             @edit="item.state = 'editing'"
             @cancel="item.state = 'pending'"
           />
@@ -164,10 +149,11 @@ import {
   type CreateEntryPayload,
   type DocumentRow,
   type EntryCard as EntryCardData,
+  type ExtractDraftResponse,
+  type ExtractResumeResponse,
 } from '~/utils/api'
 import {
   checkFile,
-  DOCUMENT_FORMATS,
   DOC_ACCEPT,
   DOC_LIST_HINT,
   documentBadge,
@@ -182,6 +168,10 @@ interface DocExtractResponse {
   docId: string
   docName: string
   entries: EntryCardData[]
+  /** 图模式：草稿 thread id（确认走 resume） */
+  threadId?: string | null
+  draftId?: string | null
+  interrupted?: boolean
 }
 
 interface CardItem {
@@ -190,6 +180,13 @@ interface CardItem {
   state: 'pending' | 'editing' | 'confirmed' | 'ignored'
   saving: boolean
 }
+
+interface PendingDocDraft {
+  threadId: string
+  docName: string
+}
+
+const PENDING_DOC_EXTRACT_KEY = 'ai-study:pending-doc-extract'
 
 const rows = ref<DocumentRow[]>([])
 const loading = ref(true)
@@ -203,6 +200,8 @@ const noticeError = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const cards = ref<CardItem[]>([])
 const extractedDocName = ref('')
+/** 图模式下未确认文档草稿的 thread id，确认时走 resume */
+const draftThreadId = ref<string | null>(null)
 
 const readyCount = computed(() => rows.value.filter((d) => d.status === 'ready').length)
 
@@ -216,6 +215,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  void restorePendingDraft()
 })
 
 const setNotice = (text: string, isError = false) => {
@@ -384,12 +384,19 @@ const extract = async (doc: DocumentRow) => {
   try {
     const res = await apiPost<DocExtractResponse>(`/api/documents/${doc.id}/extract`, {}, 90_000)
     extractedDocName.value = res.docName
+    draftThreadId.value = res.threadId ?? null
     cards.value = res.entries.map((card, index) => ({
-      key: `${index}-${card.title}`,
+      key: card.key ?? `${index}-${card.title}`,
       card,
       state: 'pending',
       saving: false,
     }))
+    if (draftThreadId.value) {
+      localStorage.setItem(
+        PENDING_DOC_EXTRACT_KEY,
+        JSON.stringify({ threadId: draftThreadId.value, docName: res.docName }),
+      )
+    }
     if (cards.value.length === 0) setNotice('这篇文档没有可提取的记录。')
   } catch (e) {
     setNotice(`提取失败：${(e as Error).message}`, true)
@@ -398,9 +405,88 @@ const extract = async (doc: DocumentRow) => {
   }
 }
 
+// ── 草稿确认：图模式走 resume，旧模式直接写 entries ──
+
+type ResumeAction = 'skip' | 'merge' | 'create'
+
+interface ResumeEdit {
+  key: string
+  action: ResumeAction
+  entryId?: string
+  payload: {
+    type: EntryCardData['type']
+    title: string
+    content: string
+    startAt: number | null
+    endAt: number | null
+    recurrence: EntryCardData['recurrence']
+    confidence?: number
+  }
+}
+
+const toResumePayload = (payload: CreateEntryPayload): ResumeEdit['payload'] => ({
+  type: payload.type,
+  title: payload.title,
+  content: payload.content,
+  startAt: payload.startAt ?? null,
+  endAt: payload.endAt ?? null,
+  recurrence: payload.recurrence ?? null,
+  confidence: payload.confidence,
+})
+
+const cardResumePayload = (card: EntryCardData): ResumeEdit['payload'] => ({
+  type: card.type,
+  title: card.title,
+  content: card.content,
+  startAt: card.time?.start ?? null,
+  endAt: card.time?.end ?? null,
+  recurrence: card.recurrence,
+  confidence: card.confidence,
+})
+
+/** 卡片当前对应的处理动作（编辑态一律按新建处理） */
+const resumeActionFor = (item: CardItem): ResumeAction => {
+  const dup = item.card.duplicate
+  if (item.state !== 'editing' && dup?.action === 'skip') return 'skip'
+  if (item.state !== 'editing' && dup?.action === 'merge' && dup.entryId) return 'merge'
+  return 'create'
+}
+
+const toResumeEdit = (item: CardItem, payload: ResumeEdit['payload']): ResumeEdit => {
+  const action = resumeActionFor(item)
+  return {
+    key: item.key,
+    action,
+    entryId: action === 'merge' ? item.card.duplicate?.entryId : undefined,
+    payload,
+  }
+}
+
+/** 草稿处理完成：清掉 thread 与本地记录 */
+const clearPendingDraft = () => {
+  draftThreadId.value = null
+  localStorage.removeItem(PENDING_DOC_EXTRACT_KEY)
+}
+
+const applyResumeResponse = (response: ExtractResumeResponse) => {
+  if (response.done || !response.interrupted) clearPendingDraft()
+}
+
 const confirmCard = async (item: CardItem, payload: CreateEntryPayload) => {
   item.saving = true
   try {
+    // 图模式：确认动作提交给抽取图，由 commit 节点统一入库
+    if (draftThreadId.value) {
+      const response = await apiPost<ExtractResumeResponse>(
+        `/api/extract/${encodeURIComponent(draftThreadId.value)}/resume`,
+        { cards: [toResumeEdit(item, toResumePayload(payload))] },
+        75_000,
+      )
+      item.state = 'confirmed'
+      applyResumeResponse(response)
+      return
+    }
+
     const dup = item.card.duplicate
     const isEditing = item.state === 'editing'
 
@@ -426,6 +512,58 @@ const confirmCard = async (item: CardItem, payload: CreateEntryPayload) => {
     setNotice(`入库失败：${(e as Error).message}`, true)
   } finally {
     item.saving = false
+  }
+}
+
+/** 忽略：图模式下同步告知后端跳过，避免刷新后草稿又出现 */
+const ignoreCard = async (item: CardItem) => {
+  item.state = 'ignored'
+  if (!draftThreadId.value) return
+
+  item.saving = true
+  try {
+    const response = await apiPost<ExtractResumeResponse>(
+      `/api/extract/${encodeURIComponent(draftThreadId.value)}/resume`,
+      {
+        cards: [{ key: item.key, action: 'skip', payload: cardResumePayload(item.card) }],
+      },
+      75_000,
+    )
+    applyResumeResponse(response)
+  } catch (e) {
+    setNotice(`忽略失败：${(e as Error).message}`, true)
+  } finally {
+    item.saving = false
+  }
+}
+
+/** 收起结果区：同时放弃未确认草稿，避免下次进入页面又弹出来 */
+const collapseCards = () => {
+  cards.value = []
+  clearPendingDraft()
+}
+
+/** 进入页面时恢复上次未确认的文档草稿 */
+const restorePendingDraft = async () => {
+  const raw = localStorage.getItem(PENDING_DOC_EXTRACT_KEY)
+  if (!raw) return
+
+  try {
+    const pending = JSON.parse(raw) as PendingDocDraft
+    const draft = await apiGet<ExtractDraftResponse>(
+      `/api/extract/${encodeURIComponent(pending.threadId)}`,
+    )
+    draftThreadId.value = pending.threadId
+    extractedDocName.value = pending.docName
+    cards.value = draft.cards.map((card, index) => ({
+      key: card.key ?? `${index}-${card.title}`,
+      card,
+      state: 'pending',
+      saving: false,
+    }))
+  } catch {
+    // 草稿已完成或已过期：清掉本地记录即可
+    localStorage.removeItem(PENDING_DOC_EXTRACT_KEY)
   }
 }
 

@@ -18,6 +18,7 @@ import {
   doublePrecision,
   jsonb,
   timestamp,
+  vector,
   check,
   foreignKey,
   index,
@@ -70,9 +71,7 @@ export const chunks = app.table(
     content: text('content').notNull(),
     tokenCount: integer('token_count'),
     /** pgvector: 1536 维 embedding（兼容智谱 embedding-3） */
-    // 注意：pgvector 类型需要在运行时注入，这里用 text 作为声明占位
-    // 实际建表时会被 pgvector 扩展替换为 vector(1536)
-    embedding: text('embedding'),
+    embedding: vector('embedding', { dimensions: 1536 }),
     /** 向量血缘：real=真实 API，hash=降级伪向量 */
     embeddingType: varchar('embedding_type', { length: 16 }).notNull().default('real'),
     /** 生成该向量的模型名 */
@@ -92,6 +91,7 @@ export const chunks = app.table(
 // ─────────────────────────────────────────
 export const sessions = app.table('sessions', {
   id: uuid('id').defaultRandom().primaryKey(),
+  userId: varchar('user_id', { length: 64 }).notNull().default('local'),
   title: varchar('title', { length: 256 }).notNull().default('新对话'),
   model: varchar('model', { length: 64 }).notNull().default('glm-4-flash'),
   systemPrompt: text('system_prompt'),
@@ -170,13 +170,13 @@ export const entries = app.table(
 )
 
 // ─────────────────────────────────────────
-// 6. entry_embeddings — 条目向量（pgvector 装好后 embedding 改 vector(1536)）
+// 6. entry_embeddings — 条目向量
 // ─────────────────────────────────────────
 export const entryEmbeddings = app.table(
   'entry_embeddings',
   {
     entryId: uuid('entry_id').primaryKey(),
-    embedding: text('embedding').notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
     model: varchar('model', { length: 128 }).notNull(),
     /** 向量血缘：real=真实 API，hash=降级伪向量 */
     embeddingType: varchar('embedding_type', { length: 16 }).notNull().default('real'),
@@ -214,5 +214,102 @@ export const aiUsageLogs = app.table(
     ),
     idxCreated: index('idx_ai_usage_logs_created').on(t.createdAt),
     idxFeature: index('idx_ai_usage_logs_feature').on(t.feature, t.createdAt),
+  }),
+)
+
+// ─────────────────────────────────────────
+// 8. plans — 长期规划（目标 / 阶段 / 进度）
+// ─────────────────────────────────────────
+export const plans = app.table(
+  'plans',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: varchar('user_id', { length: 64 }).notNull().default('local'),
+    libraryId: varchar('library_id', { length: 64 }).notNull().default('default'),
+    title: text('title').notNull(),
+    /** 规划目标与背景 */
+    goal: text('goal').notNull().default(''),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    startAt: timestamp('start_at', { withTimezone: true }),
+    endAt: timestamp('end_at', { withTimezone: true }),
+    progress: integer('progress').notNull().default(0),
+    /** 阶段/里程碑：[{ title, description?, targetAt?, done? }] */
+    stages: jsonb('stages').$type<
+      Array<{
+        id?: string
+        title: string
+        description?: string
+        targetAt?: number | null
+        done?: boolean
+      }>
+    >(),
+    sourceType: varchar('source_type', { length: 16 }).notNull().default('manual'),
+    sourceRef: text('source_ref'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+  },
+  (t) => ({
+    statusCheck: check(
+      'plans_status_check',
+      sql`${t.status} IN ('draft','active','done','archived')`,
+    ),
+    sourceTypeCheck: check(
+      'plans_source_type_check',
+      sql`${t.sourceType} IN ('conversation','document','manual')`,
+    ),
+    progressCheck: check('plans_progress_check', sql`${t.progress} BETWEEN 0 AND 100`),
+    idxStatus: index('idx_plans_status').on(t.status),
+    idxLibrary: index('idx_plans_library').on(t.libraryId, t.status),
+    idxStart: index('idx_plans_start').on(t.startAt),
+  }),
+)
+
+// ─────────────────────────────────────────
+// 9. users — 超管 / 临时账号
+// ─────────────────────────────────────────
+export const users = app.table(
+  'users',
+  {
+    id: varchar('id', { length: 64 }).primaryKey(),
+    username: varchar('username', { length: 64 }).notNull().unique(),
+    /** scrypt 哈希，格式 salt:hash */
+    passwordHash: text('password_hash').notNull(),
+    role: varchar('role', { length: 16 }).notNull().default('temp'),
+    /** 知识库 id：超管 default，临时账号与自身 id 相同 */
+    libraryId: varchar('library_id', { length: 64 }).notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    /** 临时账号到期时间；超管为 null */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdBy: varchar('created_by', { length: 64 }),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    roleCheck: check('users_role_check', sql`${t.role} IN ('admin','temp')`),
+    statusCheck: check('users_status_check', sql`${t.status} IN ('active','deleted')`),
+    idxRoleStatus: index('idx_users_role_status').on(t.role, t.status),
+  }),
+)
+
+// ─────────────────────────────────────────
+// 10. auth_sessions — 登录态（Cookie token 哈希）
+// ─────────────────────────────────────────
+export const authSessions = app.table(
+  'auth_sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    userId: varchar('user_id', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    userAgent: text('user_agent'),
+    ip: varchar('ip', { length: 64 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userFk: foreignKey({ columns: [t.userId], foreignColumns: [users.id] }).onDelete('cascade'),
+    idxUser: index('idx_auth_sessions_user').on(t.userId),
+    idxExpires: index('idx_auth_sessions_expires').on(t.expiresAt),
   }),
 )

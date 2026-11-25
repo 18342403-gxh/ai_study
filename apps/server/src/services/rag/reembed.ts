@@ -8,12 +8,11 @@
 
 import { eq } from 'drizzle-orm'
 
-import { getDb, getSqliteRaw, isVecExtensionLoaded, tables } from '../../db/index.js'
+import { getDb, tables } from '../../db/index.js'
 import { getEmbeddingsWithMeta, getEmbeddingWithMeta } from './embeddings.js'
 import { logger } from '../logger.js'
 
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'embedding-3'
-const EMBEDDING_DIM = 1536
 
 let reembeddingInProgress = false
 let reembedPendingCount = 0
@@ -31,8 +30,6 @@ export const reembedHashVectors = async (): Promise<void> => {
 
   try {
     const db = getDb()
-    const raw = getSqliteRaw()
-    const useVec = isVecExtensionLoaded()
 
     // ── 1. 重嵌 chunks ──────────────────────────────
     const hashChunks = await db
@@ -67,18 +64,11 @@ export const reembedHashVectors = async (): Promise<void> => {
             await db
               .update(tables.chunks)
               .set({
-                embedding: JSON.stringify(meta.vector),
+                embedding: meta.vector,
                 embeddingType: meta.type,
                 embeddingModel: EMBEDDING_MODEL,
               })
               .where(eq(tables.chunks.id, chunks[i].id))
-
-            // 同步更新 chunks_vec
-            if (useVec && raw && meta.type === 'real' && meta.vector.length === EMBEDDING_DIM) {
-              raw
-                .prepare(`INSERT OR REPLACE INTO chunks_vec (chunk_id, embedding) VALUES (?, ?)`)
-                .run(chunks[i].id, Float32Array.from(meta.vector))
-            }
           }
           successDocs++
         } catch (err) {
@@ -100,18 +90,8 @@ export const reembedHashVectors = async (): Promise<void> => {
       .from(tables.entryEmbeddings)
       .where(eq(tables.entryEmbeddings.embeddingType, 'hash'))
 
-    // 需要关联 entries 表获取 title/content
-    const entryIds = hashEntries.map((e) => e.entryId)
-    if (entryIds.length > 0) {
-      const entries = await db
-        .select({
-          id: tables.entries.id,
-          title: tables.entries.title,
-          content: tables.entries.content,
-        })
-        .from(tables.entries)
-        .where(eq(tables.entries.id, entryIds[0])) // 单条先查，下面循环
-      // 注意：entry_embeddings 与 entries 是 1:1，直接逐条处理
+    if (hashEntries.length > 0) {
+      // entry_embeddings 与 entries 是 1:1，直接逐条处理。
       let successEntries = 0
       let failedEntries = 0
 
@@ -128,7 +108,7 @@ export const reembedHashVectors = async (): Promise<void> => {
           await db
             .update(tables.entryEmbeddings)
             .set({
-              embedding: JSON.stringify(meta.vector),
+              embedding: meta.vector,
               model: EMBEDDING_MODEL,
               embeddingType: meta.type,
               updatedAt: new Date(),

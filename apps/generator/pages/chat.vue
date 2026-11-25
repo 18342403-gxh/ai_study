@@ -13,7 +13,6 @@
       <div class="text-center">
         <Upload class="w-8 h-8 text-primary-500 mx-auto mb-2" />
         <p class="text-sm text-primary-600 font-medium">松手即可上传到资料库</p>
-        <p class="text-[11px] text-primary-500 mt-1">上传后可以直接就文档内容提问</p>
       </div>
     </div>
 
@@ -21,7 +20,6 @@
     <header class="h-12 px-5 flex items-center justify-between flex-shrink-0">
       <div class="flex items-center gap-2">
         <h1 class="text-sm font-semibold text-slate-800">对话</h1>
-        <span class="text-[11px] text-slate-400">记录与资料都能问</span>
       </div>
       <div class="flex items-center gap-1">
         <button
@@ -86,7 +84,6 @@
           <Sparkles class="w-5 h-5 text-primary-500" />
         </div>
         <p class="text-base font-medium text-slate-700">有什么想记下来，或者想问的？</p>
-        <p class="text-xs text-slate-400 mt-1">说一句话我会整理成记录；也可以直接上传文档再提问</p>
         <div class="mt-5 flex flex-wrap justify-center gap-2 max-w-lg">
           <button
             v-for="example in examples"
@@ -157,6 +154,15 @@
               出错了：{{ message.error }}
             </div>
 
+            <!-- 规划草稿卡片（可编辑后确认入库） -->
+            <div v-else-if="message.planDraft && message.planThreadId">
+              <PlanDraftCard
+                :draft="message.planDraft"
+                :thread-id="message.planThreadId"
+                @done="(result) => onPlanDone(message, result)"
+              />
+            </div>
+
             <!-- 抽取卡片 -->
             <div v-else-if="message.cards && message.cards.length > 0">
               <div class="flex items-center justify-between mb-2">
@@ -180,7 +186,7 @@
                   :state="item.state"
                   :saving="item.saving"
                   @confirm="(payload) => confirmCard(message, item, payload)"
-                  @ignore="item.state = 'ignored'"
+                  @ignore="ignoreCard(message, item)"
                   @edit="item.state = 'editing'"
                   @cancel="item.state = 'pending'"
                 />
@@ -424,7 +430,7 @@
           @change="onFileSelect"
         />
         <p class="mt-1.5 text-center text-[10px] text-slate-400">
-          支持 .txt / .md / .json / .pdf / .doc / .docx，也可直接拖拽文件进来
+          支持 .txt / .md / .json / .pdf / .doc / .docx
         </p>
       </div>
     </footer>
@@ -460,7 +466,13 @@ import {
   type CreateEntryPayload,
   type DocumentRow,
   type EntryCard as EntryCardData,
+  type ExtractDraftResponse,
   type ExtractResponse,
+  type ExtractResumeResponse,
+  type PlanCapabilities,
+  type PlanDraft,
+  type PlanRow,
+  type PlanStepResponse,
   type RemindersResponse,
   type SessionDetail,
   type SessionMessage,
@@ -489,6 +501,11 @@ interface UiMessage {
   content: string
   attachment?: { name: string; sizeLabel: string }
   cards?: UiCard[]
+  /** 图模式下未确认草稿的 thread id，confirm 时走 resume */
+  threadId?: string
+  /** 规划草稿：可编辑后确认入库 */
+  planDraft?: PlanDraft
+  planThreadId?: string
   citations?: Citation[]
   missing?: string[]
   degraded?: boolean
@@ -498,6 +515,11 @@ interface UiMessage {
 }
 
 const ACCEPT_EXTS = ['.txt', '.md', '.json', '.pdf', '.doc', '.docx']
+
+/** 刷新后恢复未确认草稿：只保存最近一个 thread */
+const PENDING_EXTRACT_KEY = 'ai-study:pending-extract'
+/** 刷新后恢复待回答/待确认的规划草稿 */
+const PENDING_PLAN_KEY = 'ai-study:pending-plan'
 
 const examples = [
   '下周有什么安排',
@@ -530,6 +552,9 @@ const urlLoading = ref(false)
 const reminders = ref<RemindersResponse>({ today: [], tomorrow: [] })
 const reminderOpen = ref(false)
 const reminderCount = computed(() => reminders.value.today.length + reminders.value.tomorrow.length)
+/** 待回答追问的规划草稿（下一次输入作为补充回答） */
+const pendingPlan = ref<{ threadId: string; stage: 'ask' } | null>(null)
+const planAiEnabled = ref(true)
 
 /** 今日/明日提醒：进对话页拉一次，确认卡片入库后再刷新（spec 阶段 10） */
 const fetchReminders = async () => {
@@ -652,6 +677,8 @@ const startNewChat = () => {
   messages.value = []
   input.value = ''
   uploads.value = []
+  pendingPlan.value = null
+  localStorage.removeItem(PENDING_PLAN_KEY)
   nextTick(autoGrow)
 }
 
@@ -692,9 +719,17 @@ const loadLatestSession = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   void loadLatestSession()
   void fetchReminders()
+  void restorePendingDraft()
+  void restorePendingPlan()
+  try {
+    const capabilities = await apiGet<PlanCapabilities>('/api/plans/capabilities')
+    planAiEnabled.value = capabilities.aiEnabled
+  } catch {
+    /* 后端未启动时保持默认，真正生成时会给出错误 */
+  }
 })
 
 // ── 文档上传 ────────────────────────────────────────
@@ -895,6 +930,23 @@ const send = async () => {
     messages.value.push({ id: uid(), role: 'user', content: text })
     await scrollToBottom()
 
+    // 追问中：本条输入作为规划补充回答
+    if (pendingPlan.value?.stage === 'ask' && !recordMode.value) {
+      await continuePlan(text, sid)
+      return
+    }
+
+    // 长期规划意图：走规划图（先检索知识库，再决定是否追问）
+    if (
+      planAiEnabled.value &&
+      !recordMode.value &&
+      !looksLikeStorage(text) &&
+      isPlanRequest(text)
+    ) {
+      await generatePlan(text, sid)
+      return
+    }
+
     if (!recordMode.value && !looksLikeStorage(text)) {
       await askAI(text, sid)
       return
@@ -920,13 +972,17 @@ const send = async () => {
         id: uid(),
         role: 'assistant',
         content: summary,
+        threadId: extracted.threadId ?? undefined,
         cards: extracted.entries.map((card, index) => ({
-          key: `${index}-${card.title}`,
+          key: card.key ?? `${index}-${card.title}`,
           card,
           state: 'pending',
           saving: false,
         })),
       })
+      if (extracted.threadId) {
+        localStorage.setItem(PENDING_EXTRACT_KEY, extracted.threadId)
+      }
     } else if (
       extracted.intent === 'cancel' ||
       extracted.intent === 'delete' ||
@@ -981,9 +1037,86 @@ const send = async () => {
 const pendingCount = (message: UiMessage): number =>
   (message.cards ?? []).filter((item) => item.state === 'pending').length
 
+// ── 草稿确认：图模式走 resume，旧模式直接写 entries ──
+
+type ResumeAction = 'skip' | 'merge' | 'create'
+
+interface ResumeEdit {
+  key: string
+  action: ResumeAction
+  entryId?: string
+  payload: {
+    type: EntryCardData['type']
+    title: string
+    content: string
+    startAt: number | null
+    endAt: number | null
+    recurrence: EntryCardData['recurrence']
+    confidence?: number
+  }
+}
+
+const toResumePayload = (payload: CreateEntryPayload): ResumeEdit['payload'] => ({
+  type: payload.type,
+  title: payload.title,
+  content: payload.content,
+  startAt: payload.startAt ?? null,
+  endAt: payload.endAt ?? null,
+  recurrence: payload.recurrence ?? null,
+  confidence: payload.confidence,
+})
+
+const cardResumePayload = (card: EntryCardData): ResumeEdit['payload'] => ({
+  type: card.type,
+  title: card.title,
+  content: card.content,
+  startAt: card.time?.start ?? null,
+  endAt: card.time?.end ?? null,
+  recurrence: card.recurrence,
+  confidence: card.confidence,
+})
+
+/** 卡片当前对应的处理动作（编辑态一律按新建处理） */
+const resumeActionFor = (item: UiCard): ResumeAction => {
+  const dup = item.card.duplicate
+  if (item.state !== 'editing' && dup?.action === 'skip') return 'skip'
+  if (item.state !== 'editing' && dup?.action === 'merge' && dup.entryId) return 'merge'
+  return 'create'
+}
+
+const toResumeEdit = (item: UiCard, payload: ResumeEdit['payload']): ResumeEdit => {
+  const action = resumeActionFor(item)
+  return {
+    key: item.key,
+    action,
+    entryId: action === 'merge' ? item.card.duplicate?.entryId : undefined,
+    payload,
+  }
+}
+
+const applyResumeResponse = (message: UiMessage, response: ExtractResumeResponse) => {
+  if (response.done || !response.interrupted) {
+    message.threadId = undefined
+    localStorage.removeItem(PENDING_EXTRACT_KEY)
+  }
+}
+
 const confirmCard = async (message: UiMessage, item: UiCard, payload: CreateEntryPayload) => {
   item.saving = true
   try {
+    // 图模式：确认动作提交给抽取图，由 commit 节点统一入库
+    if (message.threadId) {
+      const response = await apiPost<ExtractResumeResponse>(
+        `/api/extract/${encodeURIComponent(message.threadId)}/resume`,
+        { cards: [toResumeEdit(item, toResumePayload(payload))] },
+        75_000,
+      )
+      item.state = 'confirmed'
+      applyResumeResponse(message, response)
+      void fetchReminders()
+      return
+    }
+
     const dup = item.card.duplicate
     // 编辑态保存：用户可能改了标题/内容，前端判重已失效，交给后端兜底重新判重
     const isEditing = item.state === 'editing'
@@ -1021,11 +1154,63 @@ const confirmCard = async (message: UiMessage, item: UiCard, payload: CreateEntr
   } finally {
     item.saving = false
   }
-  void message
+}
+
+/** 忽略：图模式下同步告知后端跳过，避免刷新后草稿又出现 */
+const ignoreCard = async (message: UiMessage, item: UiCard) => {
+  item.state = 'ignored'
+  if (!message.threadId) return
+
+  item.saving = true
+  try {
+    const response = await apiPost<ExtractResumeResponse>(
+      `/api/extract/${encodeURIComponent(message.threadId)}/resume`,
+      {
+        cards: [{ key: item.key, action: 'skip', payload: cardResumePayload(item.card) }],
+      },
+      75_000,
+    )
+    applyResumeResponse(message, response)
+  } catch (error) {
+    messages.value.push({
+      id: uid(),
+      role: 'assistant',
+      content: '',
+      error: (error as Error).message,
+    })
+  } finally {
+    item.saving = false
+  }
 }
 
 const confirmAll = async (message: UiMessage) => {
   const pending = (message.cards ?? []).filter((item) => item.state === 'pending')
+
+  if (message.threadId) {
+    try {
+      const response = await apiPost<ExtractResumeResponse>(
+        `/api/extract/${encodeURIComponent(message.threadId)}/resume`,
+        {
+          cards: pending.map((item) => toResumeEdit(item, cardResumePayload(item.card))),
+        },
+        75_000,
+      )
+      pending.forEach((item) => {
+        item.state = 'confirmed'
+      })
+      applyResumeResponse(message, response)
+      void fetchReminders()
+    } catch (error) {
+      messages.value.push({
+        id: uid(),
+        role: 'assistant',
+        content: '',
+        error: (error as Error).message,
+      })
+    }
+    return
+  }
+
   for (const item of pending) {
     const payload: CreateEntryPayload = {
       type: item.card.type,
@@ -1039,6 +1224,189 @@ const confirmAll = async (message: UiMessage) => {
       confidence: item.card.confidence,
     }
     await confirmCard(message, item, payload)
+  }
+}
+
+/** 长期规划意图：规划词 + 时间跨度/明确请求 */
+const isPlanRequest = (text: string): boolean => {
+  if (text.length < 4) return false
+  if (!/规划|计划|路线图|方案|目标拆解|学习路径/.test(text)) return false
+  if (/^(帮我|给我|替我|请帮我)/.test(text) && /(规划|计划|方案|目标)/.test(text)) return true
+  return /长期|年度|季度|半年|未来|个月|一年|三年|今年|明年|阶段|路线/.test(text)
+}
+
+const planQuestionsText = (questions: string[]): string =>
+  `为了把这份长期规划做得更贴合你的情况，我还想确认：\n${questions
+    .map((question, index) => `${index + 1}. ${question}`)
+    .join('\n')}\n\n可以一次回复，或逐条说明。`
+
+const savePendingPlan = (threadId: string | null) => {
+  if (!threadId) {
+    localStorage.removeItem(PENDING_PLAN_KEY)
+    return
+  }
+  localStorage.setItem(PENDING_PLAN_KEY, JSON.stringify({ threadId }))
+}
+
+/** 根据规划图返回的步骤渲染消息 / 追问状态 */
+const handlePlanStep = async (step: PlanStepResponse, sid: string) => {
+  if (step.stage === 'ask') {
+    pendingPlan.value = { threadId: step.threadId, stage: 'ask' }
+    savePendingPlan(step.threadId)
+    const content = planQuestionsText(step.questions ?? [])
+    await persistMessage(sid, 'assistant', content)
+    messages.value.push({ id: uid(), role: 'assistant', content })
+  } else if (step.stage === 'confirm' && step.draft) {
+    pendingPlan.value = null
+    savePendingPlan(null)
+    const summary = step.draft.grounded
+      ? '已结合知识库生成规划草稿，可编辑后确认入库'
+      : '知识库暂未覆盖相关内容，以下是通用规划草稿，可编辑后确认入库'
+    await persistMessage(sid, 'assistant', summary)
+    messages.value.push({
+      id: uid(),
+      role: 'assistant',
+      content: summary,
+      planDraft: step.draft,
+      planThreadId: step.threadId,
+    })
+  } else {
+    pendingPlan.value = null
+    savePendingPlan(null)
+    const content = step.savedPlan
+      ? `规划《${step.savedPlan.title}》已保存，可在「规划」页查看。`
+      : '已放弃这份规划草稿。'
+    await persistMessage(sid, 'assistant', content)
+    messages.value.push({ id: uid(), role: 'assistant', content })
+  }
+  await scrollToBottom()
+}
+
+const generatePlan = async (text: string, sid: string) => {
+  const pending: UiMessage = { id: uid(), role: 'assistant', content: '', loading: true }
+  messages.value.push(pending)
+  await scrollToBottom()
+  try {
+    const step = await apiPost<PlanStepResponse>(
+      '/api/plans/generate',
+      { goal: text, sessionId: sid },
+      120_000,
+    )
+    await persistMessage(sid, 'user', text)
+    messages.value = messages.value.filter((item) => item.id !== pending.id)
+    await handlePlanStep(step, sid)
+  } catch (error) {
+    messages.value = messages.value.filter((item) => item.id !== pending.id)
+    throw error
+  }
+}
+
+const continuePlan = async (text: string, sid: string) => {
+  const threadId = pendingPlan.value?.threadId
+  if (!threadId) return
+  pendingPlan.value = null
+  savePendingPlan(null)
+  const pending: UiMessage = { id: uid(), role: 'assistant', content: '', loading: true }
+  messages.value.push(pending)
+  await scrollToBottom()
+  try {
+    const step = await apiPost<PlanStepResponse>(
+      `/api/plans/drafts/${encodeURIComponent(threadId)}/resume`,
+      { answers: [text] },
+      120_000,
+    )
+    await persistMessage(sid, 'user', text)
+    messages.value = messages.value.filter((item) => item.id !== pending.id)
+    await handlePlanStep(step, sid)
+  } catch (error) {
+    messages.value = messages.value.filter((item) => item.id !== pending.id)
+    // 继续等待回答，便于用户重试
+    pendingPlan.value = { threadId, stage: 'ask' }
+    savePendingPlan(threadId)
+    throw error
+  }
+}
+
+const onPlanDone = async (message: UiMessage, result: { savedPlan: PlanRow | null }) => {
+  message.planDraft = undefined
+  message.planThreadId = undefined
+  const content = result.savedPlan
+    ? `规划《${result.savedPlan.title}》已保存，可在「规划」页查看。`
+    : '已放弃这份规划草稿。'
+  messages.value.push({ id: uid(), role: 'assistant', content })
+  if (sessionId.value) {
+    await persistMessage(sessionId.value, 'assistant', content).catch(() => {
+      /* 会话持久化失败不阻塞界面 */
+    })
+  }
+  await scrollToBottom()
+}
+
+/** 刷新后恢复待回答/待确认的规划 */
+const restorePendingPlan = async () => {
+  const raw = localStorage.getItem(PENDING_PLAN_KEY)
+  if (!raw) return
+  let threadId = ''
+  try {
+    threadId = (JSON.parse(raw) as { threadId?: string }).threadId ?? ''
+  } catch {
+    threadId = raw
+  }
+  if (!threadId) {
+    localStorage.removeItem(PENDING_PLAN_KEY)
+    return
+  }
+
+  try {
+    const step = await apiGet<PlanStepResponse>(`/api/plans/drafts/${encodeURIComponent(threadId)}`)
+    if (step.stage === 'ask') {
+      pendingPlan.value = { threadId, stage: 'ask' }
+      messages.value.push({
+        id: uid(),
+        role: 'assistant',
+        content: planQuestionsText(step.questions ?? []),
+      })
+    } else if (step.stage === 'confirm' && step.draft) {
+      messages.value.push({
+        id: uid(),
+        role: 'assistant',
+        content: '上次还有一份规划草稿待确认',
+        planDraft: step.draft,
+        planThreadId: threadId,
+      })
+    } else {
+      localStorage.removeItem(PENDING_PLAN_KEY)
+    }
+    await scrollToBottom()
+  } catch {
+    // 草稿已完成或已过期：清掉本地记录即可
+    localStorage.removeItem(PENDING_PLAN_KEY)
+  }
+}
+
+/** 刷新后恢复未确认草稿 */
+const restorePendingDraft = async () => {
+  const threadId = localStorage.getItem(PENDING_EXTRACT_KEY)
+  if (!threadId) return
+
+  try {
+    const draft = await apiGet<ExtractDraftResponse>(`/api/extract/${encodeURIComponent(threadId)}`)
+    messages.value.push({
+      id: uid(),
+      role: 'assistant',
+      content: `上次还有 ${draft.cards.length} 条记录待确认`,
+      threadId,
+      cards: draft.cards.map((card, index) => ({
+        key: card.key ?? `${index}-${card.title}`,
+        card,
+        state: 'pending',
+        saving: false,
+      })),
+    })
+    await scrollToBottom()
+  } catch {
+    // 草稿已完成或已过期：清掉本地记录即可
+    localStorage.removeItem(PENDING_EXTRACT_KEY)
   }
 }
 </script>

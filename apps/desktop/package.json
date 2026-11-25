@@ -48,7 +48,10 @@
         "from": "../server/node_modules",
         "to": "server/node_modules",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/better-sqlite3{,/**}",
+          "!**/sqlite-vec{,/**}",
+          "!**/@langchain/langgraph-checkpoint-sqlite{,/**}"
         ]
       },
       {

@@ -11,10 +11,7 @@
  *   - 容错：写入失败只 warn 不 throw，主流程不受影响
  *   - 统一入口：所有 AI 相关调用都走这里记录
  *
- * 方言说明：
- *   - 查询/写入全部走 drizzle；唯一感知方言处是 getDailyStats 的日期表达式
- *     （SQLite created_at 是毫秒整数 → date(created_at/1000,'unixepoch')；
- *       PG 是 timestamptz → date(created_at)）
+ * 时间字段统一使用 PostgreSQL TIMESTAMPTZ。
  */
 
 import { EventEmitter } from 'node:events'
@@ -22,7 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { desc, gte, sql } from 'drizzle-orm'
 
 import { logger } from './logger.js'
-import { getDb, getDriver, tables } from '../db/index.js'
+import { getDb, tables } from '../db/index.js'
 import { estimateCostYuan } from './llm/pricing.js'
 
 /**
@@ -186,14 +183,7 @@ export interface DailyAggregate {
 
 export async function getDailyStats(days = 7): Promise<DailyAggregate[]> {
   const db = getDb()
-  const driver = getDriver()
-
-  // SQLite: created_at = INTEGER ms timestamp → date(created_at/1000,'unixepoch')
-  // PG:     created_at = TIMESTAMPTZ          → date(created_at)
-  const dateExpr =
-    driver === 'sqlite'
-      ? sql`date(${tables.aiUsageLogs.createdAt} / 1000, 'unixepoch')`
-      : sql`date(${tables.aiUsageLogs.createdAt})`
+  const dateExpr = sql`date(${tables.aiUsageLogs.createdAt})`
 
   const rows = await db
     .select({

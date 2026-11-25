@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nuxi dev --port 3003",
-    "build": "nuxi build",
-    "generate": "nuxi generate",
-    "preview": "nuxi preview",
-    "typecheck": "nuxi typecheck"
+    "dev": "nuxt dev --port 3003",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@ai-study/shared": "workspace:*",
@@ -23,6 +23,7 @@
   "devDependencies": {
     "@nuxtjs/tailwindcss": "6.12.2",
     "@pinia/nuxt": "0.5.5",
-    "pinia": "2.2.6"
+    "pinia": "2.2.6",
+    "vue-tsc": "^2.1.10"
   }
 }

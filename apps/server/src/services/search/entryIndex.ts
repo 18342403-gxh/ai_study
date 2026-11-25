@@ -25,11 +25,11 @@ export const syncEntryEmbedding = async (
   try {
     const meta = await getEmbeddingWithMeta(entryEmbeddingText(title, content))
     const db = getDb()
-    // 双方言都没有统一的 upsert 语法，先删后插保证覆盖语义
+    // 先删后插保证覆盖语义。
     await db.delete(tables.entryEmbeddings).where(eq(tables.entryEmbeddings.entryId, entryId))
     await db.insert(tables.entryEmbeddings).values({
       entryId,
-      embedding: JSON.stringify(meta.vector),
+      embedding: meta.vector,
       model: EMBEDDING_MODEL,
       embeddingType: meta.type,
       updatedAt: new Date(),
@@ -42,7 +42,7 @@ export const syncEntryEmbedding = async (
   }
 }
 
-/** 删除条目时清理向量（PG 无 SQLite 外键级联时也能回收） */
+/** 删除条目时清理向量。 */
 export const removeEntryEmbedding = async (entryId: string): Promise<void> => {
   try {
     await getDb().delete(tables.entryEmbeddings).where(eq(tables.entryEmbeddings.entryId, entryId))

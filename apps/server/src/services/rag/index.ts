@@ -31,12 +31,12 @@ export {
 } from './embeddings.js'
 export { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from './loader.js'
 export { bm25Search } from './bm25.js'
-export { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
+export { createPgVectorStore, type VectorSearchResult } from './vectorStore.js'
 
 import { loadFromFile, loadFromString, loadFromUrl, type LoadedDocument } from './loader.js'
 import { splitStructured, type TextChunk } from './splitter.js'
 import { createEmbeddings } from './embeddings.js'
-import { createSqliteVectorStore, type VectorSearchResult } from './vectorStore.js'
+import { createPgVectorStore, type VectorSearchResult } from './vectorStore.js'
 import { bm25Search, type BM25Result } from './bm25.js'
 import { logger } from '../logger.js'
 import { randomUUID } from 'crypto'
@@ -95,7 +95,7 @@ export function rrfFuse(
 
 export function createRAGService() {
   const embeddings = createEmbeddings()
-  const vectorStore = createSqliteVectorStore()
+  const vectorStore = createPgVectorStore()
 
   return {
     /**
@@ -199,6 +199,7 @@ export function createRAGService() {
       docId?: string,
       mode: 'hybrid' | 'vector' | 'bm25' = 'hybrid',
       queryType?: 'keyword' | 'conceptual',
+      libraryId?: string,
     ): Promise<HybridSearchResult[]> {
       const start = Date.now()
       // 自适应 RRF 分支权重：keyword 偏向 BM25，conceptual 偏向向量
@@ -216,14 +217,17 @@ export function createRAGService() {
         docId,
         mode,
         queryType,
+        libraryId,
         vectorWeight,
         bm25Weight,
       })
       try {
         // 并行召回：向量与 BM25 同时执行，延迟取 max 而非 sum
         const [vectorTopK, bm25TopK] = await Promise.all([
-          mode === 'bm25' ? Promise.resolve([]) : vectorStore.similaritySearch(query, k * 3, docId),
-          mode === 'vector' ? Promise.resolve([]) : bm25Search(query, k * 3, docId),
+          mode === 'bm25'
+            ? Promise.resolve([])
+            : vectorStore.similaritySearch(query, k * 3, docId, libraryId),
+          mode === 'vector' ? Promise.resolve([]) : bm25Search(query, k * 3, docId, libraryId),
         ])
 
         let fused: Array<{ id: string; score: number }>

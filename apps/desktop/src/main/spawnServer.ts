@@ -10,8 +10,7 @@
  *
  * 关键环境变量（Electron 注入）：
  *   PORT          — 默认 3001
- *   DB_PATH       — SQLite 数据库路径（桌面端用 userData 目录）
- *   DATABASE_DRIVER — postgres | sqlite
+ *   DATABASE_URL  — 外部 PostgreSQL + pgvector 连接串（必填）
  *   AI_API_URL    — LLM API 地址
  *   AI_API_KEY    — LLM API Key（优先从用户 .env 读取）
  *   EMBEDDING_MODEL
@@ -64,13 +63,9 @@ export function spawnServer(opts: SpawnOptions = {}): ServerProc {
   const serverDir = opts.cwd || resolveServerDir()
 
   // ── 构造环境变量 ──────────────────────────────────
-  const userDataDir = app.getPath('userData')
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     PORT: String(port),
-    // 桌面端 SQLite 放在 Electron userData 目录
-    DB_PATH: path.join(userDataDir, 'knowledge.db'),
-    DATABASE_DRIVER: 'sqlite',
     // PROD 不走 tsx，是编译好的 JS —— 不需要 tsx loader
     NODE_ENV: isProd() ? 'production' : 'development',
     // 读取 server 端 .env 文件（DEV 时在 serverDir 根目录找）

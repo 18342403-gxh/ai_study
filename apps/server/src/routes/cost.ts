@@ -18,9 +18,10 @@ import {
 import { getChatDegradedState } from '../services/chain/model.js'
 import { getEmbeddingMockState } from '../services/rag/index.js'
 import { getReembedStatus } from '../services/rag/reembed.js'
-import { validate, asyncHandler } from '../middleware/index.js'
+import { validate, asyncHandler, requireAdmin } from '../middleware/index.js'
 
 const router = Router()
+router.use(requireAdmin)
 
 const daysQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(30).optional(),

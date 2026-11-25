@@ -12,16 +12,16 @@
  *
  * 约定：
  *   - API 出入参保持旧形状：snake_case 字段 + 毫秒时间戳
- *   - messages.metadata 是普通 text 列，业务层手动 JSON.stringify（透传 string）
+ *   - messages.metadata 为 JSONB 对象。
  */
 
 import { Router } from 'express'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
-import { asc, count, desc, eq, getTableColumns } from 'drizzle-orm'
+import { and, asc, count, desc, eq, getTableColumns } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
-import { validate, asyncHandler, createError } from '../middleware/index.js'
+import { validate, asyncHandler, createError, requireUser } from '../middleware/index.js'
 import { logger } from '../services/logger.js'
 
 const router = Router()
@@ -75,16 +75,21 @@ const rowToMessage = (row: MessageRow) => ({
   created_at: row.createdAt.getTime(),
 })
 
-const findSession = async (id: string): Promise<SessionRow | undefined> => {
+const findSession = async (id: string, userId: string): Promise<SessionRow | undefined> => {
   const db = getDb()
-  const rows = await db.select().from(tables.sessions).where(eq(tables.sessions.id, id)).limit(1)
+  const rows = await db
+    .select()
+    .from(tables.sessions)
+    .where(and(eq(tables.sessions.id, id), eq(tables.sessions.userId, userId)))
+    .limit(1)
   return rows[0]
 }
 
 /** GET /api/sessions */
 router.get(
   '/',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const user = requireUser(req)
     const db = getDb()
     const rows = await db
       .select({
@@ -93,6 +98,7 @@ router.get(
       })
       .from(tables.sessions)
       .leftJoin(tables.messages, eq(tables.messages.sessionId, tables.sessions.id))
+      .where(eq(tables.sessions.userId, user.id))
       .groupBy(tables.sessions.id)
       .orderBy(desc(tables.sessions.updatedAt))
 
@@ -105,6 +111,7 @@ router.post(
   '/',
   validate({ body: createSessionSchema }),
   asyncHandler(async (req, res) => {
+    const user = requireUser(req)
     const db = getDb()
     const now = new Date()
     const id = randomUUID()
@@ -112,6 +119,7 @@ router.post(
 
     await db.insert(tables.sessions).values({
       id,
+      userId: user.id,
       title,
       model,
       systemPrompt,
@@ -119,7 +127,7 @@ router.post(
       updatedAt: now,
     })
 
-    const session = await findSession(id)
+    const session = await findSession(id, user.id)
     logger.info('sessions.route', 'POST / 完成', { sessionId: id, title })
     res.status(201).json(rowToSession(session!))
   }),
@@ -131,7 +139,7 @@ router.get(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = await findSession(req.params.id)
+    const session = await findSession(req.params.id, requireUser(req).id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
     const messages = await db
@@ -150,7 +158,7 @@ router.patch(
   validate({ params: sessionIdParam, body: updateSessionSchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = await findSession(req.params.id)
+    const session = await findSession(req.params.id, requireUser(req).id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
     const updates: Partial<typeof tables.sessions.$inferInsert> = {}
@@ -166,7 +174,7 @@ router.patch(
     updates.updatedAt = new Date()
     await db.update(tables.sessions).set(updates).where(eq(tables.sessions.id, req.params.id))
 
-    const updated = await findSession(req.params.id)
+    const updated = await findSession(req.params.id, requireUser(req).id)
     res.json(rowToSession(updated!))
   }),
 )
@@ -177,7 +185,7 @@ router.delete(
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = await findSession(req.params.id)
+    const session = await findSession(req.params.id, requireUser(req).id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
     await db.delete(tables.sessions).where(eq(tables.sessions.id, req.params.id))
     logger.info('sessions.route', 'DELETE /:id 完成', { sessionId: req.params.id })
@@ -191,7 +199,7 @@ router.post(
   validate({ params: sessionIdParam, body: addMessageSchema }),
   asyncHandler(async (req, res) => {
     const db = getDb()
-    const session = await findSession(req.params.id)
+    const session = await findSession(req.params.id, requireUser(req).id)
     if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
 
     const now = new Date()
@@ -203,7 +211,7 @@ router.post(
       sessionId: req.params.id,
       role,
       content,
-      metadata: metadata ? JSON.stringify(metadata) : null,
+      metadata: metadata ?? null,
       createdAt: now,
     })
 
@@ -227,6 +235,8 @@ router.delete(
   '/:id/messages',
   validate({ params: sessionIdParam }),
   asyncHandler(async (req, res) => {
+    const session = await findSession(req.params.id, requireUser(req).id)
+    if (!session) throw createError('会话不存在', 404, 'SESSION_NOT_FOUND')
     const db = getDb()
     await db.delete(tables.messages).where(eq(tables.messages.sessionId, req.params.id))
     await db

@@ -52,7 +52,6 @@
               <Link class="w-4 h-4" />
             </button>
           </div>
-          <p class="text-[11px] text-slate-400 mt-1.5">导入后自动分块 + 向量化</p>
         </div>
       </div>
 
@@ -94,7 +93,7 @@
 
       <div v-if="documents.length === 0" class="text-center py-12">
         <BookX class="w-10 h-10 text-slate-300 mx-auto mb-3" />
-        <p class="text-sm text-slate-500">还没有文档，上传或导入一些试试</p>
+        <p class="text-sm text-slate-500">还没有文档</p>
       </div>
 
       <div v-else class="space-y-2">
@@ -183,7 +182,7 @@ const errorMsg = ref('')
 
 async function fetchDocs() {
   try {
-    const res = await fetch(`${bffUrl}/api/rag/documents`)
+    const res = await fetch(`${bffUrl}/api/rag/documents`, { credentials: 'include' })
     if (res.ok) documents.value = (await res.json()) as DocumentRow[]
   } catch {
     /* ignore */
@@ -216,7 +215,11 @@ async function uploadFiles(files: File[]) {
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await fetch(`${bffUrl}/api/rag/documents`, { method: 'POST', body: fd })
+      const res = await fetch(`${bffUrl}/api/rag/documents`, {
+        method: 'POST',
+        body: fd,
+        credentials: 'include',
+      })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.message || `HTTP ${res.status}`)
@@ -245,6 +248,7 @@ async function importUrl() {
   try {
     const res = await fetch(`${bffUrl}/api/rag/documents/url`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     })
@@ -263,7 +267,10 @@ async function importUrl() {
 
 async function deleteDoc(id: string) {
   try {
-    await fetch(`${bffUrl}/api/rag/documents/${id}`, { method: 'DELETE' })
+    await fetch(`${bffUrl}/api/rag/documents/${id}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
     documents.value = documents.value.filter((d) => d.id !== id)
   } catch {
     /* ignore */

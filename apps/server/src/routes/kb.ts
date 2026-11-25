@@ -8,14 +8,14 @@
 
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { getDb, tables } from '../db/index.js'
 import { createChatChain } from '../services/chain/chatChain.js'
 import { routeModel } from '../services/chain/router.js'
 import { searchAll } from '../services/search/searchAll.js'
 import { logger } from '../services/logger.js'
-import { validate, asyncHandler } from '../middleware/index.js'
+import { validate, asyncHandler, requireUser } from '../middleware/index.js'
 
 const router = Router()
 const TOP_K = 5
@@ -30,8 +30,8 @@ const querySchema = z.object({
  * RAG 检索：统一走 searchAll 三通道编排（与 /api/chat 共享同一套检索路径）
  * 仅取文档块（chunk）结果，documentIds 在后处理阶段过滤
  */
-async function retrieveTopChunks(query: string, documentIds?: string[]) {
-  const outcome = await searchAll({ query })
+async function retrieveTopChunks(query: string, libraryId: string, documentIds?: string[]) {
+  const outcome = await searchAll({ query, libraryId })
   let chunks = outcome.results.filter((r) => r.kind === 'chunk')
   if (documentIds && documentIds.length > 0) {
     chunks = chunks.filter((r) => r.docId && documentIds.includes(r.docId))
@@ -58,9 +58,10 @@ router.post(
   validate({ body: querySchema }),
   asyncHandler(async (req, res) => {
     const { query, documentIds, stream } = req.body
+    const user = requireUser(req)
     logger.info('kb.route', 'POST /query — 入口', { stream, hasDocIds: !!documentIds })
 
-    const topChunks = await retrieveTopChunks(query, documentIds)
+    const topChunks = await retrieveTopChunks(query, user.libraryId, documentIds)
     const systemPrompt = buildRagSystemPrompt(topChunks)
 
     const db = getDb()
@@ -71,7 +72,9 @@ router.post(
           const docs = await db
             .select({ name: tables.documents.name })
             .from(tables.documents)
-            .where(eq(tables.documents.id, c.docId))
+            .where(
+              and(eq(tables.documents.id, c.docId), eq(tables.documents.libraryId, user.libraryId)),
+            )
             .limit(1)
           source = docs[0]?.name || '未知文档'
         }

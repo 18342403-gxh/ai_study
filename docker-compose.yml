@@ -1,0 +1,22 @@
+# 仅用于本地开发；生产环境必须配置独立的账号与密钥。
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: ai-study-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ai_study
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: ai_study
+    ports:
+      - '5432:5432'
+    volumes:
+      - ai-study-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ai_study -d ai_study']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  ai-study-pgdata:
