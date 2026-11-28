@@ -12,6 +12,7 @@ dist/
 
 # 环境变量文件（所有层级）
 .env
+.env.prod
 .env.local
 .env.*.local
 apps/*/.env
