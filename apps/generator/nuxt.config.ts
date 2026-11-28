@@ -14,7 +14,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       appName: '个人知识库',
-      bffUrl: process.env.BFF_URL || 'http://localhost:3001',
+      // 空字符串表示同源（走 Nginx /api 反代）；未设置时才回退到本地 3001
+      bffUrl: process.env.BFF_URL ?? 'http://localhost:3001',
     },
   },
 

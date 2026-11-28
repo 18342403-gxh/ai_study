@@ -450,3 +450,58 @@ export interface PlanFormValue {
   progress: number
   stages: PlanStage[]
 }
+
+// ── 学习页 · GitHub 项目检索 ────────────────────────
+
+export interface LearningRepo {
+  id: number
+  name: string
+  fullName: string
+  owner: string
+  ownerAvatar: string
+  description: string
+  url: string
+  stars: number
+  forks: number
+  language: string | null
+  topics: string[]
+  updatedAt: string
+}
+
+export interface LearningParsed {
+  keywords: string[]
+  alternatives?: string[]
+  language: string | null
+  sort: 'stars' | 'updated' | 'best-match'
+  parsedBy: 'llm' | 'rule'
+}
+
+export type LearningErrorCode = 'GITHUB_TIMEOUT' | 'GITHUB_RATE_LIMITED' | 'GITHUB_ERROR'
+
+export interface LearningSearchResult {
+  ok: boolean
+  code?: LearningErrorCode
+  message?: string
+  items?: LearningRepo[]
+  total?: number
+  parsed?: LearningParsed
+  cached?: boolean
+  elapsedMs?: number
+  page?: number
+  hasMore?: boolean
+  resolvedQuery?: string
+}
+
+export interface LearningSearchOptions {
+  limit?: number
+  page?: number
+  /** 翻页时复用第一页返回的实际查询串 */
+  resolvedQuery?: string
+  sort?: 'stars' | 'updated' | 'best-match'
+}
+
+export const searchLearning = (
+  query: string,
+  options: LearningSearchOptions = {},
+): Promise<LearningSearchResult> =>
+  apiPost<LearningSearchResult>('/api/learning/search', { query, limit: 20, ...options }, 30_000)

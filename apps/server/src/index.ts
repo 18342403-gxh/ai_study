@@ -46,6 +46,7 @@ import ragRouter from './routes/rag.js'
 import logsRouter from './routes/logs.js'
 import costRouter from './routes/cost.js'
 import plansRouter from './routes/plans.js'
+import learningRouter from './routes/learning.js'
 import { getOpenApiSpec } from './openapi/generate.js'
 import { initTracing } from './observability/tracing.js'
 import { ensureAdmin } from './services/auth/users.js'
@@ -142,6 +143,7 @@ app.use('/api/rag', ragRouter)
 app.use('/api/logs', logsRouter)
 app.use('/api/cost', costRouter)
 app.use('/api/plans', plansRouter)
+app.use('/api/learning', learningRouter)
 
 // 日志查看器 — 单文件 HTML
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

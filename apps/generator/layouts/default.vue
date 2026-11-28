@@ -44,6 +44,15 @@
             {{ docCount }}
           </span>
         </NuxtLink>
+
+        <NuxtLink
+          to="/learning"
+          class="nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors"
+          active-class="active bg-sidebar-active text-sidebar-activeText font-medium"
+        >
+          <Compass class="w-4 h-4 flex-shrink-0" />
+          <span>学习</span>
+        </NuxtLink>
       </nav>
 
       <!-- 底部：当前账号 + 版本 -->
@@ -96,6 +105,7 @@
 import {
   BookOpen,
   Calendar,
+  Compass,
   LogOut,
   MessageSquare,
   ShieldCheck,

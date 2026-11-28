@@ -5,7 +5,7 @@
  * 展开实例参与同一套加权排序。
  */
 
-import { and, asc, eq, gte, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, gte, isNotNull, isNull, lt, or, type SQL } from 'drizzle-orm'
 
 import { getDb, tables } from '../../db/index.js'
 import { expandOccurrences, normalizeRecurrence } from '../extract/recurrence.js'
@@ -66,7 +66,12 @@ export const searchTimeChannel = async (options: TimeChannelOptions): Promise<Ti
         isNull(tables.entries.recurrence),
         isNotNull(tables.entries.startAt),
         lt(tables.entries.startAt, new Date(windowEnd)),
-        sql`coalesce(${tables.entries.endAt}, ${tables.entries.startAt}) >= ${windowStart}`,
+        // coalesce(end_at, start_at) >= windowStart：用 drizzle 表达式绑定 Date，
+        // 避免原生 SQL 里把毫秒数直接拼进 timestamptz 比较
+        or(
+          gte(tables.entries.endAt, new Date(windowStart)),
+          and(isNull(tables.entries.endAt), gte(tables.entries.startAt, new Date(windowStart))),
+        ),
       ),
     )
     .orderBy(asc(tables.entries.startAt))

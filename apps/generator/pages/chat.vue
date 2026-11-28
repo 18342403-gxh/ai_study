@@ -136,9 +136,24 @@
 
           <!-- 助手消息 -->
           <div v-else class="max-w-[78%] w-full">
-            <!-- 加载中 -->
+            <!-- 思考过程：真实处理阶段，浅色打字机 -->
             <div
-              v-if="message.loading"
+              v-if="message.thinking"
+              class="mb-2 rounded-xl border border-slate-100 bg-slate-50/70 px-3.5 py-2.5"
+            >
+              <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+                <Loader2 v-if="message.loading" class="w-3 h-3 animate-spin" />
+                <Sparkles v-else class="w-3 h-3" />
+                <span>{{ message.loading ? '思考中' : '已完成思考' }}</span>
+              </div>
+              <p class="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-400">
+                {{ message.thinking }}<span v-if="message.loading" class="thinking-cursor">▍</span>
+              </p>
+            </div>
+
+            <!-- 加载中（还没有思考内容） -->
+            <div
+              v-if="message.loading && !message.thinking"
               class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3"
             >
               <span class="dot" />
@@ -192,6 +207,9 @@
                 />
               </div>
             </div>
+
+            <!-- 思考中且回答尚未到达：不渲染空气泡 -->
+            <div v-else-if="message.loading" class="hidden" aria-hidden="true" />
 
             <!-- 普通回答 -->
             <template v-else>
@@ -461,7 +479,6 @@ import {
   apiPatch,
   apiPost,
   apiUpload,
-  type ChatAnswer,
   type Citation,
   type CreateEntryPayload,
   type DocumentRow,
@@ -511,6 +528,8 @@ interface UiMessage {
   degraded?: boolean
   general?: boolean
   loading?: boolean
+  /** 思考过程（真实处理阶段），流式逐条追加 */
+  thinking?: string
   error?: string
 }
 
@@ -859,6 +878,105 @@ const looksLikeStorage = (text: string): boolean =>
     text,
   )
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** 打字机：把一段文字逐字追加到消息字段，每帧 2 个字符 */
+const typeAppend = async (msg: UiMessage, field: 'thinking' | 'content', text: string) => {
+  const chars = Array.from(text)
+  for (let index = 0; index < chars.length; index += 2) {
+    const piece = chars.slice(index, index + 2).join('')
+    if (field === 'thinking') msg.thinking = (msg.thinking ?? '') + piece
+    else msg.content += piece
+    if (index % 24 === 0) await scrollToBottom()
+    await sleep(14)
+  }
+}
+
+interface ChatStreamMeta {
+  citations?: Citation[]
+  missing?: string[]
+  degraded?: boolean
+  general?: boolean
+  embeddingMock?: boolean
+}
+
+/** 消费 /api/chat/stream 的 SSE：思考阶段逐条打字，回答到达后打字机输出 */
+const streamAnswer = async (text: string, sid: string | null, msg: UiMessage) => {
+  const base = String(useRuntimeConfig().public.bffUrl ?? '').replace(/\/$/, '')
+  const response = await fetch(`${base}/api/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ message: text, sessionId: sid }),
+  })
+
+  if (!response.ok || !response.body) {
+    let message = `请求失败（${response.status}）`
+    try {
+      const data = (await response.json()) as { error?: { message?: string } }
+      message = data.error?.message ?? message
+    } catch {
+      /* 非 JSON 错误体 */
+    }
+    throw new Error(message)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let answerText = ''
+  let meta: ChatStreamMeta | null = null
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const blocks = buffer.split('\n\n')
+    buffer = blocks.pop() ?? ''
+
+    for (const block of blocks) {
+      let event = 'message'
+      const dataLines: string[] = []
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+      }
+      if (dataLines.length === 0) continue
+
+      const data = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
+
+      if (event === 'thinking') {
+        const line = String(data.text ?? '')
+        if (!line) continue
+        if (msg.thinking) msg.thinking += '\n'
+        await typeAppend(msg, 'thinking', line)
+        await scrollToBottom()
+      } else if (event === 'answer') {
+        answerText = String(data.text ?? '')
+        msg.loading = false
+      } else if (event === 'meta') {
+        meta = data as ChatStreamMeta
+      } else if (event === 'error') {
+        throw new Error(String(data.message ?? '回答失败'))
+      }
+    }
+  }
+
+  msg.content = ''
+  await typeAppend(msg, 'content', answerText)
+
+  if (meta) {
+    msg.citations = meta.citations
+    msg.missing = meta.missing
+    msg.degraded = meta.degraded ?? false
+    msg.general = meta.general ?? false
+    const wasMock = embeddingMock.value
+    embeddingMock.value = meta.embeddingMock ?? false
+    if (wasMock && !embeddingMock.value) void pollReembedStatus()
+  }
+}
+
 const askAI = async (text: string, sid: string) => {
   messages.value.push({ id: uid(), role: 'assistant', content: '', loading: true })
   // 必须取回数组里的响应式代理再改属性：直接改 push 进去的原始对象不会触发视图更新，
@@ -867,19 +985,7 @@ const askAI = async (text: string, sid: string) => {
   await scrollToBottom()
 
   try {
-    const answer = await apiPost<ChatAnswer>('/api/chat', { message: text, sessionId: sid }, 90_000)
-    placeholder.loading = false
-    placeholder.content = answer.reply
-    placeholder.citations = answer.citations
-    placeholder.missing = answer.missing
-    placeholder.degraded = answer.degraded
-    placeholder.general = answer.general
-    // Embedding 降级状态：从 true → false 时触发重嵌状态轮询
-    const wasMock = embeddingMock.value
-    embeddingMock.value = answer.embeddingMock ?? false
-    if (wasMock && !embeddingMock.value) {
-      pollReembedStatus()
-    }
+    await streamAnswer(text, sid, placeholder)
   } catch (error) {
     placeholder.loading = false
     placeholder.error = friendlyError(error)
@@ -1419,6 +1525,22 @@ const restorePendingDraft = async () => {
   background-color: #94a3b8;
   animation: bounce 1.1s infinite ease-in-out;
   display: inline-block;
+}
+
+.thinking-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  animation: thinking-blink 1s steps(2, start) infinite;
+}
+
+@keyframes thinking-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 @keyframes bounce {
