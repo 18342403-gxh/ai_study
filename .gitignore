@@ -19,6 +19,18 @@ apps/*/.env
 apps/*/.env.local
 apps/*/.env.*.local
 
+# 密钥与证书文件（禁止提交）
+*.pem
+*.key
+*.p12
+*.pfx
+*.bundle
+*.keystore
+
+# AI 工具目录与个人配置（项目外，不提交）
+.trae/
+.trae-configs/
+
 # 日志
 *.log
 npm-debug.log*

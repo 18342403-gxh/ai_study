@@ -67,7 +67,10 @@ export const ensureAdmin = async (): Promise<void> => {
   if (rows[0]) return
 
   const username = process.env.ADMIN_USERNAME || 'admin'
-  const password = process.env.ADMIN_PASSWORD || 'admin129'
+  const password = process.env.ADMIN_PASSWORD
+  if (!password) {
+    throw new Error('首次创建超管必须设置 ADMIN_PASSWORD 环境变量，已禁止使用默认弱口令')
+  }
   const passwordHash = await hashPassword(password)
   const now = new Date()
 

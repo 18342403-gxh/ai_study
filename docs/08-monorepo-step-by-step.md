@@ -26,13 +26,13 @@
 
 ## Step 1. 为什么是 pnpm workspace（而不是 npm/yarn/turbo/nx）
 
-| 方案 | workspace 内联包 | 幽灵依赖防护 | 安装速度 | 学习曲线 |
-|---|---|---|---|---|
-| **pnpm workspace** | ✅ 原生 `workspace:*` 协议，symlink 直连源码 | ✅ 严格（内容可寻址 store） | ⚡ | 低（1 个 yaml + `--filter`） |
-| npm workspaces | ⚠️ 无协议，靠相对路径 + 手动 `npm link` | ❌ | 🐢 | 中 |
-| yarn berry PnP | ✅ | ✅ | ⚡ | 高（编辑器兼容坑多） |
-| Turborepo | 跑在 pnpm/npm 之上（任务编排，不是 workspace 替代品） | — | 🌪 | 中 |
-| Nx | 同上，大而全（图缓存 + 生成器） | — | 🌪 | 高 |
+| 方案               | workspace 内联包                                      | 幽灵依赖防护                | 安装速度 | 学习曲线                     |
+| ------------------ | ----------------------------------------------------- | --------------------------- | -------- | ---------------------------- |
+| **pnpm workspace** | ✅ 原生 `workspace:*` 协议，symlink 直连源码          | ✅ 严格（内容可寻址 store） | ⚡       | 低（1 个 yaml + `--filter`） |
+| npm workspaces     | ⚠️ 无协议，靠相对路径 + 手动 `npm link`               | ❌                          | 🐢       | 中                           |
+| yarn berry PnP     | ✅                                                    | ✅                          | ⚡       | 高（编辑器兼容坑多）         |
+| Turborepo          | 跑在 pnpm/npm 之上（任务编排，不是 workspace 替代品） | —                           | 🌪       | 中                           |
+| Nx                 | 同上，大而全（图缓存 + 生成器）                       | —                           | 🌪       | 高                           |
 
 **结论**：pnpm 是 monorepo 的「最小完备」方案 —— 本身就是 workspace 管理器 + 极快的依赖安装。Turborepo/Nx 都是「任务加速层」，等你有 5+ 个包、CI 构建慢的时候再加不迟。
 
@@ -41,6 +41,7 @@
 ## Step 2. 环境准备：Node 与 pnpm 版本对齐
 
 ⚠️ **常见踩坑**：`npx pnpm` 默认下载最新版，而最新 pnpm 11 要求 **Node ≥22.13**，如果你是 Node 16/18/20 会直接报错：
+
 ```
 ERROR: This version of pnpm requires at least Node.js v22.13
 ```
@@ -57,6 +58,7 @@ npx pnpm@9 --version   # 期望 9.x
 ```
 
 然后在**根 `package.json`** 里锁定 packageManager，让团队/CI 版本一致：
+
 ```json
 {
   "name": "ai-study-monorepo",
@@ -64,6 +66,7 @@ npx pnpm@9 --version   # 期望 9.x
   "packageManager": "pnpm@9.15.9"
 }
 ```
+
 > `private: true` 是 monorepo 根的硬性要求，代表这个根包不发布到 npm，否则 pnpm 会警告。
 
 ---
@@ -71,13 +74,15 @@ npx pnpm@9 --version   # 期望 9.x
 ## Step 3. 声明 workspace 范围：`pnpm-workspace.yaml`
 
 在项目根创建这个文件（**文件名必须一字不差，pnpm 只认它**）：
+
 ```yaml
 packages:
-  - 'apps/*'        # 所有应用（前端、后端、桌面端…）
-  - 'packages/*'    # 所有公共包（types、utils、ui-kit…）
+  - 'apps/*' # 所有应用（前端、后端、桌面端…）
+  - 'packages/*' # 所有公共包（types、utils、ui-kit…）
 ```
 
 ### 🔑 知识点：什么会被算作「workspace 内的包」？
+
 只要 `apps/*/package.json` 和 `packages/*/package.json` 存在，pnpm 就会把它们纳入 workspace。**子包之间相互引用时必须用同一个 scope 命名**，推荐 `@<项目名>/<包名>` 风格，一眼能看出内部依赖：
 
 ```
@@ -90,10 +95,13 @@ packages:
 > 💡 命名规范：应用放 `apps/`（通常是可独立 build + run 的成品），共享库放 `packages/`（通常是被 apps `import` 的 library，不直接对外部署）。
 
 验证 workspace 识别：
+
 ```bash
 npx pnpm@9 m ls --depth -1
 ```
+
 期望输出：
+
 ```
 ai-study-monorepo@0.0.1 D:\project\ai_study (PRIVATE)
 @ai-study/server@1.0.0 D:\project\ai_study\apps\server (PRIVATE)
@@ -101,6 +109,7 @@ ai-study-monorepo@0.0.1 D:\project\ai_study (PRIVATE)
 @ai-study/web-vue@0.0.1 D:\project\ai_study\apps\web-vue (PRIVATE)
 @ai-study/shared@0.0.1 D:\project\ai_study\packages\shared
 ```
+
 **看到 `(PRIVATE)` 或者不是 error，就说明 workspace 已经把所有包认出来了。**
 
 ---
@@ -147,10 +156,13 @@ Move-Item -Path src, index.html, vite.config.ts, tsconfig.json, postcss.config.j
 ```
 
 ### 🔑 知识点：`workspace:*` 协议
+
 ```json
 "@ai-study/shared": "workspace:*"
 ```
+
 这是 pnpm workspace 的**灵魂语法**：
+
 - pnpm 安装时，不会去 npm 拉 `@ai-study/shared`，而是在本地 workspace 里找同名包。
 - 安装后，`apps/web-react/node_modules/@ai-study/shared` 是一个 **symlink（符号链接）**，直接指向 `packages/shared` 目录。
 - ⚡ 这意味着：你改 `packages/shared/src/xxx.ts`，React / Vue / Server **不需要重新安装依赖**，热更新直接生效。
@@ -201,7 +213,7 @@ packages/shared/
   "files": ["dist"],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
-    "dev":   "tsup src/index.ts --format cjs,esm --dts --watch",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -212,45 +224,52 @@ packages/shared/
 ```
 
 ### 🔑 知识点：`exports` 字段 —— 现代 npm 包的「双入口 + 类型」
-- `import`  → Node 14+ / Vite / Webpack 5 的 ESM 入口
+
+- `import` → Node 14+ / Vite / Webpack 5 的 ESM 入口
 - `require` → 老 Node 项目 / Jest 默认 / CJS 入口
-- `types`   → TypeScript 类型查找入口（比 `@types/*` 更规范，类型跟随主包一起发布）
+- `types` → TypeScript 类型查找入口（比 `@types/*` 更规范，类型跟随主包一起发布）
 
 三者同时提供，叫 **dual publish**（ESM + CJS 双通道），保证你的共享包无论被哪类项目 import 都能跑。
 
 ### 5.3 类型与常量示例
 
 **`types/chat.ts`**：
+
 ```ts
 export interface ChatMessage {
-  id: string;
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-  createdAt?: number;
+  id: string
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  createdAt?: number
 }
-export interface SSEChunk { event?: string; data: string; }
+export interface SSEChunk {
+  event?: string
+  data: string
+}
 ```
 
 **`constants/api.ts`**：
+
 ```ts
 export const API_BASE_URL =
-  (typeof window !== 'undefined' && window.location?.hostname)
+  typeof window !== 'undefined' && window.location?.hostname
     ? `http://${window.location.hostname}:3000`
-    : 'http://127.0.0.1:3000';
+    : 'http://127.0.0.1:3000'
 
 export const API_ENDPOINTS = {
   CHAT: '/api/chat',
   CHAT_STREAM: '/api/chat/stream',
   DOCUMENTS: '/api/documents',
-} as const;
+} as const
 ```
 
 **`index.ts` 统一 re-export**：
+
 ```ts
-export * from './types/chat';
-export * from './types/document';
-export * from './types/knowledge-base';
-export * from './constants/api';
+export * from './types/chat'
+export * from './types/document'
+export * from './types/knowledge-base'
+export * from './constants/api'
 ```
 
 ---
@@ -273,16 +292,16 @@ export * from './constants/api';
   },
   "dependencies": {
     "@ai-study/shared": "workspace:*",
-    "pinia": "^2.1.7",          // Vue3 官方状态管理（Vuex 替代）
+    "pinia": "^2.1.7", // Vue3 官方状态管理（Vuex 替代）
     "vue": "^3.4.31",
-    "vue-router": "^4.4.0"      // Vue Router v4
+    "vue-router": "^4.4.0" // Vue Router v4
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.5",
     "tailwindcss": "3.4.10",
     "typescript": "^5.5.3",
     "vite": "^5.4.0",
-    "vue-tsc": "^2.0.24"        // Vue 专用 TS 检查器（必须）
+    "vue-tsc": "^2.0.24" // Vue 专用 TS 检查器（必须）
   }
 }
 ```
@@ -311,6 +330,7 @@ apps/web-vue/
 ### 6.3 Vue3 代码示例（和 React 对应）
 
 **`main.ts` 入口**：
+
 ```ts
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
@@ -319,50 +339,67 @@ import router from './router'
 import './style.css'
 
 const app = createApp(App)
-app.use(createPinia())   // 对应 React 端的 <Provider store={store}>
-app.use(router)          // 对应 React 端的 <BrowserRouter>
-app.mount('#app')        // 对应 React 端的 createRoot().render()
+app.use(createPinia()) // 对应 React 端的 <Provider store={store}>
+app.use(router) // 对应 React 端的 <BrowserRouter>
+app.mount('#app') // 对应 React 端的 createRoot().render()
 ```
 
 **`router/index.ts`**：
+
 ```ts
-import { createRouter, createWebHashHistory } from 'vue-router';
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 const routes = [
-  { path: '/',  name: 'Home',            component: () => import('@/views/Home.vue') },
-  { path: '/m1', name: 'Module1', meta: { title: '模块1' }, component: () => import('@/views/ModulePlaceholder.vue') },
+  { path: '/', name: 'Home', component: () => import('@/views/Home.vue') },
+  {
+    path: '/m1',
+    name: 'Module1',
+    meta: { title: '模块1' },
+    component: () => import('@/views/ModulePlaceholder.vue'),
+  },
   // ... m2~m7 同理
-];
+]
 
 const router = createRouter({
-  history: createWebHashHistory(),  // 对应 React Router 的 HashRouter（兼容性最好，不需要服务器重写）
+  history: createWebHashHistory(), // 对应 React Router 的 HashRouter（兼容性最好，不需要服务器重写）
   routes,
-});
+})
 
 router.beforeEach((to, _from, next) => {
-  if (to.meta?.title) document.title = to.meta.title as string;
-  next();
-});
+  if (to.meta?.title) document.title = to.meta.title as string
+  next()
+})
 
-export default router;
+export default router
 ```
 
 **`views/Home.vue`**（`<script setup lang="ts">` 是 Vue3 推荐的语法糖，写起来和 React FC 体感几乎一样）：
+
 ```vue
 <script setup lang="ts">
-import { RouterLink } from 'vue-router';
+import { RouterLink } from 'vue-router'
 
 const modules = [
-  { id: 'm1', title: '模块1 · AI API 基础', desc: '大模型 API 调用入门', tag: 'LLM API', path: '/m1' },
+  {
+    id: 'm1',
+    title: '模块1 · AI API 基础',
+    desc: '大模型 API 调用入门',
+    tag: 'LLM API',
+    path: '/m1',
+  },
   // ...
-];
+]
 </script>
 
 <template>
-  <main class="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white">
+  <main
+    class="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white"
+  >
     <section class="mx-auto max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-4">
       <RouterLink
-        v-for="m in modules" :key="m.id" :to="m.path"
+        v-for="m in modules"
+        :key="m.id"
+        :to="m.path"
         class="rounded-2xl border border-white/10 bg-white/5 p-5 hover:border-indigo-400/50 transition-all"
       >
         <h3 class="text-lg font-semibold mb-1.5">{{ m.title }}</h3>
@@ -386,16 +423,16 @@ const modules = [
   "version": "0.0.1",
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "dev":         "pnpm --parallel --filter @ai-study/server --filter @ai-study/web-react dev",
-    "dev:react":   "pnpm --filter @ai-study/web-react dev",
-    "dev:vue":     "pnpm --filter @ai-study/web-vue dev",
-    "dev:server":  "pnpm --filter @ai-study/server dev",
-    "dev:all":     "pnpm --parallel --filter @ai-study/server --filter @ai-study/web-react --filter @ai-study/web-vue dev",
-    "build":       "pnpm -r --filter @ai-study/shared --filter @ai-study/web-react --filter @ai-study/web-vue --filter @ai-study/server build",
-    "build:vue":   "pnpm --filter @ai-study/web-vue build",
-    "typecheck":   "pnpm -r typecheck",
-    "lint":        "eslint \"{apps,packages}/**/*.{ts,tsx,vue}\"",
-    "format":      "prettier --write \"{apps,packages}/**/*.{ts,tsx,vue,md,json}\""
+    "dev": "pnpm --parallel --filter @ai-study/server --filter @ai-study/web-react dev",
+    "dev:react": "pnpm --filter @ai-study/web-react dev",
+    "dev:vue": "pnpm --filter @ai-study/web-vue dev",
+    "dev:server": "pnpm --filter @ai-study/server dev",
+    "dev:all": "pnpm --parallel --filter @ai-study/server --filter @ai-study/web-react --filter @ai-study/web-vue dev",
+    "build": "pnpm -r --filter @ai-study/shared --filter @ai-study/web-react --filter @ai-study/web-vue --filter @ai-study/server build",
+    "build:vue": "pnpm --filter @ai-study/web-vue build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint \"{apps,packages}/**/*.{ts,tsx,vue}\"",
+    "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,vue,md,json}\""
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
@@ -407,11 +444,11 @@ const modules = [
 
 ### 🔑 知识点：3 个 pnpm 指令必须背熟
 
-| 指令 | 作用 | 示例 |
-|---|---|---|
-| `--filter <包名>` | 只对指定包执行 | `pnpm --filter @ai-study/web-vue dev` → 只启动 Vue |
-| `--parallel` | 多个包同时跑（dev 时使用，不会互相等） | `pnpm --parallel --filter A --filter B dev` |
-| `-r / --recursive` | 对所有匹配的包依次跑（build/typecheck 常用，按依赖顺序） | `pnpm -r typecheck` → 每个子包跑 typecheck |
+| 指令               | 作用                                                     | 示例                                               |
+| ------------------ | -------------------------------------------------------- | -------------------------------------------------- |
+| `--filter <包名>`  | 只对指定包执行                                           | `pnpm --filter @ai-study/web-vue dev` → 只启动 Vue |
+| `--parallel`       | 多个包同时跑（dev 时使用，不会互相等）                   | `pnpm --parallel --filter A --filter B dev`        |
+| `-r / --recursive` | 对所有匹配的包依次跑（build/typecheck 常用，按依赖顺序） | `pnpm -r typecheck` → 每个子包跑 typecheck         |
 
 > 💡 端口提前规划好，避免 `dev:all` 冲突：React 5173 · Vue 5174 · Server 3001。这样三端可以同时跑在一台机器上。
 
@@ -442,7 +479,7 @@ tsconfig.base.json  （公共）
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@ai-study/shared":  ["packages/shared/src/index.ts"],
+      "@ai-study/shared": ["packages/shared/src/index.ts"],
       "@ai-study/shared/*": ["packages/shared/src/*"]
     }
   }
@@ -461,8 +498,8 @@ tsconfig.base.json  （公共）
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@/*":               ["src/*"],
-      "@ai-study/shared":  ["../../packages/shared/src/index.ts"],
+      "@/*": ["src/*"],
+      "@ai-study/shared": ["../../packages/shared/src/index.ts"],
       "@ai-study/shared/*": ["../../packages/shared/src/*"]
     }
   },
@@ -473,31 +510,39 @@ tsconfig.base.json  （公共）
 ### ⚠️ 两大常见踩坑 & 解决方案
 
 #### ❌ 踩坑 A：TS Project References（`references` 字段）强制 build 顺序
+
 很多教程会让你在子项目 tsconfig 写：
+
 ```json
 "references": [{ "path": "../../packages/shared" }]
 ```
+
 后果：**你必须先 `tsc -b packages/shared`（把公共包 build 成 `.d.ts` + `.tsbuildinfo`），否则子项目 `tsc --noEmit` 直接报 `TS6306 Referenced project must have setting "composite": true`。** 开发体验极差，改一行 shared 的 type 都要重新 build。
 
 ✅ **正确做法（小到中型 monorepo 推荐）**：**去掉 `references`，只用 `paths` 直连源码。**
+
 ```json
 "paths": {
   "@ai-study/shared": ["../../packages/shared/src/index.ts"]
 }
 ```
+
 这样子项目的 tsc / vue-tsc 直接读共享包的 **`.ts 源码`**，shared 改完 typecheck 立刻生效，不用额外 build 步骤。
 
 > 📌 什么时候真的需要 Project References？当你有 15+ 个包、TS 类型检查慢到几十秒时，用它可以做增量编译缓存。现在 4~5 个包完全没必要。
 
 #### ❌ 踩坑 B：配置文件（vite.config.ts / tailwind.config.js）IDE 爆红
+
 原因：`include` 默认只写了 `"src"`，配置文件没被 tsconfig 纳入，VSCode 打开 `vite.config.ts` 时 TS Server 找不到项目上下文 → 对 `node:path`、`defineConfig` 标红。
 
 ✅ 修复：把它们也加入 include：
+
 ```json
 "include": ["src", "vite.config.ts", "tailwind.config.js", "postcss.config.js"]
 ```
 
 ### 8.3 ⭐ 根再补一个 tsconfig.json：VSCode 工作区入口
+
 ```json
 {
   "files": [],
@@ -510,6 +555,7 @@ tsconfig.base.json  （公共）
   ]
 }
 ```
+
 **🔑 知识点**：VSCode 的 TypeScript Server 在打开整个仓库时，会找**顶层的 tsconfig.json**。如果根目录没有（我们在单体→monorepo 迁移时把旧单体的 tsconfig 删掉了），VSCode 就会对不在任何子项目 include 范围内的文件报各种「假红」。
 
 这个 `"files": []` 表示它本身不编译任何文件，只做一个「调度器」角色，通过 `references` 告诉 TS Server「整个工作区由这些子项目组成」。保存后重启 TS Server（Ctrl+Shift+P → Restart TS Server），全项目假红会大面积消失。
@@ -521,16 +567,17 @@ tsconfig.base.json  （公共）
 **只配 tsconfig paths 是不够的** —— tsc 和 IDE 认别名，但 **Vite 打包时根本不读 tsconfig.json**，所以两边必须各写一份，路径保持一致：
 
 ### React 端 vite.config.ts：
+
 ```ts
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'node:path'   // 🔑 知识点：Node 16+ 推荐加 'node:' 前缀区分内置模块
+import path from 'node:path' // 🔑 知识点：Node 16+ 推荐加 'node:' 前缀区分内置模块
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@':              path.resolve(__dirname, './src'),
+      '@': path.resolve(__dirname, './src'),
       '@ai-study/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
@@ -538,6 +585,7 @@ export default defineConfig({
 ```
 
 ### Vue 端 vite.config.ts 同理：
+
 ```ts
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -547,7 +595,7 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@':              path.resolve(__dirname, './src'),
+      '@': path.resolve(__dirname, './src'),
       '@ai-study/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
@@ -566,15 +614,18 @@ npx pnpm@9 install
 ```
 
 这一步会：
+
 1. 分析 5 个 `package.json`（root + 4 子包），把依赖放到**同一个内容可寻址 store**；
 2. 生成一个**根级锁文件** `pnpm-lock.yaml`（只有一个！这是 monorepo 的关键特性 —— 所有包版本一致性天然保证，不会出现各 app 各有一个 `package-lock.json` 互相打架）；
 3. 对内部依赖 `@ai-study/shared`，创建 symlink 指向 `packages/shared`；
 4. 对 better-sqlite3 / esbuild 等「原生二进制依赖」，自动根据当前平台（win32-x64 / darwin-arm64 等）下载正确的 prebuilt 二进制。
 
 ### ⚠️ Windows 常见报错 & 处理
+
 ```
-TRAE Sandbox Error: hit restricted Not allow operate files: C:\Users\WIndows\AppData\Local\pnpm-cache
+TRAE Sandbox Error: hit restricted Not allow operate files: C:\Users\<用户名>\AppData\Local\pnpm-cache
 ```
+
 这是沙箱/企业代理工具对缓存目录写权限限制，**不影响 pnpm install 结果**（你会看到上面已经打印 `Done in 17.3s using pnpm v9.15.9`）。真实项目正常本机开发不会有这个问题。
 
 ---
@@ -582,45 +633,52 @@ TRAE Sandbox Error: hit restricted Not allow operate files: C:\Users\WIndows\App
 ## Step 11. 迁移后的常见 TS 错误修复（3 个高频）
 
 ### 🐛 错误 1：`TS7016 Could not find a declaration file for module 'pdf-parse'`
+
 原因：有些老 npm 包（比如 `pdf-parse`）是纯 JS，既不在包里带 `.d.ts`，也没有 `@types/pdf-parse` 可用。
 
 ✅ 修复：为它写一个「项目内声明文件」—— `apps/server/src/types/declarations.d.ts`：
+
 ```ts
 declare module 'pdf-parse' {
   interface PdfParseResult {
-    text: string;
-    numpages: number;
-    numrender: number;
-    info: unknown;
-    metadata: unknown;
-    version: string;
+    text: string
+    numpages: number
+    numrender: number
+    info: unknown
+    metadata: unknown
+    version: string
   }
-  function pdfParse(dataBuffer: Buffer | ArrayBuffer, options?: unknown): Promise<PdfParseResult>;
-  export default pdfParse;
+  function pdfParse(dataBuffer: Buffer | ArrayBuffer, options?: unknown): Promise<PdfParseResult>
+  export default pdfParse
 }
 ```
+
 > 💡 小技巧：`.d.ts` 文件名随意，放在 server 的 tsconfig `include` 路径里就能自动被加载。里面 `declare module 'xxx'` 就是告诉 TS「这个模块长这样，别报错了」。
 
 ### 🐛 错误 2：`TS18046 'data' is of type 'unknown'`
+
 原因：Node 严格模式下 `await fetch().json()` 的返回类型是 `unknown`（TS 不知道服务端会回什么），直接 `.data[0].embedding` 会被拦住。
 
 ✅ 修复：显式做类型断言（type narrowing），别写 `as any`，把结构告诉 TS：
+
 ```ts
 const data = (await response.json()) as {
-  data: Array<{ embedding: number[] }>;
-};
-return data.data[0].embedding;
+  data: Array<{ embedding: number[] }>
+}
+return data.data[0].embedding
 ```
 
 ### 🐛 错误 3：`node:path` / `__dirname` 在 ESM 里的替换
+
 Server 端 tsconfig 如果用 `"module": "NodeNext"`（ESM），`__dirname` 这个 CommonJS 变量会报未定义。
 
 ✅ 修复：用标准 ESM 方式拿到当前目录：
-```ts
-import { fileURLToPath } from 'url';
-import path from 'node:path';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+```ts
+import { fileURLToPath } from 'url'
+import path from 'node:path'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // 然后就能继续 path.join(__dirname, '../../uploads') 了
 ```
 
@@ -629,7 +687,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 ## Step 12. 清理单体根目录遗留文件 + 最终验证
 
 ### 12.1 删除「已迁入 apps/」的根目录冗余文件
+
 迁移完成后，根目录应该**不再保留**下列文件（它们的新版本都在 `apps/web-react/` 或 `apps/server/` 里了）：
+
 ```
 src/                       → 已在 apps/web-react/src
 server/                    → 已在 apps/server
@@ -667,6 +727,7 @@ npx pnpm@9 dev:vue       # 期望：VITE v5.x ready → http://127.0.0.1:5174/
 ```
 
 全部通过后，用下面的命令整理 commit message（示例，可直接用）：
+
 ```
 feat: 改造为 pnpm monorepo，新增 Node BFF、Vue3 端和 shared 公共包
 
@@ -684,20 +745,20 @@ feat: 改造为 pnpm monorepo，新增 Node BFF、Vue3 端和 shared 公共包
 
 ## 🎓 12 个知识点速查表（章节索引）
 
-| # | 知识点 | 在哪一步 |
-|---|---|---|
-| 1 | **pnpm workspace 协议** vs npm/yarn/turbo/nx 选型 | Step 1 |
-| 2 | **`workspace:*`** 内部依赖 symlink 机制 & `packageManager` 版本锁 | Step 2 + Step 4 |
-| 3 | `pnpm-workspace.yaml` 范围 & 包命名规范 `@scope/name` | Step 3 |
-| 4 | **根脚本三剑客**：`--filter` / `--parallel` / `-r` 用法 | Step 7 |
-| 5 | **TS Project References vs paths 直连源码** —— 小中型项目推荐后者 | Step 8.2 |
-| 6 | **tsconfig 三层继承链**（base → 子项目） + VSCode 工作区入口 tsconfig | Step 8.1/8.3 |
-| 7 | **Vite `resolve.alias` 与 tsconfig `paths` 必须双侧对齐**（单侧只让 IDE 不红，打包会炸）| Step 9 |
-| 8 | `exports` 字段 **dual publish**（ESM + CJS + 类型三入口）+ tsup 构建 | Step 5.2 |
-| 9 | `node:` 前缀 & ESM 下 `__dirname` 替换为 `fileURLToPath(import.meta.url)` | Step 9 + Step 11 |
-| 10 | `.d.ts` 声明文件修复无类型老包 `declare module 'xxx' { }` | Step 11.1 |
-| 11 | `fetch().json()` 返回 `unknown` → 显式类型断言（避免 `as any`） | Step 11.2 |
-| 12 | 根 `pnpm-lock.yaml` 统一锁文件 & workspace 验证 Checklist | Step 10 + Step 12 |
+| #   | 知识点                                                                                   | 在哪一步          |
+| --- | ---------------------------------------------------------------------------------------- | ----------------- |
+| 1   | **pnpm workspace 协议** vs npm/yarn/turbo/nx 选型                                        | Step 1            |
+| 2   | **`workspace:*`** 内部依赖 symlink 机制 & `packageManager` 版本锁                        | Step 2 + Step 4   |
+| 3   | `pnpm-workspace.yaml` 范围 & 包命名规范 `@scope/name`                                    | Step 3            |
+| 4   | **根脚本三剑客**：`--filter` / `--parallel` / `-r` 用法                                  | Step 7            |
+| 5   | **TS Project References vs paths 直连源码** —— 小中型项目推荐后者                        | Step 8.2          |
+| 6   | **tsconfig 三层继承链**（base → 子项目） + VSCode 工作区入口 tsconfig                    | Step 8.1/8.3      |
+| 7   | **Vite `resolve.alias` 与 tsconfig `paths` 必须双侧对齐**（单侧只让 IDE 不红，打包会炸） | Step 9            |
+| 8   | `exports` 字段 **dual publish**（ESM + CJS + 类型三入口）+ tsup 构建                     | Step 5.2          |
+| 9   | `node:` 前缀 & ESM 下 `__dirname` 替换为 `fileURLToPath(import.meta.url)`                | Step 9 + Step 11  |
+| 10  | `.d.ts` 声明文件修复无类型老包 `declare module 'xxx' { }`                                | Step 11.1         |
+| 11  | `fetch().json()` 返回 `unknown` → 显式类型断言（避免 `as any`）                          | Step 11.2         |
+| 12  | 根 `pnpm-lock.yaml` 统一锁文件 & workspace 验证 Checklist                                | Step 10 + Step 12 |
 
 ---
 
